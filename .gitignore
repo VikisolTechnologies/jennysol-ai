@@ -6,8 +6,12 @@ build/
 
 # db + uploads
 server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
 server/data/uploads/*
 !server/data/uploads/.gitkeep
+
+*.tsbuildinfo
 
 .DS_Store
 *.log

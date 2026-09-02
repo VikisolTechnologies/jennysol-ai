@@ -10,7 +10,7 @@ jennysol-ai/
   client/   React + Vite + TypeScript + Tailwind — chat UI, document upload/list
   server/   Node + Express + TypeScript — REST API
     services/llm.ts          Claude client (chat completion, streaming)
-    services/embeddings.ts   Local embedding model (@xenova/transformers, no API key needed)
+    services/embeddings.ts   Local embedding model (@huggingface/transformers, no API key needed)
     services/chunker.ts      Splits uploaded documents into overlapping text chunks
     services/vectorStore.ts  SQLite-backed store; cosine similarity search over chunk embeddings
     routes/documents.ts      Upload, list, delete documents
@@ -42,7 +42,17 @@ npm install
 npm run dev              # http://localhost:5173
 ```
 
+## Known accepted risk
+
+`npm audit` in `server/` reports two "no fix available" advisories (`adm-zip`, `sharp`)
+nested inside `@huggingface/transformers`'s ONNX runtime dependency chain. Neither is
+reachable through any code path this app exercises (no ZIP or image input is ever
+processed) — tracked here rather than silently ignored, revisit before any deployment
+that changes that.
+
 ## Status
 
 v1 scaffold: document upload + chunking + local embeddings + vector search + Claude chat,
-with a basic chat/upload UI. Not yet deployed; local dev only.
+with a basic chat/upload UI. Built, typechecked, and smoke-tested locally (upload →
+chunk → embed → store → retrieve pipeline confirmed working end to end). Not yet
+deployed; local dev only. Chat requires `ANTHROPIC_API_KEY` to be set.
