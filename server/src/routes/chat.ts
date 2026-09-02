@@ -45,10 +45,16 @@ chatRouter.post("/", async (req, res) => {
     res.end();
   } catch (err) {
     console.error("Chat failed:", err);
+    const apiStatus = (err as { status?: number })?.status;
+    const message = !process.env.GEMINI_API_KEY
+      ? "The server's GEMINI_API_KEY is missing. Set it in server/.env and restart the server."
+      : apiStatus
+        ? `Chat request failed: ${(err as Error).message}`
+        : "Chat request failed";
     if (!res.headersSent) {
-      res.status(500).json({ error: "Chat request failed" });
+      res.status(500).json({ error: message });
     } else {
-      res.write(`data: ${JSON.stringify({ error: "Chat request failed" })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
       res.end();
     }
   }

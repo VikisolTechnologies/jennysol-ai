@@ -1,12 +1,15 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { geminiProvider } from "./providers/gemini.js";
+import type { ChatTurn, LlmProvider } from "./llmProvider.js";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
+export type { ChatTurn };
 
-export interface ChatTurn {
-  role: "user" | "assistant";
-  content: string;
-}
+// Swap in another LlmProvider implementation here (and via LLM_PROVIDER) to
+// change the model backing chat without touching routes/chat.ts.
+const providers: Record<string, LlmProvider> = {
+  gemini: geminiProvider,
+};
+
+const provider = providers[process.env.LLM_PROVIDER || "gemini"] ?? geminiProvider;
 
 export function buildSystemPrompt(contextChunks: string[]): string {
   if (contextChunks.length === 0) {
@@ -29,13 +32,5 @@ export async function streamChatCompletion(
   history: ChatTurn[],
   onDelta: (text: string) => void
 ): Promise<void> {
-  const stream = client.messages.stream({
-    model: MODEL,
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: history.map((h) => ({ role: h.role, content: h.content })),
-  });
-
-  stream.on("text", (delta) => onDelta(delta));
-  await stream.finalMessage();
+  await provider.streamChatCompletion(systemPrompt, history, onDelta);
 }

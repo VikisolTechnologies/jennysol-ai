@@ -1,8 +1,54 @@
+import typography from "@tailwindcss/typography";
+
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+      },
+      colors: {
+        brand: {
+          50: "#f2f0ff",
+          100: "#e6e2ff",
+          200: "#cfc6ff",
+          300: "#ac9bff",
+          400: "#8b6bff",
+          500: "#7645ff",
+          600: "#6425f5",
+          700: "#5619d1",
+          800: "#4717a8",
+          900: "#3c1786",
+          950: "#240a5c",
+        },
+      },
+      animation: {
+        "fade-in": "fade-in 0.35s ease-out",
+        "slide-up": "slide-up 0.35s cubic-bezier(0.16, 1, 0.3, 1)",
+        "pulse-dot": "pulse-dot 1.4s ease-in-out infinite",
+      },
+      keyframes: {
+        "fade-in": {
+          "0%": { opacity: 0 },
+          "100%": { opacity: 1 },
+        },
+        "slide-up": {
+          "0%": { opacity: 0, transform: "translateY(8px)" },
+          "100%": { opacity: 1, transform: "translateY(0)" },
+        },
+        "pulse-dot": {
+          "0%, 80%, 100%": { transform: "scale(0.6)", opacity: 0.4 },
+          "40%": { transform: "scale(1)", opacity: 1 },
+        },
+      },
+      backgroundImage: {
+        "brand-gradient": "linear-gradient(135deg, #7645ff 0%, #a855f7 50%, #ec4899 100%)",
+        "brand-gradient-soft": "linear-gradient(135deg, #7645ff15 0%, #a855f715 50%, #ec489915 100%)",
+      },
+    },
   },
-  plugins: [],
+  plugins: [typography],
 };
