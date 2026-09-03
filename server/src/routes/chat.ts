@@ -8,14 +8,18 @@ import {
   activeProviderMissingKey,
   type ChatTurn,
 } from "../services/llm.js";
+import {
+  addMessage,
+  conversationExists,
+  createConversation,
+  getConversationMessages,
+} from "../services/conversationStore.js";
 
 export const chatRouter = Router();
 
 const chatRequestSchema = z.object({
   message: z.string().min(1),
-  history: z
-    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() }))
-    .default([]),
+  conversationId: z.string().uuid().optional(),
 });
 
 chatRouter.post("/", async (req, res) => {
@@ -24,7 +28,19 @@ chatRouter.post("/", async (req, res) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const { message, history } = parsed.data;
+  const { message } = parsed.data;
+
+  // Conversation history lives server-side, keyed by conversationId, rather
+  // than trusting the client to resend the whole transcript every request —
+  // one source of truth, and the payload stays small on long conversations.
+  const conversationId =
+    parsed.data.conversationId && conversationExists(parsed.data.conversationId)
+      ? parsed.data.conversationId
+      : createConversation(message);
+  const history: ChatTurn[] = getConversationMessages(conversationId);
+  // Save the user's turn up front — if the LLM call below fails, the
+  // question is still in history for a retry instead of being lost.
+  addMessage(conversationId, "user", message);
 
   try {
     const queryEmbedding = await embed(message);
@@ -36,17 +52,18 @@ chatRouter.post("/", async (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    res.write(`data: ${JSON.stringify({ conversationId })}\n\n`);
 
+    let fullReply = "";
     await streamChatCompletion(systemPrompt, turns, (delta) => {
+      fullReply += delta;
       res.write(`data: ${JSON.stringify({ delta })}\n\n`);
     });
 
-    res.write(
-      `data: ${JSON.stringify({
-        done: true,
-        sources: matches.map((m) => ({ documentId: m.documentId, text: m.text.slice(0, 160) })),
-      })}\n\n`
-    );
+    const sources = matches.map((m) => ({ documentId: m.documentId, text: m.text.slice(0, 160) }));
+    addMessage(conversationId, "assistant", fullReply, sources);
+
+    res.write(`data: ${JSON.stringify({ done: true, sources })}\n\n`);
     res.end();
   } catch (err) {
     console.error("Chat failed:", err);

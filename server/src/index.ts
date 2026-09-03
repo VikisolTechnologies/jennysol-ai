@@ -4,6 +4,7 @@ import cors from "cors";
 import path from "node:path";
 import fs from "node:fs";
 import { chatRouter } from "./routes/chat.js";
+import { conversationsRouter } from "./routes/conversations.js";
 import { documentsRouter } from "./routes/documents.js";
 import { imageRouter } from "./routes/image.js";
 import { speechRouter } from "./routes/speech.js";
@@ -24,6 +25,7 @@ app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 app.use("/api/chat", chatRouter);
+app.use("/api/conversations", conversationsRouter);
 app.use("/api/documents", documentsRouter);
 app.use("/api/image", imageRouter);
 app.use("/api/speech", speechRouter);

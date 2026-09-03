@@ -55,6 +55,9 @@ export function MessageBubble({
           ) : content ? (
             <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none prose-p:my-1.5 prose-pre:my-2 prose-pre:bg-neutral-900 prose-pre:text-neutral-100 prose-code:before:content-none prose-code:after:content-none">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              {streaming && (
+                <span className="ml-0.5 inline-block h-[1em] w-[0.5em] translate-y-[0.15em] animate-pulse bg-current align-middle" />
+              )}
             </div>
           ) : (
             <span className="flex gap-1 py-1">

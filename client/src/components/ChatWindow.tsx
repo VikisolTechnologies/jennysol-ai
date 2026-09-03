@@ -14,7 +14,14 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import { generateImage, sendChatMessage, type ChatTurn, type GeneratedImage, type Source } from "../lib/api";
+import {
+  fetchConversationMessages,
+  generateImage,
+  sendChatMessage,
+  type ChatTurn,
+  type GeneratedImage,
+  type Source,
+} from "../lib/api";
 import { MessageBubble } from "./MessageBubble";
 import { VoicePicker } from "./VoicePicker";
 import { useTheme } from "../lib/useTheme";
@@ -35,7 +42,15 @@ const SUGGESTIONS = [
   "Explain this in simple terms",
 ];
 
-export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
+export function ChatWindow({
+  onOpenSidebar,
+  conversationId,
+  onConversationChange,
+}: {
+  onOpenSidebar: () => void;
+  conversationId: string | null;
+  onConversationChange: (id: string) => void;
+}) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -45,6 +60,21 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { theme, toggleTheme } = useTheme();
+
+  // Tracks which conversation `messages` currently reflects, so the
+  // load-on-switch effect below can tell "the sidebar picked a different
+  // chat" (needs a fetch) apart from "we just created this chat ourselves
+  // mid-send" (already have the messages, fetching again would be wasted
+  // and could race the in-flight stream).
+  const loadedIdRef = useRef<string | null>(null);
+
+  // Bumped whenever the visible conversation changes (switch or New chat) or
+  // a fresh send starts. An in-flight request's callbacks compare their
+  // captured value against this before touching `messages` — if the user
+  // has since navigated away (e.g. clicked New chat mid-stream), the old
+  // request's late-arriving deltas become no-ops instead of corrupting
+  // whatever's now on screen (or crashing on an emptied array).
+  const generationRef = useRef(0);
 
   function setVoice(v: VoiceId) {
     setVoiceState(v);
@@ -62,6 +92,20 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   // regardless of the spokenReplies toggle, since a spoken question implies
   // a spoken answer.
   const voiceConv = useVoiceConversation((transcript) => handleSend(transcript, true));
+
+  useEffect(() => {
+    if (conversationId === loadedIdRef.current) return;
+    loadedIdRef.current = conversationId;
+    generationRef.current++;
+    setSending(false); // any in-flight request now belongs to a generation nothing here cares about
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
+    fetchConversationMessages(conversationId)
+      .then((msgs) => setMessages(msgs))
+      .catch(() => setMessages([]));
+  }, [conversationId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -83,6 +127,7 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   }
 
   async function handleSendImage(prompt: string) {
+    const myGeneration = generationRef.current;
     setMessages((prev) => [
       ...prev,
       { role: "user", content: prompt },
@@ -94,12 +139,14 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
 
     try {
       const image = await generateImage(prompt);
+      if (generationRef.current !== myGeneration) return;
       setMessages((prev) => {
         const copy = [...prev];
         copy[copy.length - 1] = { role: "assistant", content: prompt, image };
         return copy;
       });
     } catch (err) {
+      if (generationRef.current !== myGeneration) return;
       setMessages((prev) => {
         const copy = [...prev];
         copy[copy.length - 1] = {
@@ -109,7 +156,7 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
         return copy;
       });
     } finally {
-      setSending(false);
+      if (generationRef.current === myGeneration) setSending(false);
     }
   }
 
@@ -117,9 +164,7 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     if (!text || sending) return;
     if (imageMode) return handleSendImage(text);
 
-    const history = messages
-      .filter((m) => !m.image && !m.imageLoading)
-      .map(({ role, content }) => ({ role, content }));
+    const myGeneration = generationRef.current;
     setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setInput("");
     requestAnimationFrame(autoResize);
@@ -130,8 +175,16 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     try {
       await sendChatMessage(
         text,
-        history,
+        loadedIdRef.current,
+        (id) => {
+          if (generationRef.current !== myGeneration) return;
+          if (loadedIdRef.current !== id) {
+            loadedIdRef.current = id;
+            onConversationChange(id);
+          }
+        },
         (delta) => {
+          if (generationRef.current !== myGeneration) return;
           fullText += delta;
           setMessages((prev) => {
             const copy = [...prev];
@@ -143,6 +196,7 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           });
         },
         (sources) => {
+          if (generationRef.current !== myGeneration) return;
           setSending(false);
           setMessages((prev) => {
             const copy = [...prev];
@@ -156,6 +210,7 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
         }
       );
     } catch (err) {
+      if (generationRef.current !== myGeneration) return;
       setSending(false);
       setMessages((prev) => {
         const copy = [...prev];

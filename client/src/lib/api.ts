@@ -13,16 +13,21 @@ export interface Source {
 // and backend are deployed separately (e.g. client on Vercel, API on Railway).
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
+// History lives server-side keyed by conversationId — the client no longer
+// resends the whole transcript on every message, just which conversation
+// this belongs to (undefined/null starts a new one, id returned via
+// onConversationId).
 export async function sendChatMessage(
   message: string,
-  history: ChatTurn[],
+  conversationId: string | null,
+  onConversationId: (id: string) => void,
   onDelta: (text: string) => void,
   onDone: (sources: Source[]) => void
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, conversationId: conversationId ?? undefined }),
   });
 
   if (!res.ok) {
@@ -51,10 +56,34 @@ export async function sendChatMessage(
       if (!line.startsWith("data: ")) continue;
       const payload = JSON.parse(line.slice(6));
       if (payload.error) throw new Error(payload.error);
+      if (payload.conversationId) onConversationId(payload.conversationId);
       if (payload.delta) onDelta(payload.delta);
       if (payload.done) onDone(payload.sources ?? []);
     }
   }
+}
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
+
+export async function fetchConversations(): Promise<ConversationSummary[]> {
+  const res = await fetch(`${API_BASE}/api/conversations`);
+  const data = await res.json();
+  return data.conversations;
+}
+
+export async function fetchConversationMessages(id: string): Promise<(ChatTurn & { sources?: Source[] })[]> {
+  const res = await fetch(`${API_BASE}/api/conversations/${id}`);
+  if (!res.ok) throw new Error(`Failed to load conversation (${res.status})`);
+  const data = await res.json();
+  return data.messages;
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  await fetch(`${API_BASE}/api/conversations/${id}`, { method: "DELETE" });
 }
 
 export interface DocumentInfo {

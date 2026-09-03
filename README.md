@@ -1,11 +1,11 @@
 # Jennysol AI
 
-Jennysol AI is a retrieval-augmented (RAG) chat assistant: upload documents, then chat
-with an AI that answers using those documents as grounded context. Also does image
-generation and a full hands-free voice conversation mode — say "Hey Jenny" once, then just
-talk, with pause/resume/end controls and a choice of 30 natural Gemini voices (or the
-free instant browser voice). Chat provider is swappable — Gemini, DeepSeek, or a local
-Ollama model today.
+Jennysol AI is a conversational assistant with persistent chat history (multiple
+conversations, switch between them, like any other AI chat app), optionally grounded in
+documents you upload. Also does image generation and a full hands-free voice conversation
+mode — say "Hey Jenny" once, then just talk, with pause/resume/end controls and a choice
+of 30 natural Gemini voices (or the free instant browser voice). Chat provider is
+swappable — Gemini, DeepSeek, or a local Ollama model today.
 
 ## Architecture (v1)
 
@@ -29,12 +29,23 @@ jennysol-ai/
     services/embeddings.ts            Local embedding model (@huggingface/transformers, no API key needed)
     services/chunker.ts               Splits uploaded documents into overlapping text chunks
     services/vectorStore.ts           SQLite-backed store; cosine similarity search over chunk embeddings
+    services/conversationStore.ts     Conversations + messages persistence (SQLite)
     routes/documents.ts                Upload, list, delete documents
     routes/chat.ts                     RAG query: embed question -> retrieve top chunks -> ask the LLM provider
+    routes/conversations.ts            List conversations, fetch/delete one with its messages
     routes/image.ts                    Image generation request -> Gemini image model -> base64 image
     routes/speech.ts                   Text -> chosen Gemini voice -> base64 WAV
     db/                                better-sqlite3 database (jennysol.db, gitignored)
 ```
+
+**Chat history** is server-authoritative, not client-tracked: the client sends just the
+new message plus a `conversationId` (omitted for a brand-new chat — the server creates one,
+lazily, only once a first message actually arrives, so clicking "New chat" and never typing
+anything doesn't litter the sidebar with empty threads); the server loads that
+conversation's prior turns from SQLite itself rather than trusting a resent transcript, and
+persists both sides of each exchange. The sidebar's "Chats" list is the primary surface now
+(matches how every other AI chat app is laid out); Documents is a collapsed, secondary
+section underneath it, not the first thing you see.
 
 Speech *recognition* (listening) is entirely browser-native (Web Speech API) — no backend,
 no API key. Works in Chrome/Edge/Safari; Firefox has no `SpeechRecognition` implementation,
@@ -169,23 +180,37 @@ Revisit before any deployment that changes those code paths or upgrades `express
 
 ## Status
 
-v1: document upload + chunking + local embeddings + vector search + chat (Gemini,
-DeepSeek, or Ollama), image generation, and a full hands-free voice conversation mode
-(30 selectable Gemini voices + browser fallback, pause/resume/end controls), with a
-ChatGPT-style UI (dark mode, drag-and-drop upload, markdown rendering, source citations,
-responsive layout). Built, typechecked, and browser-smoke-tested locally end to end,
-including live Gemini chat responses, live Gemini TTS audio generation and playback (real
-WAV verified: correct format, correct sample rate, plays back — this one actually works on
-the current API key's plan, unlike image generation below), and the full voice-conversation
-button state cycle (sleeping → paused → resumed → ended). Image generation is code-complete
-and verified against the real API (correct model name, correct request/response handling)
-but blocked in this environment by the API key's free-tier quota (0 image requests/day)
-rather than by a bug. DeepSeek and Ollama are implemented but untested against their real
-APIs — no DeepSeek key and no local Ollama instance were available to verify against here.
-Actual speech *recognition* accuracy (hearing real spoken words correctly) is unverified —
-headless browser automation has no real microphone to test with, so that needs a manual
-check in an actual browser; everything downstream of recognition (the state machine, the
-TTS pipeline, the UI) is verified.
+v1: persistent multi-conversation chat history + document upload/chunking/local
+embeddings/vector search + chat (Gemini, DeepSeek, or Ollama) + image generation + a full
+hands-free voice conversation mode (30 selectable Gemini voices + browser fallback,
+pause/resume/end controls), with a ChatGPT-style UI (dark mode, chats-first sidebar with
+documents collapsed underneath, markdown rendering, source citations, responsive layout)
+and a warmer, more conversational system-prompt persona. Built, typechecked, and
+browser-smoke-tested locally end to end, including: live Gemini chat responses; live Gemini
+TTS audio generation and playback (real WAV verified — correct format, correct sample rate,
+plays back; this one actually works on the current API key's plan, unlike image generation
+below); the full voice-conversation button state cycle (sleeping → paused → resumed →
+ended); and the full conversation lifecycle (create on first message, appear in the
+sidebar, switch between threads and correctly reload each one's history, delete). That last
+test also caught and fixed a real race condition — switching to "New chat" while a response
+was still streaming used to crash by mutating a message array that had just been reset;
+there's now a generation counter that makes an abandoned in-flight request's callbacks
+no-ops instead. Image generation is code-complete and verified against the real API
+(correct model name, correct request/response handling) but blocked in this environment by
+the API key's free-tier quota (0 image requests/day) rather than by a bug. DeepSeek and
+Ollama are implemented but untested against their real APIs — no DeepSeek key and no local
+Ollama instance were available to verify against here. Actual speech *recognition* accuracy
+(hearing real spoken words correctly) is unverified — headless browser automation has no
+real microphone to test with, so that needs a manual check in an actual browser; everything
+downstream of recognition (the state machine, the TTS pipeline, the UI) is verified.
+
+Explicitly not implemented, by design: Siri-style "only responds to the owner's voice"
+speaker verification. That's a distinct ML capability from speech-to-text — the free/open
+options (SpeechBrain, pyannote, Wespeaker) are Python research frameworks needing real
+model inference, not something a browser can do or that fits this app's Node backend
+without a new ML microservice; the commercial cloud options in this space have mostly been
+retired (Azure's in 2025, AWS's in 2026). Faking it with something unreliable would give
+false security rather than real personalization — flagged instead of half-built.
 
 Deployed: frontend live on Vercel; backend deployment to Railway pending (see Deployment
 above) — a Railway project token and cleared billing balance are needed to finish that
