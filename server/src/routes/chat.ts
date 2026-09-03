@@ -29,22 +29,26 @@ chatRouter.post("/", async (req, res) => {
     return;
   }
   const { message } = parsed.data;
+  const userId = req.userId!;
 
   // Conversation history lives server-side, keyed by conversationId, rather
   // than trusting the client to resend the whole transcript every request —
   // one source of truth, and the payload stays small on long conversations.
+  // conversationExists is scoped by userId, so a conversationId belonging to
+  // another user silently falls through to "create a new conversation"
+  // rather than granting cross-account access.
   const conversationId =
-    parsed.data.conversationId && conversationExists(parsed.data.conversationId)
+    parsed.data.conversationId && conversationExists(userId, parsed.data.conversationId)
       ? parsed.data.conversationId
-      : createConversation(message);
-  const history: ChatTurn[] = getConversationMessages(conversationId);
+      : createConversation(userId, message);
+  const history: ChatTurn[] = getConversationMessages(userId, conversationId);
   // Save the user's turn up front — if the LLM call below fails, the
   // question is still in history for a retry instead of being lost.
-  addMessage(conversationId, "user", message);
+  addMessage(userId, conversationId, "user", message);
 
   try {
     const queryEmbedding = await embed(message);
-    const matches = searchSimilarChunks(queryEmbedding, 5);
+    const matches = searchSimilarChunks(userId, queryEmbedding, 5);
     const systemPrompt = buildSystemPrompt(matches.map((m) => m.text));
 
     const turns: ChatTurn[] = [...history, { role: "user", content: message }];
@@ -61,7 +65,7 @@ chatRouter.post("/", async (req, res) => {
     });
 
     const sources = matches.map((m) => ({ documentId: m.documentId, text: m.text.slice(0, 160) }));
-    addMessage(conversationId, "assistant", fullReply, sources);
+    addMessage(userId, conversationId, "assistant", fullReply, sources);
 
     res.write(`data: ${JSON.stringify({ done: true, sources })}\n\n`);
     res.end();

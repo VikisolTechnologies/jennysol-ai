@@ -1,41 +1,29 @@
-import { useState } from "react";
-import { Sidebar } from "./components/Sidebar";
-import { ChatWindow } from "./components/ChatWindow";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { MainApp } from "./components/MainApp";
+import { RequireAuth } from "./components/RequireAuth";
+import { Login } from "./pages/Login";
+import { Signup } from "./pages/Signup";
+import { ForgotPassword } from "./pages/ForgotPassword";
+import { ResetPassword } from "./pages/ResetPassword";
+import { VerifyEmail } from "./pages/VerifyEmail";
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [conversationsVersion, setConversationsVersion] = useState(0);
-
-  function selectConversation(id: string | null) {
-    setActiveConversationId(id);
-    setSidebarOpen(false);
-  }
-
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-      <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        activeConversationId={activeConversationId}
-        conversationsVersion={conversationsVersion}
-        onSelectConversation={selectConversation}
-        onNewChat={() => selectConversation(null)}
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <MainApp />
+          </RequireAuth>
+        }
       />
-      <ChatWindow
-        onOpenSidebar={() => setSidebarOpen(true)}
-        conversationId={activeConversationId}
-        onConversationChange={(id) => {
-          setActiveConversationId(id);
-          setConversationsVersion((v) => v + 1);
-        }}
-      />
-    </div>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

@@ -4,6 +4,8 @@ import {
   ChevronRight,
   File,
   FileText,
+  LogOut,
+  MailWarning,
   MessageSquare,
   SquarePen,
   Sparkles,
@@ -20,6 +22,9 @@ import {
   type ConversationSummary,
   type DocumentInfo,
 } from "../lib/api";
+import { useAuth } from "../lib/AuthContext";
+import { resendVerification } from "../lib/auth";
+import { ROLES } from "../lib/auth";
 
 function iconFor(filename: string) {
   if (filename.toLowerCase().endsWith(".pdf")) return <File size={16} className="text-rose-500" />;
@@ -53,12 +58,14 @@ export function Sidebar({
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
 }) {
+  const { user, logout } = useAuth();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [documentsExpanded, setDocumentsExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
   const fileInput = useRef<HTMLInputElement>(null);
 
   async function refreshDocuments() {
@@ -256,6 +263,55 @@ export function Sidebar({
           </div>
         )}
       </div>
+
+      {user && !user.emailVerified && (
+        <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
+          <div className="flex items-start gap-1.5">
+            <MailWarning size={13} className="mt-0.5 shrink-0" />
+            <div>
+              Verify your email to secure your account.{" "}
+              {resendState === "sent" ? (
+                <span className="font-medium">Sent — check your inbox.</span>
+              ) : (
+                <button
+                  onClick={async () => {
+                    setResendState("sending");
+                    try {
+                      await resendVerification();
+                      setResendState("sent");
+                    } catch {
+                      setResendState("idle");
+                    }
+                  }}
+                  disabled={resendState === "sending"}
+                  className="font-medium underline hover:no-underline disabled:opacity-50"
+                >
+                  {resendState === "sending" ? "Sending…" : "Resend link"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {user && (
+        <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg px-1 py-1">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-neutral-700 dark:text-neutral-200">{user.name}</p>
+            <p className="truncate text-[10px] text-neutral-400">
+              {ROLES.find((r) => r.value === user.role)?.label ?? user.role}
+            </p>
+          </div>
+          <button
+            onClick={logout}
+            className="shrink-0 rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+            aria-label="Log out"
+            title="Log out"
+          >
+            <LogOut size={14} />
+          </button>
+        </div>
+      )}
 
       <p className="shrink-0 text-center text-[10px] text-neutral-400">Powered by Vikisol · runs locally on your data</p>
     </aside>

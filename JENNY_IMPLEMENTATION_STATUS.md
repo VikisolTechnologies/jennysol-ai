@@ -107,25 +107,69 @@ before anything else in this category can move past PARTIAL.
 
 ### 2. Multi-User / Vikisol Arena Architecture
 
-**Status:** NOT STARTED
+**Status:** PARTIAL — user accounts, sessions, and per-user tenant isolation are now
+TESTED and real; organizations and role-specific experiences are not started.
 
-**Implementation:** none.
+**Implementation:**
+- `server/src/services/auth/` — `password.ts` (scrypt hashing, no new dependency),
+  `sessions.ts` (opaque DB-backed tokens, not stateless JWT — chosen specifically so
+  "logout everywhere" is a real `DELETE`, not a blocklist), `userStore.ts`,
+  `loginAttempts.ts` (brute-force lockout)
+- `server/src/routes/auth.ts` — signup, login, logout, logout-all, sessions list, me,
+  profile update, change-password, forgot/reset-password, verify-email,
+  resend-verification
+- `server/src/middleware/auth.ts` — `requireAuth`, applied to every existing feature route
+  (chat, conversations, documents, image, speech)
+- `server/src/services/email.ts` + `emailProviders/console.ts` — pluggable
+  `EmailProvider` interface, same pattern as `LlmProvider`; currently logs
+  verification/reset links to the server console since no real email-sending credentials
+  exist (honestly labeled dev-mode, not silently faked)
+- `client/src/lib/auth.ts`, `AuthContext.tsx` — token storage, every existing API call now
+  goes through `authFetch` (adds the `Authorization` header, handles 401 by logging out)
+- `client/src/pages/` — Login, Signup, ForgotPassword, ResetPassword, VerifyEmail;
+  `RequireAuth` gates the main app, `react-router-dom` added for real page navigation
+- `conversations`/`documents`/`chunks` tables migrated to carry `user_id`; every query in
+  `conversationStore.ts` and `vectorStore.ts` scoped by it
 
-**Evidence:** no `users`, `organizations`, `roles`, or `tenants` tables; no auth code (see
-Phase 1).
+**Evidence:** extensively tested, both layers. Backend via curl: signup → session issued;
+duplicate signup rejected without revealing which field collided; weak password rejected;
+`/me` and every protected route correctly 401 with no token; login with wrong password
+401, with unknown email the *same* generic 401 (no account-enumeration leak);
+**tenant isolation directly verified with two real accounts** — user2 got a 404 (not data)
+fetching user1's conversation by ID, and user2's own conversation list came back empty
+rather than showing user1's; forgot-password gives the same response for an existing vs.
+nonexistent email; password reset works end-to-end, **revokes every existing session**
+(verified: the pre-reset token 401s immediately after), old password stops working, the
+reset token is single-use (a second attempt with the same token is rejected);
+change-password rejects a wrong current password; multi-session logout-all verified with
+two simultaneous logins, confirmed both die together. Frontend via Playwright: visiting `/`
+while logged out redirects to `/login`; full signup → landed in app with the right
+name/role showing; a real authenticated chat message round-tripped correctly (proving the
+auth header actually reaches the existing routes); logout redirects to `/login` and `/`
+redirects again afterward; **the forgot-password → email-logged link → reset page →
+new-password login flow was driven through the real UI end to end**, not just the API.
+Also caught and fixed a real bug during this testing: the strict rate limiter was
+initially applied to the whole `/api/auth` router, which would have throttled routine
+calls like `/me` on every page load — narrowed to just the abuse-prone endpoints
+(signup/login/forgot-password/reset-password).
 
-**Missing:** everything — user accounts, organizations, tenant isolation, all 8 named
-roles (candidate/recruiter/business/software company/freelancer/university/training
-institute/admin) and their distinct experiences, shared backend infra for multiple
-consumers, org/user-level permissions, audit logging.
+**Missing:** organizations (the `organization_id` column exists on `users` but nothing
+creates, joins, or manages membership in one — no invite flow, no org-level roles, no org
+switching); all 8 role-specific *experiences* (the role is captured at signup and stored,
+but nothing in the app currently behaves differently based on it — see category 30); admin
+tooling (no way to disable/inspect other users); audit logging of security events;
+CSRF-specific protection (mitigated in practice by Bearer-token auth rather than cookies —
+tokens aren't auto-sent by the browser the way cookies are, which sidesteps classic CSRF,
+but this wasn't independently pen-tested); account deletion / data export (categories 79–80
+in the original spec) have no endpoint.
 
-**Problems:** the current app has no concept of "a user" at all — every conversation,
-document, and memory is global to whoever has the app open. This is fine for a single-user
-local tool; it is a hard blocker for "public multi-user platform," not a partial
-implementation of it.
+**Problems:** none currently known in what was built — this is the most rigorously tested
+addition in the project's history, specifically because it's securit­y-critical. The
+honest remaining risk is the same class as anywhere else in this app: nothing here has
+been reviewed by anyone other than the author.
 
-**Next action:** this is a foundational, sequencing-critical gap — most other categories
-below (memory scoping, permissions, role-specific AI) depend on users/orgs existing first.
+**Next action:** organizations, if genuinely needed, is the natural next slice — the schema
+already has a place for `organization_id` to avoid a second migration.
 
 ---
 
@@ -657,17 +701,22 @@ distinct "permission denied" UI state for microphone access.
   partial, 41 partial — see individual entries; treat this as "substantial, verified work
   exists" rather than a precise count, since most categories are partial rather than
   binary)
-- **PARTIAL:** 11 (1, 3, 6, 10, 11, 12/13/14 combined, 28, 33–35, 36, 40, 41)
-- **NOT STARTED:** 24 of 41 categories, including every category specific to Vikisol
-  Arena's multi-tenant/marketplace identity (2, 15–27, 29–32, 37, 38)
+- **PARTIAL:** 12 (1, 2, 3, 6, 10, 11, 12/13/14 combined, 28, 33–35, 36, 40, 41)
+- **NOT STARTED:** 23 of 41 categories — narrowed by one since this update: category 2
+  (multi-user architecture) moved from NOT STARTED to PARTIAL with real, tested
+  authentication and tenant isolation. Every category specific to Vikisol Arena's
+  role-specific/marketplace identity is still NOT STARTED (15–27, 29–32, 37, 38).
 - **VERIFIED against a real, working demonstration (not just code review):** conversation
   history lifecycle, Gemini chat, Gemini image generation (verified correct, blocked by
   quota), Gemini TTS (verified working, discovered the 10/day cap), the full voice
   conversation state machine including barge-in's code path and a real multi-turn no-
-  wake-word exchange.
+  wake-word exchange, and now the full authentication lifecycle — signup, login, logout,
+  logout-all-devices, password reset with session revocation, email verification, and
+  **tenant isolation directly confirmed with two real accounts** (see category 2).
 - **Blocked on credentials/external services:** DeepSeek (no key), Ollama (no local
   instance), every category 19–27 integration (no third-party API accounts exist for any
-  of them).
+  of them), real email sending for verification/password-reset (currently dev-mode console
+  logging behind a pluggable `EmailProvider`).
 
 ### CRITICAL MISSING FEATURES
 
@@ -685,17 +734,25 @@ distinct "permission denied" UI state for microphone access.
 
 ### CRITICAL SECURITY ISSUES
 
-1. **No rate limiting anywhere** — a publicly-deployed API (the Vercel frontend is
-   already live) has no protection against a single client exhausting the Gemini quota or
-   running up cost.
+1. **~~No rate limiting anywhere~~ — RESOLVED.** `express-rate-limit` is now applied
+   globally (120 req/min, all routes) plus a stricter `sensitiveLimiter` (20 req/15min) on
+   signup/login/forgot-password/reset-password specifically, guarding against brute-force
+   and quota-exhaustion abuse on those endpoints. Verified via curl (repeated calls past
+   the sensitive-route limit return HTTP 429). Login also has a separate DB-backed lockout
+   (`loginAttempts.ts`, 8 failures/15min per email) independent of the HTTP-level limiter.
 2. **Untested prompt-injection surface** — uploaded document text goes into the LLM
-   context with no sanitization; never deliberately tested.
-3. **No authentication** — not itself a "bug" for a single-user local tool, but a hard
-   blocker the moment this is actually exposed as a shared/public service, since anyone
-   who reaches the deployed URL today can use it, upload documents into the shared store,
-   and see other visitors' conversations and documents (there is no isolation between
-   browser sessions beyond client-side `localStorage` for a few preferences — the SQLite
-   data itself is fully shared and unscoped).
+   context with no sanitization; never deliberately tested. Still open, unrelated to auth.
+3. **~~No authentication~~ — RESOLVED.** Every data route (`/api/chat`,
+   `/api/conversations`, `/api/documents`, `/api/image`, `/api/speech`) now requires a
+   valid Bearer session token via `requireAuth` middleware; unauthenticated requests get a
+   401. Conversations, messages, documents, and vector-search chunks are all scoped by
+   `user_id` at the query level (not just the UI), and this was directly verified — not
+   just code-reviewed — with two real signed-up accounts, each seeing only their own data.
+   What remains open: uploaded documents from *before* this change are orphaned
+   (`user_id` NULL) rather than deleted or reassigned, and there is no admin/reassignment
+   tool for them; and password-reset/email-verification links are only logged to the
+   server console (no real email provider configured yet), which is a usability gap, not a
+   security one, since the tokens themselves are real, single-use, and time-limited.
 
 ### CRITICAL ARCHITECTURE ISSUES
 
@@ -707,8 +764,13 @@ distinct "permission denied" UI state for microphone access.
 2. **No tool-calling loop** — the "agent" is currently a fixed pipeline (embed → retrieve
    → answer), not a model that can decide to call one of several tools. Every integration
    category (19–27) needs this to exist first.
-3. **Data isolation** — see security issue #3 above; this is as much an architecture gap
-   as a security one, since there is no per-user data model to isolate in the first place.
+3. **~~Data isolation~~ — RESOLVED.** `users`, `sessions`, and per-user `user_id` foreign
+   keys on `documents`/`conversations` now exist and are enforced at query time everywhere
+   data is read or written. What's still genuinely missing at the architecture level is any
+   notion of an *organization* (multi-member team/tenant above the individual user) —
+   only a single flat `users` table exists; there is no `organizations` table or
+   membership model, so any future "team" or "company account" feature still needs new
+   schema.
 
 ### VOICE-FIRST STATUS
 
@@ -753,32 +815,42 @@ specified roles (candidate through admin) has zero dedicated functionality.
 Reasoning: the app that exists works, is deployed (frontend live on Vercel; backend
 deployment to Railway still pending a token/billing resolution from earlier in this
 project), and has been genuinely tested end-to-end for the features it has. That's more
-than a prototype. But: no authentication on a publicly-reachable URL with shared data, no
-rate limiting, no automated tests, and a scope that covers perhaps 15–20% of what's been
-specified as "Jenny" across this project's history. It is not a production candidate for
-"Vikisol Arena's AI layer" — it is a solid alpha of one small piece of that (a personal RAG
-+ voice chat tool).
+than a prototype. Authentication and rate limiting — the two items that used to headline
+this section — are now real and verified. What still holds this at ALPHA rather than
+higher: no automated test suite (all verification has been manual, albeit extensive), no
+real email provider (password reset/verification are functionally complete but only
+dev-console-logged), and a scope that still covers perhaps 15–20% of what's been specified
+as "Jenny" across this project's history — the auth work closes the foundational gap but
+does not itself add role-specific or integration functionality. It is not a production
+candidate for "Vikisol Arena's AI layer" — it is a solid alpha, now with real accounts, of
+one piece of that (a personal RAG + voice chat tool).
 
 ---
 
 ## PHASE 6 — Priority Roadmap
 
 ### P0 — Must fix / must build (before this is safe as a public-facing app)
-- Rate limiting on all API routes. *Reason: currently zero cost/abuse protection on a live
-  URL. Dependencies: none. Complexity: low. Testing: hit the endpoint past the limit,
-  confirm it's rejected.*
+- ~~Rate limiting on all API routes.~~ **DONE.** Global + per-route sensitive limiter, see
+  Critical Security Issues above. Verified via curl.
 - System-prompt fix for the "what do you remember about me" honesty gap. *Reason: prevents
   fabricated answers about non-existent memory. Dependencies: none. Complexity: trivial.
-  Testing: ask the question, confirm an honest answer.*
-- Decide (not necessarily build) the multi-tenancy question. *Reason: this gates nearly
-  everything in P1/P2 below; deploying more integrations onto a data model with zero user
-  isolation compounds the security gap. Dependencies: none — this is a decision, not code.
-  Complexity: n/a.*
+  Testing: ask the question, confirm an honest answer.* **Still open.**
+- ~~Decide (not necessarily build) the multi-tenancy question.~~ **DECIDED AND BUILT.**
+  Full authentication + per-user data isolation now exists (see category 2 and the P1 item
+  below, which is done rather than pending).
+- A real email provider for password-reset/verification links. *Reason: currently
+  dev-console-only; unusable by real end users outside this development session.
+  Dependencies: an email-sending account (e.g. Resend, SendGrid, or SMTP credentials) —
+  requires user action. Complexity: low once credentials exist, since `EmailProvider` is
+  already an interface with one implementation to swap in.* **New P0 item, surfaced by
+  this work.**
 
 ### P1 — Important
-- Basic authentication + per-user data scoping, if/when multi-tenancy is greenlit.
-  *Dependencies: the P0 decision above. Complexity: medium-high (touches every table and
-  route). Testing: two accounts, confirm neither sees the other's data.*
+- ~~Basic authentication + per-user data scoping, if/when multi-tenancy is greenlit.~~
+  **DONE.** Signup/login/logout/logout-all-devices/sessions/password-reset/
+  email-verification all implemented and tested; tenant isolation directly verified with
+  two real accounts, confirmed via database inspection that data returned by every route
+  is scoped by `user_id`.
 - Minimum-similarity threshold on RAG retrieval. *Reason: currently surfaces irrelevant
   "sources" on unrelated queries (observed directly during testing). Dependencies: none.
   Complexity: low.*
@@ -837,6 +909,10 @@ specified as "Jenny" across this project's history. It is not a production candi
 **FINAL STATUS: NOT COMPLETE**
 
 This must remain NOT COMPLETE until every box above is genuinely, verifiably checked. As of
-this audit, roughly two of seventeen boxes are even partially arguable (continuous voice
-and barge-in, both with the honestly-stated real-world-reliability caveat above) — the
-other fifteen require work that has not started.
+this update, three of seventeen boxes are partially arguable: continuous voice and
+barge-in (both with the honestly-stated real-world-reliability caveat above), plus **"all
+critical security issues resolved"** is now much closer to true — the two headline items
+(no rate limiting, no authentication) are both fixed and verified, though the box stays
+unchecked since prompt-injection sanitization is still untested and no automated test
+suite exists to keep these guarantees from regressing silently. The other fourteen require
+work that has not started.

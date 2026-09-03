@@ -1,3 +1,5 @@
+import { authFetch } from "./auth";
+
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
@@ -7,11 +9,6 @@ export interface Source {
   documentId: string;
   text: string;
 }
-
-// Same-origin ("") when the server serves the built client itself, or when
-// the Vite dev proxy handles /api. Set VITE_API_BASE_URL when the frontend
-// and backend are deployed separately (e.g. client on Vercel, API on Railway).
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 // History lives server-side keyed by conversationId — the client no longer
 // resends the whole transcript on every message, just which conversation
@@ -24,7 +21,7 @@ export async function sendChatMessage(
   onDelta: (text: string) => void,
   onDone: (sources: Source[]) => void
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/chat`, {
+  const res = await authFetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, conversationId: conversationId ?? undefined }),
@@ -70,20 +67,20 @@ export interface ConversationSummary {
 }
 
 export async function fetchConversations(): Promise<ConversationSummary[]> {
-  const res = await fetch(`${API_BASE}/api/conversations`);
+  const res = await authFetch("/api/conversations");
   const data = await res.json();
   return data.conversations;
 }
 
 export async function fetchConversationMessages(id: string): Promise<(ChatTurn & { sources?: Source[] })[]> {
-  const res = await fetch(`${API_BASE}/api/conversations/${id}`);
+  const res = await authFetch(`/api/conversations/${id}`);
   if (!res.ok) throw new Error(`Failed to load conversation (${res.status})`);
   const data = await res.json();
   return data.messages;
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  await fetch(`${API_BASE}/api/conversations/${id}`, { method: "DELETE" });
+  await authFetch(`/api/conversations/${id}`, { method: "DELETE" });
 }
 
 export interface DocumentInfo {
@@ -94,7 +91,7 @@ export interface DocumentInfo {
 }
 
 export async function fetchDocuments(): Promise<DocumentInfo[]> {
-  const res = await fetch(`${API_BASE}/api/documents`);
+  const res = await authFetch("/api/documents");
   const data = await res.json();
   return data.documents;
 }
@@ -102,12 +99,12 @@ export async function fetchDocuments(): Promise<DocumentInfo[]> {
 export async function uploadDocument(file: File): Promise<void> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/api/documents`, { method: "POST", body: form });
+  const res = await authFetch("/api/documents", { method: "POST", body: form });
   if (!res.ok) throw new Error("Upload failed");
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  await fetch(`${API_BASE}/api/documents/${id}`, { method: "DELETE" });
+  await authFetch(`/api/documents/${id}`, { method: "DELETE" });
 }
 
 export interface GeneratedImage {
@@ -116,7 +113,7 @@ export interface GeneratedImage {
 }
 
 export async function generateImage(prompt: string): Promise<GeneratedImage> {
-  const res = await fetch(`${API_BASE}/api/image`, {
+  const res = await authFetch("/api/image", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt }),
@@ -132,7 +129,7 @@ export interface GeneratedSpeech {
 }
 
 export async function generateSpeech(text: string, voice: string): Promise<GeneratedSpeech> {
-  const res = await fetch(`${API_BASE}/api/speech`, {
+  const res = await authFetch("/api/speech", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, voice }),

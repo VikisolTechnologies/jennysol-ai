@@ -22,8 +22,8 @@ async function extractText(filePath: string, mimetype: string, originalName: str
   return fs.readFileSync(filePath, "utf-8");
 }
 
-documentsRouter.get("/", (_req, res) => {
-  res.json({ documents: listDocuments() });
+documentsRouter.get("/", (req, res) => {
+  res.json({ documents: listDocuments(req.userId!) });
 });
 
 documentsRouter.post("/", upload.single("file"), async (req, res) => {
@@ -44,7 +44,7 @@ documentsRouter.post("/", upload.single("file"), async (req, res) => {
     const embeddings = await embedBatch(chunks.map((c) => c.text));
     const documentId = randomUUID();
 
-    insertDocument(documentId, file.originalname);
+    insertDocument(req.userId!, documentId, file.originalname);
     insertChunks(
       documentId,
       chunks.map((c, i) => ({ text: c.text, index: c.index, embedding: embeddings[i] }))
@@ -60,6 +60,6 @@ documentsRouter.post("/", upload.single("file"), async (req, res) => {
 });
 
 documentsRouter.delete("/:id", (req, res) => {
-  deleteDocument(req.params.id);
+  deleteDocument(req.userId!, req.params.id);
   res.status(204).send();
 });
