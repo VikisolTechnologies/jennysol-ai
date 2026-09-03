@@ -2,8 +2,10 @@
 
 Jennysol AI is a retrieval-augmented (RAG) chat assistant: upload documents, then chat
 with an AI that answers using those documents as grounded context. Also does image
-generation and voice input/output, including hands-free "Hey Jenny" wake-word activation.
-Chat provider is swappable — Gemini, DeepSeek, or a local Ollama model today.
+generation and a full hands-free voice conversation mode — say "Hey Jenny" once, then just
+talk, with pause/resume/end controls and a choice of 30 natural Gemini voices (or the
+free instant browser voice). Chat provider is swappable — Gemini, DeepSeek, or a local
+Ollama model today.
 
 ## Architecture (v1)
 
@@ -12,8 +14,9 @@ jennysol-ai/
   client/   React + Vite + TypeScript + Tailwind — chat UI, document upload/list
     lib/speechRecognitionTypes.ts  Shared Web Speech API type shims + feature detection
     lib/useSpeechRecognition.ts    Push-to-talk mic button (one click, one utterance)
-    lib/useWakeWord.ts              Always-on "Hey Jenny" listening (continuous recognition + wake-phrase match)
-    lib/speak.ts                    Browser speechSynthesis wrapper (spoken replies)
+    lib/useVoiceConversation.ts     "Hey Jenny" hands-free conversation: sleeping/listening/paused state machine
+    lib/voices.ts                   The 30 Gemini voice names + persisted voice selection
+    lib/speak.ts                    Speaks via Gemini TTS (chosen voice) or falls back to browser speechSynthesis
   server/   Node + Express + TypeScript — REST API
     services/llm.ts                     Picks the configured LlmProvider (LLM_PROVIDER, default "gemini")
     services/llmProvider.ts             LlmProvider interface — swap/add providers without touching routes
@@ -22,30 +25,47 @@ jennysol-ai/
     services/providers/ollama.ts        Local Ollama implementation (OpenAI-compatible REST, streaming)
     services/providers/openaiCompatible.ts  Shared streaming client used by deepseek.ts and ollama.ts
     services/providers/geminiImage.ts   Image generation (Gemini "Nano Banana" image models)
+    services/providers/geminiTts.ts     Text-to-speech (Gemini TTS, raw PCM wrapped in a WAV header)
     services/embeddings.ts            Local embedding model (@huggingface/transformers, no API key needed)
     services/chunker.ts               Splits uploaded documents into overlapping text chunks
     services/vectorStore.ts           SQLite-backed store; cosine similarity search over chunk embeddings
     routes/documents.ts                Upload, list, delete documents
     routes/chat.ts                     RAG query: embed question -> retrieve top chunks -> ask the LLM provider
     routes/image.ts                    Image generation request -> Gemini image model -> base64 image
+    routes/speech.ts                   Text -> chosen Gemini voice -> base64 WAV
     db/                                better-sqlite3 database (jennysol.db, gitignored)
 ```
 
-Voice is entirely browser-native (Web Speech API) — no backend, no API key, no extra
-vendor. Works in Chrome/Edge/Safari; Firefox has no `SpeechRecognition` implementation, so
-both the mic button and the "Hey Jenny" toggle are feature-detected and hide themselves
-there rather than showing a broken control. Spoken-reply output (`speechSynthesis`) is more
-broadly supported and unaffected.
+Speech *recognition* (listening) is entirely browser-native (Web Speech API) — no backend,
+no API key. Works in Chrome/Edge/Safari; Firefox has no `SpeechRecognition` implementation,
+so both the mic button and the "Hey Jenny" control are feature-detected and hide themselves
+there rather than showing something broken. Speech *output* (talking back) goes through
+Gemini TTS for the natural-sounding voices, with the browser's own `speechSynthesis` as
+both a selectable free/instant option and the automatic fallback if a Gemini TTS call ever
+fails — voice output degrades rather than going silent.
 
-"Hey Jenny" (also "hi jenny" / "hello jenny" / "wake up jenny" / "ok jenny") toggles
-always-on listening: sleeping (only listening for the phrase) -> hearing it flips to awake
-(your next sentence is sent as the actual question) -> back to sleeping once answered.
-Say the wake phrase and your question in one breath ("hey jenny what's the capital of
-France") and it skips straight to sending. Answers triggered this way are always spoken
-back, regardless of the separate spoken-replies toggle — a spoken question gets a spoken
-answer. Continuous browser speech recognition drops out on its own periodically (silence
-timeouts, network blips); `useWakeWord` restarts it automatically while enabled, which is
-what makes it "always" listening rather than "listening until the browser stops it."
+**Voice conversation ("Hey Jenny"), redesigned around one piece of real feedback:**
+repeating the wake phrase before every single turn is tedious and not how a normal
+conversation works. So it only gates getting *in*: say "hey jenny" (or "hi/hello/wake up/ok
+jenny") once and every following turn is heard and answered automatically — no wake phrase
+needed again — until you end it. States: **sleeping** (armed, only matching the wake
+phrase) → hearing it → **listening** (everything you say is sent) ⇄ **paused** (mic off,
+one click to resume back into **listening** — for when you want to talk to someone else in
+the room without Jenny jumping in) → **off** (fully ended). Say the wake phrase and your
+first question in one breath ("hey jenny what's the capital of France") and it skips
+straight to answering. The header shows one state-aware button that does the right thing
+for whatever state you're in (start/pause/resume) plus a separate "end conversation" (✕)
+button. Answers heard through this flow are always spoken back regardless of the separate
+spoken-replies toggle — a spoken question gets a spoken answer. Continuous browser speech
+recognition drops out on its own periodically (silence timeouts, network blips);
+`useVoiceConversation` restarts it automatically while active, and mutes recognition during
+TTS playback so the mic doesn't hear Jenny's own voice and treat it as the next command.
+
+**Voice picker:** the speaker icon in the header opens a panel with the spoken-replies
+on/off switch, a dropdown of all 30 Gemini voice names plus "Browser default," and a
+Preview button that speaks a sample in whichever voice is selected before you commit to it
+— their actual tone/character isn't documented anywhere reliably enough to label honestly,
+so preview-by-ear is the intended way to pick, not a guessed description.
 
 Flow: a document is uploaded -> chunked -> each chunk embedded locally -> stored in SQLite.
 A chat message is embedded the same way -> top-k similar chunks are retrieved -> sent to
@@ -150,18 +170,22 @@ Revisit before any deployment that changes those code paths or upgrades `express
 ## Status
 
 v1: document upload + chunking + local embeddings + vector search + chat (Gemini,
-DeepSeek, or Ollama), image generation, and browser-native voice input/output including
-"Hey Jenny" wake-word activation, with a ChatGPT-style UI (dark mode, drag-and-drop
-upload, markdown rendering, source citations, responsive layout). Built, typechecked, and
-browser-smoke-tested locally end to end, including live Gemini chat responses and the
-wake-word toggle's on/off/permission flow; image generation is code-complete and verified
-against the real API (correct model name, correct request/response handling) but blocked
-in this environment by the API key's free-tier quota (0 image requests/day) rather than by
-a bug. DeepSeek and Ollama are implemented but untested against their real APIs — no
-DeepSeek key and no local Ollama instance were available to verify against here. Wake-word
-voice recognition itself is also unverified beyond the toggle/permission flow — headless
-browser automation can't simulate real microphone audio, so real-world recognition
-accuracy needs a manual check in an actual browser.
+DeepSeek, or Ollama), image generation, and a full hands-free voice conversation mode
+(30 selectable Gemini voices + browser fallback, pause/resume/end controls), with a
+ChatGPT-style UI (dark mode, drag-and-drop upload, markdown rendering, source citations,
+responsive layout). Built, typechecked, and browser-smoke-tested locally end to end,
+including live Gemini chat responses, live Gemini TTS audio generation and playback (real
+WAV verified: correct format, correct sample rate, plays back — this one actually works on
+the current API key's plan, unlike image generation below), and the full voice-conversation
+button state cycle (sleeping → paused → resumed → ended). Image generation is code-complete
+and verified against the real API (correct model name, correct request/response handling)
+but blocked in this environment by the API key's free-tier quota (0 image requests/day)
+rather than by a bug. DeepSeek and Ollama are implemented but untested against their real
+APIs — no DeepSeek key and no local Ollama instance were available to verify against here.
+Actual speech *recognition* accuracy (hearing real spoken words correctly) is unverified —
+headless browser automation has no real microphone to test with, so that needs a manual
+check in an actual browser; everything downstream of recognition (the state machine, the
+TTS pipeline, the UI) is verified.
 
 Deployed: frontend live on Vercel; backend deployment to Railway pending (see Deployment
 above) — a Railway project token and cleared billing balance are needed to finish that

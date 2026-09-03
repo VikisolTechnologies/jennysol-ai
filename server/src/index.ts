@@ -6,6 +6,7 @@ import fs from "node:fs";
 import { chatRouter } from "./routes/chat.js";
 import { documentsRouter } from "./routes/documents.js";
 import { imageRouter } from "./routes/image.js";
+import { speechRouter } from "./routes/speech.js";
 import { activeProviderMissingKey } from "./services/llm.js";
 import "./db/index.js";
 
@@ -25,6 +26,7 @@ app.get("/health", (_req, res) => res.json({ status: "ok" }));
 app.use("/api/chat", chatRouter);
 app.use("/api/documents", documentsRouter);
 app.use("/api/image", imageRouter);
+app.use("/api/speech", speechRouter);
 
 // In production, serve the built client so a single service hosts both the
 // API and the UI — no separate static host needed for deployment.

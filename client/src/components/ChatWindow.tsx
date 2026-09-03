@@ -8,18 +8,20 @@ import {
   MicOff,
   MessageSquare,
   Moon,
+  Pause,
   SendHorizontal,
   Sparkles,
   Sun,
-  Volume2,
-  VolumeX,
+  X,
 } from "lucide-react";
 import { generateImage, sendChatMessage, type ChatTurn, type GeneratedImage, type Source } from "../lib/api";
 import { MessageBubble } from "./MessageBubble";
+import { VoicePicker } from "./VoicePicker";
 import { useTheme } from "../lib/useTheme";
 import { useSpeechRecognition } from "../lib/useSpeechRecognition";
-import { useWakeWord } from "../lib/useWakeWord";
-import { speak, speechSynthesisSupported, stopSpeaking } from "../lib/speak";
+import { useVoiceConversation } from "../lib/useVoiceConversation";
+import { speak, stopSpeaking } from "../lib/speak";
+import { getStoredVoice, storeVoice, type VoiceId } from "../lib/voices";
 
 interface DisplayMessage extends ChatTurn {
   sources?: Source[];
@@ -38,21 +40,28 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [imageMode, setImageMode] = useState(false);
-  const [voiceOutput, setVoiceOutput] = useState(false);
+  const [spokenReplies, setSpokenReplies] = useState(false);
+  const [voice, setVoiceState] = useState<VoiceId>(getStoredVoice);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { theme, toggleTheme } = useTheme();
+
+  function setVoice(v: VoiceId) {
+    setVoiceState(v);
+    storeVoice(v);
+  }
 
   const speech = useSpeechRecognition((transcript) => {
     setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
     requestAnimationFrame(autoResize);
   });
 
-  // "Hey Jenny" always-on wake word: heard commands go straight to chat
-  // (never image mode — voice Q&A, not voice image prompts) and are always
-  // spoken back, regardless of the manual voice-output toggle, since a
-  // spoken question implies a spoken answer.
-  const wakeWord = useWakeWord((transcript) => handleSend(transcript, true));
+  // Continuous "Hey Jenny" voice conversation — see useVoiceConversation.ts
+  // for the sleeping/listening/paused state machine. Commands heard this way
+  // always go to chat (never image mode) and are always spoken back
+  // regardless of the spokenReplies toggle, since a spoken question implies
+  // a spoken answer.
+  const voiceConv = useVoiceConversation((transcript) => handleSend(transcript, true));
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -65,6 +74,12 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }
+
+  function handleVoiceConvButtonClick() {
+    if (voiceConv.state === "off") voiceConv.start();
+    else if (voiceConv.state === "paused") voiceConv.resume();
+    else voiceConv.pause();
   }
 
   async function handleSendImage(prompt: string) {
@@ -110,11 +125,14 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     requestAnimationFrame(autoResize);
     setSending(true);
 
+    let fullText = "";
+
     try {
       await sendChatMessage(
         text,
         history,
         (delta) => {
+          fullText += delta;
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
@@ -129,9 +147,12 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = { ...copy[copy.length - 1], sources };
-            if (voiceOutput || forceSpeak) speak(copy[copy.length - 1].content);
             return copy;
           });
+          if (spokenReplies || forceSpeak) {
+            voiceConv.suspendForPlayback();
+            speak(fullText, voice).finally(() => voiceConv.resumeAfterPlayback());
+          }
         }
       );
     } catch (err) {
@@ -161,51 +182,74 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           <span className="text-sm font-semibold">Chat</span>
         </div>
         <div className="flex items-center gap-1">
-          {wakeWord.supported && (
-            <button
-              onClick={wakeWord.toggle}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-                wakeWord.enabled
-                  ? wakeWord.status === "awake"
+          {voiceConv.supported && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleVoiceConvButtonClick}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                  voiceConv.state === "listening"
                     ? "bg-rose-500 text-white"
-                    : "bg-brand-gradient text-white"
-                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
-              }`}
-              aria-pressed={wakeWord.enabled}
-              aria-label={wakeWord.enabled ? "Stop listening for “Hey Jenny”" : "Listen for “Hey Jenny”"}
-              title={
-                wakeWord.enabled
-                  ? wakeWord.status === "awake"
-                    ? "Listening for your question…"
-                    : "Listening for “Hey Jenny”… click to stop"
-                  : "Say “Hey Jenny” to talk hands-free"
-              }
-            >
-              {wakeWord.enabled ? (
-                <Ear size={14} className={wakeWord.status === "awake" ? "animate-pulse" : ""} />
-              ) : (
-                <EarOff size={14} />
+                    : voiceConv.state === "sleeping"
+                      ? "bg-brand-gradient text-white"
+                      : voiceConv.state === "paused"
+                        ? "bg-amber-500 text-white"
+                        : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+                }`}
+                aria-label={
+                  voiceConv.state === "off"
+                    ? "Start hands-free voice conversation"
+                    : voiceConv.state === "paused"
+                      ? "Resume voice conversation"
+                      : "Pause voice conversation"
+                }
+                title={
+                  voiceConv.state === "off"
+                    ? "Say “Hey Jenny” to talk hands-free"
+                    : voiceConv.state === "sleeping"
+                      ? "Listening for “Hey Jenny”…"
+                      : voiceConv.state === "listening"
+                        ? "Listening — click to pause"
+                        : "Paused — click to resume"
+                }
+              >
+                {voiceConv.state === "paused" ? (
+                  <Pause size={14} />
+                ) : voiceConv.state === "off" ? (
+                  <EarOff size={14} />
+                ) : (
+                  <Ear size={14} className={voiceConv.state === "listening" ? "animate-pulse" : ""} />
+                )}
+                <span className="hidden sm:inline">
+                  {voiceConv.state === "off"
+                    ? "Hey Jenny"
+                    : voiceConv.state === "sleeping"
+                      ? "Hey Jenny"
+                      : voiceConv.state === "listening"
+                        ? "Listening…"
+                        : "Paused"}
+                </span>
+              </button>
+              {voiceConv.state !== "off" && (
+                <button
+                  onClick={voiceConv.stop}
+                  className="rounded-lg p-2 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-white/10 dark:hover:text-neutral-300"
+                  aria-label="End voice conversation"
+                  title="End voice conversation"
+                >
+                  <X size={14} />
+                </button>
               )}
-              <span className="hidden sm:inline">
-                {wakeWord.enabled ? (wakeWord.status === "awake" ? "Listening…" : "Hey Jenny") : "Hey Jenny"}
-              </span>
-            </button>
+            </div>
           )}
-          {speechSynthesisSupported && (
-            <button
-              onClick={() => {
-                if (voiceOutput) stopSpeaking();
-                setVoiceOutput((v) => !v);
-              }}
-              className={`rounded-lg p-2 transition hover:bg-neutral-100 dark:hover:bg-white/10 ${
-                voiceOutput ? "text-brand-500" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
-              }`}
-              aria-label={voiceOutput ? "Turn off spoken replies" : "Turn on spoken replies"}
-              title={voiceOutput ? "Spoken replies on" : "Spoken replies off"}
-            >
-              {voiceOutput ? <Volume2 size={16} /> : <VolumeX size={16} />}
-            </button>
-          )}
+          <VoicePicker
+            voice={voice}
+            onChangeVoice={setVoice}
+            spokenRepliesEnabled={spokenReplies}
+            onToggleSpokenReplies={() => {
+              if (spokenReplies) stopSpeaking();
+              setSpokenReplies((v) => !v);
+            }}
+          />
           <button
             onClick={toggleTheme}
             className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"

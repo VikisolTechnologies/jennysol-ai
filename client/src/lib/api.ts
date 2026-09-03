@@ -96,3 +96,19 @@ export async function generateImage(prompt: string): Promise<GeneratedImage> {
   if (!res.ok) throw new Error(data?.error || `Image generation failed (${res.status})`);
   return data;
 }
+
+export interface GeneratedSpeech {
+  mimeType: string;
+  data: string; // base64
+}
+
+export async function generateSpeech(text: string, voice: string): Promise<GeneratedSpeech> {
+  const res = await fetch(`${API_BASE}/api/speech`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || `Speech generation failed (${res.status})`);
+  return data;
+}
