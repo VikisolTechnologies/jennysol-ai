@@ -29,14 +29,39 @@ function buildRequest(systemPrompt: string, history: ChatTurn[], withSearch: boo
 
 // Some API keys/tiers reject the googleSearch tool outright (a separate quota
 // bucket from plain chat — empirically confirmed: identical requests succeed
-// without the tool and 429 with it). Once that's observed, stop attempting it
-// so every subsequent message doesn't pay for a doomed round trip; plain chat
-// keeps working either way. Not persisted — a fresh process re-probes once.
-let groundingAvailable: boolean | null = null;
+// without the tool and 429 with it, and Google takes ~15+ seconds to return
+// that 429). Discovering that on a real user's message would tax every first
+// request after a restart with a ~15s stall before falling back — measured
+// directly (17s vs <1s). So availability is decided once, in the background,
+// at module load — never inside a real request's critical path. Defaults to
+// "off" until the probe proves otherwise, which is the safe direction to be
+// wrong in (a slow-to-discover feature beats a slow first message).
+let groundingAvailable = false;
+let probeStarted = false;
+
+function probeGroundingAvailability(): void {
+  if (probeStarted) return;
+  probeStarted = true;
+  void (async () => {
+    try {
+      const stream = await getClient().models.generateContentStream(
+        buildRequest("You are a helpful assistant.", [{ role: "user", content: "hi" }], true)
+      );
+      for await (const _chunk of stream) {
+        // Draining is enough to know the tool-enabled request succeeded —
+        // the content itself is discarded, this never reaches a real user.
+      }
+      groundingAvailable = true;
+    } catch {
+      groundingAvailable = false;
+    }
+  })();
+}
 
 export const geminiProvider: LlmProvider = {
   async streamChatCompletion(systemPrompt, history, onDelta, onWebSources) {
-    const tryWithSearch = groundingAvailable !== false;
+    probeGroundingAvailability();
+    const tryWithSearch = groundingAvailable;
     let deltasSent = 0;
 
     try {
@@ -57,15 +82,14 @@ export const geminiProvider: LlmProvider = {
         if (md) grounding = md;
       }
 
-      if (tryWithSearch) groundingAvailable = true;
       if (onWebSources && grounding) {
         const sources = extractWebSources(grounding);
         if (sources.length > 0) onWebSources(sources);
       }
     } catch (err) {
-      // Grounding unavailable on this key/tier and nothing was streamed yet —
-      // fall back to plain chat for this same request rather than surfacing
-      // an error the user never should have seen.
+      // Defense in depth: grounding looked available (probe succeeded, or
+      // hasn't run yet) but this specific call still failed with nothing
+      // streamed — fall back to plain chat rather than surfacing an error.
       if (tryWithSearch && deltasSent === 0) {
         groundingAvailable = false;
         const stream = await getClient().models.generateContentStream(

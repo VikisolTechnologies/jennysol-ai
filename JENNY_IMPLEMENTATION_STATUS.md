@@ -128,7 +128,19 @@ request), no agent-level state machine. "High-level activity reporting" exists o
 voice (the orb states) — plain-text chat has no equivalent ("Searching the web…"-style
 status) even though grounding can now genuinely happen mid-answer.
 
-**Problems:** none found in what exists; the gap is entirely absence, not broken code.
+**Problems (found and fixed the same session):** the first version of the grounding-
+availability check ran inline on a real request — the very first chat message after any
+server restart would attempt the tool, wait for Gemini's 429 (measured directly at
+**17.159s** in an isolated back-to-back test, vs. 930ms with the tool skipped), and only
+then fall back. Since this is a `tsx watch` dev server that restarts on every file save,
+this meant real messages were intermittently taking 17+ seconds — reported directly by the
+user as "the responses are very slow." Fixed by moving the availability check to a
+one-time background probe at module load (`probeGroundingAvailability` in `gemini.ts`):
+it defaults to *not* using the tool until the probe explicitly confirms it works, so no
+real request ever waits on that discovery. Re-measured after the fix: first request after
+a restart 5.1s, second 2.7s, third 1.3s — normal Node/network warmup, not a stuck 17s
+floor. The per-request try/fallback logic was kept as defense-in-depth for the rare case
+grounding looks available but a specific call still fails.
 
 **Next action:** get grounding actually exercised on a key/tier where it isn't
 quota-exhausted, to confirm real sources render correctly end-to-end rather than just in
