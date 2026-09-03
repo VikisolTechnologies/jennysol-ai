@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Ear,
+  EarOff,
   ImageIcon,
   Menu,
   Mic,
@@ -16,6 +18,7 @@ import { generateImage, sendChatMessage, type ChatTurn, type GeneratedImage, typ
 import { MessageBubble } from "./MessageBubble";
 import { useTheme } from "../lib/useTheme";
 import { useSpeechRecognition } from "../lib/useSpeechRecognition";
+import { useWakeWord } from "../lib/useWakeWord";
 import { speak, speechSynthesisSupported, stopSpeaking } from "../lib/speak";
 
 interface DisplayMessage extends ChatTurn {
@@ -44,6 +47,12 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
     requestAnimationFrame(autoResize);
   });
+
+  // "Hey Jenny" always-on wake word: heard commands go straight to chat
+  // (never image mode — voice Q&A, not voice image prompts) and are always
+  // spoken back, regardless of the manual voice-output toggle, since a
+  // spoken question implies a spoken answer.
+  const wakeWord = useWakeWord((transcript) => handleSend(transcript, true));
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -89,7 +98,7 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     }
   }
 
-  async function handleSend(text = input.trim()) {
+  async function handleSend(text = input.trim(), forceSpeak = false) {
     if (!text || sending) return;
     if (imageMode) return handleSendImage(text);
 
@@ -120,7 +129,7 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = { ...copy[copy.length - 1], sources };
-            if (voiceOutput) speak(copy[copy.length - 1].content);
+            if (voiceOutput || forceSpeak) speak(copy[copy.length - 1].content);
             return copy;
           });
         }
@@ -152,6 +161,36 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           <span className="text-sm font-semibold">Chat</span>
         </div>
         <div className="flex items-center gap-1">
+          {wakeWord.supported && (
+            <button
+              onClick={wakeWord.toggle}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                wakeWord.enabled
+                  ? wakeWord.status === "awake"
+                    ? "bg-rose-500 text-white"
+                    : "bg-brand-gradient text-white"
+                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+              }`}
+              aria-pressed={wakeWord.enabled}
+              aria-label={wakeWord.enabled ? "Stop listening for “Hey Jenny”" : "Listen for “Hey Jenny”"}
+              title={
+                wakeWord.enabled
+                  ? wakeWord.status === "awake"
+                    ? "Listening for your question…"
+                    : "Listening for “Hey Jenny”… click to stop"
+                  : "Say “Hey Jenny” to talk hands-free"
+              }
+            >
+              {wakeWord.enabled ? (
+                <Ear size={14} className={wakeWord.status === "awake" ? "animate-pulse" : ""} />
+              ) : (
+                <EarOff size={14} />
+              )}
+              <span className="hidden sm:inline">
+                {wakeWord.enabled ? (wakeWord.status === "awake" ? "Listening…" : "Hey Jenny") : "Hey Jenny"}
+              </span>
+            </button>
+          )}
           {speechSynthesisSupported && (
             <button
               onClick={() => {

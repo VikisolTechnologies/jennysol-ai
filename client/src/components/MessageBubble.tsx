@@ -1,7 +1,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, ImageIcon, Sparkles, User } from "lucide-react";
+import { Check, Copy, ImageIcon, Sparkles } from "lucide-react";
 import type { ChatTurn, GeneratedImage, Source } from "../lib/api";
 
 export function MessageBubble({
@@ -20,26 +20,27 @@ export function MessageBubble({
   const isUser = role === "user";
   const [copied, setCopied] = useState(false);
 
+  // Matches ChatGPT's transcript conventions: user turns are a plain bubble,
+  // right-aligned, no avatar; assistant turns have no bubble at all — just an
+  // avatar and flush text, so long answers read as a document, not a box.
+  if (isUser) {
+    return (
+      <div className="flex animate-slide-up justify-end">
+        <div className="max-w-[75%] min-w-0 break-words rounded-3xl bg-neutral-100 px-4 py-2.5 text-sm leading-relaxed text-neutral-800 dark:bg-white/10 dark:text-neutral-100">
+          <p className="whitespace-pre-wrap">{content}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex animate-slide-up gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
-      <div
-        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-          isUser
-            ? "bg-neutral-200 text-neutral-600 dark:bg-white/10 dark:text-neutral-300"
-            : "bg-brand-gradient text-white shadow-md shadow-brand-500/25"
-        }`}
-      >
-        {isUser ? <User size={14} /> : <Sparkles size={14} />}
+    <div className="flex animate-slide-up gap-3">
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-gradient text-white shadow-md shadow-brand-500/25">
+        <Sparkles size={14} />
       </div>
 
-      <div className={`group flex min-w-0 max-w-[80%] flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}>
-        <div
-          className={`min-w-0 break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-            isUser
-              ? "rounded-tr-sm bg-brand-gradient text-white"
-              : "rounded-tl-sm border border-neutral-200 bg-white text-neutral-800 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-100"
-          }`}
-        >
+      <div className="group flex min-w-0 max-w-[85%] flex-1 flex-col gap-1.5">
+        <div className="min-w-0 break-words text-sm leading-relaxed text-neutral-800 dark:text-neutral-100">
           {imageLoading ? (
             <span className="flex items-center gap-2 py-1 text-neutral-500 dark:text-neutral-400">
               <ImageIcon size={14} className="animate-pulse" />
@@ -52,13 +53,9 @@ export function MessageBubble({
               className="max-w-full rounded-lg"
             />
           ) : content ? (
-            isUser ? (
-              <p className="whitespace-pre-wrap">{content}</p>
-            ) : (
-              <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none prose-p:my-1.5 prose-pre:my-2 prose-pre:bg-neutral-900 prose-pre:text-neutral-100 prose-code:before:content-none prose-code:after:content-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-              </div>
-            )
+            <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none prose-p:my-1.5 prose-pre:my-2 prose-pre:bg-neutral-900 prose-pre:text-neutral-100 prose-code:before:content-none prose-code:after:content-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            </div>
           ) : (
             <span className="flex gap-1 py-1">
               <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current [animation-delay:-0.3s]" />
@@ -82,7 +79,7 @@ export function MessageBubble({
           </div>
         )}
 
-        {!isUser && content && !streaming && (
+        {content && !streaming && (
           <button
             onClick={() => {
               navigator.clipboard.writeText(content);

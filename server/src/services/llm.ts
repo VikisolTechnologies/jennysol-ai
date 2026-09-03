@@ -1,5 +1,6 @@
 import { geminiProvider } from "./providers/gemini.js";
 import { deepseekProvider } from "./providers/deepseek.js";
+import { ollamaProvider } from "./providers/ollama.js";
 import type { ChatTurn, LlmProvider } from "./llmProvider.js";
 
 export type { ChatTurn };
@@ -9,6 +10,7 @@ export type { ChatTurn };
 const providers: Record<string, LlmProvider> = {
   gemini: geminiProvider,
   deepseek: deepseekProvider,
+  ollama: ollamaProvider,
 };
 
 const activeProviderName = process.env.LLM_PROVIDER || "gemini";

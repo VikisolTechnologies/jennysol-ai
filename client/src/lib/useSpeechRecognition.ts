@@ -1,34 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  getSpeechRecognitionCtor,
+  speechRecognitionSupported,
+  type SpeechRecognitionLike,
+} from "./speechRecognitionTypes";
 
-// Chrome/Edge/Safari expose this under a vendor prefix; Firefox has no
-// implementation at all, so this whole feature is feature-detected below.
-interface SpeechRecognitionResultLike {
-  transcript: string;
-}
-interface SpeechRecognitionEventLike extends Event {
-  results: ArrayLike<ArrayLike<SpeechRecognitionResultLike>>;
-}
-interface SpeechRecognitionLike extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start(): void;
-  stop(): void;
-  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((e: Event) => void) | null;
-  onend: (() => void) | null;
-}
+export { speechRecognitionSupported };
 
-function getSpeechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
-  const w = window as unknown as {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
-}
-
-export const speechRecognitionSupported = typeof window !== "undefined" && !!getSpeechRecognitionCtor();
-
+// Push-to-talk: one click, one utterance, auto-stops. For always-on wake-word
+// listening see useWakeWord.ts — that needs a different (continuous) mode.
 export function useSpeechRecognition(onResult: (transcript: string) => void) {
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
