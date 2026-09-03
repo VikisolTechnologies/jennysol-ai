@@ -140,7 +140,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         </ul>
       </div>
 
-      <p className="text-center text-[10px] text-neutral-400">Powered by Gemini · runs locally on your data</p>
+      <p className="text-center text-[10px] text-neutral-400">Powered by Vikisol · runs locally on your data</p>
     </aside>
   );
 }
