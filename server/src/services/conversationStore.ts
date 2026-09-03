@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import { db } from "../db/index.js";
 import type { ChatTurn } from "./llm.js";
 
-export interface Source {
-  documentId: string;
-  text: string;
-}
+export type Source =
+  | { type: "document"; documentId: string; text: string }
+  | { type: "web"; title: string; url: string; domain?: string };
 
 export interface ConversationSummary {
   id: string;

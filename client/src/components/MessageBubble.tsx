@@ -1,7 +1,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, ImageIcon, Sparkles } from "lucide-react";
+import { Check, Copy, ImageIcon, Sparkles, Globe } from "lucide-react";
 import type { ChatTurn, GeneratedImage, Source } from "../lib/api";
 
 export function MessageBubble({
@@ -70,15 +70,29 @@ export function MessageBubble({
 
         {sources && sources.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {sources.map((s, i) => (
-              <span
-                key={i}
-                title={s.text}
-                className="max-w-[220px] truncate rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-0.5 text-[10px] text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400"
-              >
-                [{i + 1}] {s.text.slice(0, 40)}…
-              </span>
-            ))}
+            {sources.map((s, i) =>
+              s.type === "web" ? (
+                <a
+                  key={i}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={s.url}
+                  className="flex max-w-[220px] items-center gap-1 truncate rounded-full border border-brand-200 bg-brand-50 px-2.5 py-0.5 text-[10px] text-brand-700 transition hover:bg-brand-100 dark:border-brand-500/25 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20"
+                >
+                  <Globe size={10} className="shrink-0" />
+                  <span className="truncate">{s.domain || s.title}</span>
+                </a>
+              ) : (
+                <span
+                  key={i}
+                  title={s.text}
+                  className="max-w-[220px] truncate rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-0.5 text-[10px] text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400"
+                >
+                  [{i + 1}] {s.text.slice(0, 40)}…
+                </span>
+              )
+            )}
           </div>
         )}
 

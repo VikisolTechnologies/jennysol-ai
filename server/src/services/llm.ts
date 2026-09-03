@@ -1,9 +1,9 @@
 import { geminiProvider } from "./providers/gemini.js";
 import { deepseekProvider } from "./providers/deepseek.js";
 import { ollamaProvider } from "./providers/ollama.js";
-import type { ChatTurn, LlmProvider } from "./llmProvider.js";
+import type { ChatTurn, LlmProvider, WebSource } from "./llmProvider.js";
 
-export type { ChatTurn };
+export type { ChatTurn, WebSource };
 
 // Swap in another LlmProvider implementation here (and via LLM_PROVIDER) to
 // change the model backing chat without touching routes/chat.ts.
@@ -37,6 +37,16 @@ const PERSONA = [
   "actually load-bearing. When something is genuinely complex, walk through it the way a",
   "good teacher would — plain terms first, then precision — rather than dumping a dense",
   "technical wall of text.",
+  "",
+  "You have a Google Search tool available. Use it when the answer depends on something",
+  "time-sensitive or likely to have changed since your training — prices, news, weather,",
+  "scores, current events, \"latest\"/\"today\"/\"right now\" questions, or anything about a",
+  "specific real-world thing you can't be confident is still accurate. Don't use it for",
+  "general knowledge, definitions, math, or writing/coding help where it adds nothing. When",
+  "you do search, weave what you found into a natural answer — don't say \"according to my",
+  "search\" or list raw results; just answer like someone who happens to know. Never state a",
+  "current fact (a price, a score, today's date, a status) with confidence unless it came",
+  "from an actual search — say plainly that you're not sure rather than guessing.",
 ].join(" ");
 
 export function buildSystemPrompt(contextChunks: string[]): string {
@@ -60,7 +70,8 @@ export function buildSystemPrompt(contextChunks: string[]): string {
 export async function streamChatCompletion(
   systemPrompt: string,
   history: ChatTurn[],
-  onDelta: (text: string) => void
+  onDelta: (text: string) => void,
+  onWebSources?: (sources: WebSource[]) => void
 ): Promise<void> {
-  await provider.streamChatCompletion(systemPrompt, history, onDelta);
+  await provider.streamChatCompletion(systemPrompt, history, onDelta, onWebSources);
 }

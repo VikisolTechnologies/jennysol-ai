@@ -7,6 +7,7 @@ import {
   streamChatCompletion,
   activeProviderMissingKey,
   type ChatTurn,
+  type WebSource,
 } from "../services/llm.js";
 import {
   addMessage,
@@ -59,12 +60,23 @@ chatRouter.post("/", async (req, res) => {
     res.write(`data: ${JSON.stringify({ conversationId })}\n\n`);
 
     let fullReply = "";
-    await streamChatCompletion(systemPrompt, turns, (delta) => {
-      fullReply += delta;
-      res.write(`data: ${JSON.stringify({ delta })}\n\n`);
-    });
+    let webSources: WebSource[] = [];
+    await streamChatCompletion(
+      systemPrompt,
+      turns,
+      (delta) => {
+        fullReply += delta;
+        res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+      },
+      (found) => {
+        webSources = found;
+      }
+    );
 
-    const sources = matches.map((m) => ({ documentId: m.documentId, text: m.text.slice(0, 160) }));
+    const sources = [
+      ...matches.map((m) => ({ type: "document" as const, documentId: m.documentId, text: m.text.slice(0, 160) })),
+      ...webSources.map((s) => ({ type: "web" as const, title: s.title, url: s.url, domain: s.domain })),
+    ];
     addMessage(userId, conversationId, "assistant", fullReply, sources);
 
     res.write(`data: ${JSON.stringify({ done: true, sources })}\n\n`);
@@ -73,11 +85,14 @@ chatRouter.post("/", async (req, res) => {
     console.error("Chat failed:", err);
     const apiStatus = (err as { status?: number })?.status;
     const missingKey = activeProviderMissingKey();
+    // Shown verbatim as Jenny's reply — never forward raw provider error
+    // bodies here (the Gemini SDK's err.message is often literally a
+    // JSON-stringified blob of the underlying HTTP error).
     const message = missingKey
       ? `The server's ${missingKey} is missing. Set it in server/.env and restart the server.`
-      : apiStatus
-        ? `Chat request failed: ${(err as Error).message}`
-        : "Chat request failed";
+      : apiStatus === 429
+        ? "I'm getting rate-limited right now — too many requests in a short window. Give it a minute and try again."
+        : "Something went wrong on my end answering that. Mind trying again?";
     if (!res.headersSent) {
       res.status(500).json({ error: message });
     } else {

@@ -83,25 +83,58 @@ not committed as a test suite.
 **Implementation:**
 - `server/src/routes/chat.ts` — request handling, conversation loading/persistence
 - `server/src/services/llm.ts` — provider selection (`LLM_PROVIDER` env var)
-- `server/src/services/llmProvider.ts` — the `LlmProvider` interface
+- `server/src/services/llmProvider.ts` — the `LlmProvider` interface, now also carrying an
+  optional `onWebSources` callback and a `WebSource` type
+- `server/src/services/providers/gemini.ts` — chat requests now declare Gemini's native
+  `googleSearch` grounding tool; Gemini itself decides per-turn whether a query actually
+  needs a live search (guided by a persona instruction in `llm.ts` telling it when to use
+  search vs. answer from general knowledge) — this isn't a hand-built intent classifier,
+  it rides on the model's own tool-selection judgment, which is both less code and more
+  reliable than a bespoke keyword/regex layer would be
 - Streaming: SSE (`text/event-stream`) from server to client, real token streaming
+- Real sources are now unified: `Source` is a discriminated union of `{type:"document"}`
+  (existing RAG chunks) and `{type:"web", title, url, domain}` (from Gemini's
+  `groundingMetadata.groundingChunks[].web`) — web sources render as real clickable link
+  chips in `MessageBubble.tsx`, not the old fake-looking truncated-text pills; document
+  sources keep their original rendering
+- A real provider-fallback path: if the `googleSearch` tool call fails before any text has
+  streamed, `gemini.ts` transparently retries the same request without the tool and the
+  user sees a normal answer with no visible error — a working, narrow instance of what
+  section 13 of the intelligence-upgrade spec calls "provider fallback," not the general
+  cross-provider version (see category 3)
 
 **Evidence:** live Gemini chat responses via curl and browser testing throughout this
-project's history; TypeScript build passes.
+project's history; TypeScript build passes. **Grounding specifically:** confirmed via a
+direct, isolated REST call to `generateContent` that the exact same prompt succeeds
+without the `googleSearch` tool and returns 429 `RESOURCE_EXHAUSTED` with it, on this
+project's current (free-tier) API key — i.e. grounding is a separate quota bucket from
+plain chat on this key, currently exhausted/unavailable, not a bug in the wiring. Verified
+the fallback handles this correctly: with the tool declared, a plain "say hello" request
+now succeeds (falls back silently) instead of failing chat entirely, which is what
+happened before the fallback was added — this was caught and fixed in the same work
+session, not shipped broken. **Not yet verified:** an actual successful grounded answer
+with real returned sources, since this key currently can't complete a grounded request at
+all. The code path (extracting `groundingChunks`, deduping by URL, rendering as link
+chips) is type-checked and reviewed against the SDK's real type definitions, but has not
+been exercised end-to-end with an actual search result.
 
 **Missing:** no separate "agent runtime" distinct from the Express route handler — there is
-no planner, no structured tool-call loop (there are no tools to call besides the fixed RAG
-retrieval step), no task/session persistence beyond one conversation's message history, no
+still no planner and no general structured tool-call loop (grounding is the one tool
+Gemini can reach for; there's no way to add a second one, like a real image-search or
+maps tool, without deciding whether to build that generic loop or hand-wire each one).
+No task/session persistence beyond one conversation's message history, no
 retry/timeout/cancellation logic around the LLM call itself (a hung provider call hangs the
 request), no agent-level state machine. "High-level activity reporting" exists only for
-voice (the orb states) — plain-text chat has no equivalent ("Searching your photos…"-style
-status) because there's nothing to search.
+voice (the orb states) — plain-text chat has no equivalent ("Searching the web…"-style
+status) even though grounding can now genuinely happen mid-answer.
 
 **Problems:** none found in what exists; the gap is entirely absence, not broken code.
 
-**Next action:** if this direction is pursued, the real next step is a tool-calling loop
-(structured function calling against the LLM, not just a fixed RAG-then-answer pipeline)
-before anything else in this category can move past PARTIAL.
+**Next action:** get grounding actually exercised on a key/tier where it isn't
+quota-exhausted, to confirm real sources render correctly end-to-end rather than just in
+code review. Beyond that, if this direction is pursued further, a real tool-calling loop
+(structured function calling, not just "one tool Gemini decides on its own to use") is the
+next step before anything else in this category can move past PARTIAL.
 
 ---
 
@@ -191,9 +224,11 @@ project. DeepSeek and Ollama are real, complete implementations against document
 shapes, but **no DeepSeek API key and no local Ollama instance have ever been available in
 this environment to run an actual request through them** — they are unverified, not fake.
 
-**Missing:** cost tracking, token usage tracking, provider health checks, automatic
-fallback on provider failure (if the configured provider errors, the request just fails —
-there is no "try the next one"), no Claude provider (intentionally removed).
+**Missing:** cost tracking, token usage tracking, provider health checks, no Claude
+provider (intentionally removed). Automatic fallback now exists in one narrow, real form —
+see category 1 — but only for Gemini's own grounding-tool failure, not a general "Gemini
+down, try DeepSeek" cross-provider fallback; if the *active* provider itself errors, the
+request still just fails.
 
 **Problems:** none in the code itself; the honest status is "correct-looking code, two of
 three providers never actually exercised."
@@ -210,9 +245,13 @@ implementation.
 
 **Implementation:** `LLM_PROVIDER` env var picks one provider for *all* chat traffic.
 
-**Missing:** any actual routing logic — nothing considers task complexity, latency, cost,
-context size, or tool requirements per-request. Changing providers means changing an env
-var and restarting the server, not a live per-request decision.
+**Missing:** any actual *model* routing logic — nothing considers task complexity, latency,
+cost, or context size per-request; changing providers means changing an env var and
+restarting the server, not a live per-request decision. Worth distinguishing from what
+category 1 now has: Gemini's own per-turn decision to invoke (or not invoke) the
+`googleSearch` tool is real *tool* routing, but it's the model reasoning about one binary
+choice on a fixed provider — not model routing in the sense this category means (e.g.
+sending trivial queries to a cheaper model and complex ones to a stronger one).
 
 **Next action:** not worth building until there's a second real reason to route (e.g. a
 genuinely cheap/fast model for trivial queries vs. a stronger one for complex ones) — right

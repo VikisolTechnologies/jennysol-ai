@@ -5,10 +5,9 @@ export interface ChatTurn {
   content: string;
 }
 
-export interface Source {
-  documentId: string;
-  text: string;
-}
+export type Source =
+  | { type: "document"; documentId: string; text: string }
+  | { type: "web"; title: string; url: string; domain?: string };
 
 // History lives server-side keyed by conversationId — the client no longer
 // resends the whole transcript on every message, just which conversation
