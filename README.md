@@ -1,24 +1,35 @@
 # Jennysol AI
 
 Jennysol AI is a retrieval-augmented (RAG) chat assistant: upload documents, then chat
-with an AI that answers using those documents as grounded context, powered by Gemini.
+with an AI that answers using those documents as grounded context. Also does image
+generation and voice input/output. Chat provider is swappable — Gemini or DeepSeek today.
 
 ## Architecture (v1)
 
 ```
 jennysol-ai/
   client/   React + Vite + TypeScript + Tailwind — chat UI, document upload/list
+    lib/useSpeechRecognition.ts  Browser Web Speech API wrapper (voice input, mic button)
+    lib/speak.ts                 Browser speechSynthesis wrapper (spoken replies)
   server/   Node + Express + TypeScript — REST API
-    services/llm.ts              Picks the configured LlmProvider (LLM_PROVIDER, default "gemini")
-    services/llmProvider.ts      LlmProvider interface — swap/add providers without touching routes
-    services/providers/gemini.ts Gemini implementation (@google/genai, chat completion, streaming)
-    services/embeddings.ts       Local embedding model (@huggingface/transformers, no API key needed)
-    services/chunker.ts          Splits uploaded documents into overlapping text chunks
-    services/vectorStore.ts      SQLite-backed store; cosine similarity search over chunk embeddings
-    routes/documents.ts          Upload, list, delete documents
-    routes/chat.ts               RAG query: embed question -> retrieve top chunks -> ask the LLM provider
-    db/                          better-sqlite3 database (jennysol.db, gitignored)
+    services/llm.ts                   Picks the configured LlmProvider (LLM_PROVIDER, default "gemini")
+    services/llmProvider.ts           LlmProvider interface — swap/add providers without touching routes
+    services/providers/gemini.ts      Gemini implementation (@google/genai, chat completion, streaming)
+    services/providers/deepseek.ts    DeepSeek implementation (OpenAI-compatible REST, streaming)
+    services/providers/geminiImage.ts Image generation (Gemini "Nano Banana" image models)
+    services/embeddings.ts            Local embedding model (@huggingface/transformers, no API key needed)
+    services/chunker.ts               Splits uploaded documents into overlapping text chunks
+    services/vectorStore.ts           SQLite-backed store; cosine similarity search over chunk embeddings
+    routes/documents.ts                Upload, list, delete documents
+    routes/chat.ts                     RAG query: embed question -> retrieve top chunks -> ask the LLM provider
+    routes/image.ts                    Image generation request -> Gemini image model -> base64 image
+    db/                                better-sqlite3 database (jennysol.db, gitignored)
 ```
+
+Voice is entirely browser-native (Web Speech API) — no backend, no API key, no extra
+vendor. Works in Chrome/Edge/Safari; Firefox has no `SpeechRecognition` implementation, so
+the mic button is feature-detected and hides itself there rather than showing a broken
+control. Spoken-reply output (`speechSynthesis`) is more broadly supported and unaffected.
 
 Flow: a document is uploaded -> chunked -> each chunk embedded locally -> stored in SQLite.
 A chat message is embedded the same way -> top-k similar chunks are retrieved -> sent to
@@ -28,8 +39,13 @@ back to the UI.
 ## Prerequisites
 
 - Node.js 20+ and npm
-- A Gemini API key (https://aistudio.google.com/apikey) — free tier available, required
-  for chat. Put it in `server/.env`.
+- A Gemini API key (https://aistudio.google.com/apikey) — required regardless of which
+  chat provider you use below, since image generation always goes through Gemini. Free
+  tier covers chat; image generation needs a billing-enabled Google Cloud project (the
+  free tier's image quota is 0 requests/day — the app tells you this clearly if you hit
+  it rather than failing silently).
+- Optional: a DeepSeek API key (https://platform.deepseek.com) if you set
+  `LLM_PROVIDER=deepseek` to use DeepSeek for chat instead of Gemini.
 
 ## Setup
 
@@ -111,12 +127,16 @@ Revisit before any deployment that changes those code paths or upgrades `express
 
 ## Status
 
-v1: document upload + chunking + local embeddings + vector search + Gemini chat, with a
-polished chat/upload UI (dark mode, drag-and-drop upload, markdown rendering, source
-citations, responsive layout). Built, typechecked, and browser-smoke-tested locally
-(upload → chunk → embed → store → retrieve pipeline, and the chat UI's request/streaming/
-error paths, all confirmed working end to end, including a live Gemini response). Ready to
-deploy split across Vercel + Railway or as a single Docker service (see Deployment above);
-not yet deployed to a live URL. Chat requires `GEMINI_API_KEY` to be set — without it,
-everything else still works and the UI explains what's missing instead of failing
-silently.
+v1: document upload + chunking + local embeddings + vector search + chat (Gemini or
+DeepSeek), image generation, and browser-native voice input/output, with a polished UI
+(dark mode, drag-and-drop upload, markdown rendering, source citations, responsive
+layout). Built, typechecked, and browser-smoke-tested locally end to end, including live
+Gemini chat responses; image generation is code-complete and verified against the real
+API (correct model name, correct request/response handling) but blocked in this
+environment by the API key's free-tier quota (0 image requests/day) rather than by a bug.
+DeepSeek is implemented but untested live — no DeepSeek key has been provided to verify
+against the real API yet.
+
+Deployed: frontend live on Vercel; backend deployment to Railway pending (see Deployment
+above) — a Railway project token and cleared billing balance are needed to finish that
+half.

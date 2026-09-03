@@ -15,3 +15,5 @@ server/data/uploads/*
 
 .DS_Store
 *.log
+.vercel
+.env*

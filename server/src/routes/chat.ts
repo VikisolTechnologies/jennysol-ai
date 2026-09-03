@@ -2,7 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { embed } from "../services/embeddings.js";
 import { searchSimilarChunks } from "../services/vectorStore.js";
-import { buildSystemPrompt, streamChatCompletion, type ChatTurn } from "../services/llm.js";
+import {
+  buildSystemPrompt,
+  streamChatCompletion,
+  activeProviderMissingKey,
+  type ChatTurn,
+} from "../services/llm.js";
 
 export const chatRouter = Router();
 
@@ -46,8 +51,9 @@ chatRouter.post("/", async (req, res) => {
   } catch (err) {
     console.error("Chat failed:", err);
     const apiStatus = (err as { status?: number })?.status;
-    const message = !process.env.GEMINI_API_KEY
-      ? "The server's GEMINI_API_KEY is missing. Set it in server/.env and restart the server."
+    const missingKey = activeProviderMissingKey();
+    const message = missingKey
+      ? `The server's ${missingKey} is missing. Set it in server/.env and restart the server.`
       : apiStatus
         ? `Chat request failed: ${(err as Error).message}`
         : "Chat request failed";

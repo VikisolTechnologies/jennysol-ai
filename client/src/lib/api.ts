@@ -80,3 +80,19 @@ export async function uploadDocument(file: File): Promise<void> {
 export async function deleteDocument(id: string): Promise<void> {
   await fetch(`${API_BASE}/api/documents/${id}`, { method: "DELETE" });
 }
+
+export interface GeneratedImage {
+  mimeType: string;
+  data: string; // base64
+}
+
+export async function generateImage(prompt: string): Promise<GeneratedImage> {
+  const res = await fetch(`${API_BASE}/api/image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || `Image generation failed (${res.status})`);
+  return data;
+}

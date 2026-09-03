@@ -1,11 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { Menu, Moon, SendHorizontal, Sparkles, Sun } from "lucide-react";
-import { sendChatMessage, type ChatTurn, type Source } from "../lib/api";
+import {
+  ImageIcon,
+  Menu,
+  Mic,
+  MicOff,
+  MessageSquare,
+  Moon,
+  SendHorizontal,
+  Sparkles,
+  Sun,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import { generateImage, sendChatMessage, type ChatTurn, type GeneratedImage, type Source } from "../lib/api";
 import { MessageBubble } from "./MessageBubble";
 import { useTheme } from "../lib/useTheme";
+import { useSpeechRecognition } from "../lib/useSpeechRecognition";
+import { speak, speechSynthesisSupported, stopSpeaking } from "../lib/speak";
 
 interface DisplayMessage extends ChatTurn {
   sources?: Source[];
+  image?: GeneratedImage;
+  imageLoading?: boolean;
 }
 
 const SUGGESTIONS = [
@@ -18,13 +34,22 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [imageMode, setImageMode] = useState(false);
+  const [voiceOutput, setVoiceOutput] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { theme, toggleTheme } = useTheme();
 
+  const speech = useSpeechRecognition((transcript) => {
+    setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+    requestAnimationFrame(autoResize);
+  });
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => () => stopSpeaking(), []);
 
   function autoResize() {
     const el = textareaRef.current;
@@ -33,10 +58,44 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }
 
+  async function handleSendImage(prompt: string) {
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: prompt },
+      { role: "assistant", content: "", imageLoading: true },
+    ]);
+    setInput("");
+    requestAnimationFrame(autoResize);
+    setSending(true);
+
+    try {
+      const image = await generateImage(prompt);
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = { role: "assistant", content: prompt, image };
+        return copy;
+      });
+    } catch (err) {
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = {
+          role: "assistant",
+          content: err instanceof Error ? err.message : "Image generation failed.",
+        };
+        return copy;
+      });
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function handleSend(text = input.trim()) {
     if (!text || sending) return;
+    if (imageMode) return handleSendImage(text);
 
-    const history = messages.map(({ role, content }) => ({ role, content }));
+    const history = messages
+      .filter((m) => !m.image && !m.imageLoading)
+      .map(({ role, content }) => ({ role, content }));
     setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setInput("");
     requestAnimationFrame(autoResize);
@@ -61,6 +120,7 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = { ...copy[copy.length - 1], sources };
+            if (voiceOutput) speak(copy[copy.length - 1].content);
             return copy;
           });
         }
@@ -91,13 +151,30 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
           </button>
           <span className="text-sm font-semibold">Chat</span>
         </div>
-        <button
-          onClick={toggleTheme}
-          className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
-          aria-label="Toggle theme"
-        >
-          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
+        <div className="flex items-center gap-1">
+          {speechSynthesisSupported && (
+            <button
+              onClick={() => {
+                if (voiceOutput) stopSpeaking();
+                setVoiceOutput((v) => !v);
+              }}
+              className={`rounded-lg p-2 transition hover:bg-neutral-100 dark:hover:bg-white/10 ${
+                voiceOutput ? "text-brand-500" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200"
+              }`}
+              aria-label={voiceOutput ? "Turn off spoken replies" : "Turn on spoken replies"}
+              title={voiceOutput ? "Spoken replies on" : "Spoken replies off"}
+            >
+              {voiceOutput ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            </button>
+          )}
+          <button
+            onClick={toggleTheme}
+            className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+            aria-label="Toggle theme"
+          >
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-8">
@@ -133,6 +210,8 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
               role={m.role}
               content={m.content}
               sources={m.sources}
+              image={m.image}
+              imageLoading={m.imageLoading}
               streaming={sending && i === messages.length - 1}
             />
           ))}
@@ -141,32 +220,75 @@ export function ChatWindow({ onOpenSidebar }: { onOpenSidebar: () => void }) {
       </div>
 
       <div className="shrink-0 border-t border-neutral-200 bg-white/80 p-3 backdrop-blur-xl dark:border-white/10 dark:bg-neutral-950/80 sm:p-4">
-        <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-sm focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 dark:border-white/10 dark:bg-white/[0.04]">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              autoResize();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            rows={1}
-            placeholder="Ask Jennysol…"
-            className="max-h-40 flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-neutral-400"
-          />
-          <button
-            onClick={() => handleSend()}
-            disabled={sending || !input.trim()}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-white transition disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label="Send message"
-          >
-            <SendHorizontal size={16} />
-          </button>
+        <div className="mx-auto flex max-w-3xl items-center gap-2">
+          <div className="flex rounded-lg border border-neutral-200 p-0.5 dark:border-white/10">
+            <button
+              onClick={() => setImageMode(false)}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
+                !imageMode
+                  ? "bg-brand-gradient text-white"
+                  : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+              }`}
+              aria-pressed={!imageMode}
+            >
+              <MessageSquare size={13} />
+              <span className="hidden sm:inline">Chat</span>
+            </button>
+            <button
+              onClick={() => setImageMode(true)}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
+                imageMode
+                  ? "bg-brand-gradient text-white"
+                  : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+              }`}
+              aria-pressed={imageMode}
+            >
+              <ImageIcon size={13} />
+              <span className="hidden sm:inline">Image</span>
+            </button>
+          </div>
+
+          <div className="flex flex-1 items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-sm focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 dark:border-white/10 dark:bg-white/[0.04]">
+            {speech.supported && (
+              <button
+                onClick={() => (speech.listening ? speech.stop() : speech.start())}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition ${
+                  speech.listening
+                    ? "animate-pulse bg-rose-500 text-white"
+                    : "text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-white/10 dark:hover:text-neutral-300"
+                }`}
+                aria-label={speech.listening ? "Stop listening" : "Speak your message"}
+                title={speech.listening ? "Listening… click to stop" : "Speak your message"}
+              >
+                {speech.listening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                autoResize();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              rows={1}
+              placeholder={imageMode ? "Describe an image to generate…" : "Ask Jennysol…"}
+              className="max-h-40 flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-neutral-400"
+            />
+            <button
+              onClick={() => handleSend()}
+              disabled={sending || !input.trim()}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Send message"
+            >
+              <SendHorizontal size={16} />
+            </button>
+          </div>
         </div>
         <p className="mt-2 text-center text-[10px] text-neutral-400">
           Jennysol can make mistakes. Verify important information.

@@ -1,4 +1,5 @@
 import { geminiProvider } from "./providers/gemini.js";
+import { deepseekProvider } from "./providers/deepseek.js";
 import type { ChatTurn, LlmProvider } from "./llmProvider.js";
 
 export type { ChatTurn };
@@ -7,9 +8,23 @@ export type { ChatTurn };
 // change the model backing chat without touching routes/chat.ts.
 const providers: Record<string, LlmProvider> = {
   gemini: geminiProvider,
+  deepseek: deepseekProvider,
 };
 
-const provider = providers[process.env.LLM_PROVIDER || "gemini"] ?? geminiProvider;
+const activeProviderName = process.env.LLM_PROVIDER || "gemini";
+const provider = providers[activeProviderName] ?? geminiProvider;
+
+// Which env var each provider needs, so chat.ts can give a precise
+// "you forgot to set X" message regardless of which provider is active.
+const requiredEnvVar: Record<string, string> = {
+  gemini: "GEMINI_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+};
+
+export function activeProviderMissingKey(): string | null {
+  const envVar = requiredEnvVar[activeProviderName];
+  return envVar && !process.env[envVar] ? envVar : null;
+}
 
 export function buildSystemPrompt(contextChunks: string[]): string {
   if (contextChunks.length === 0) {

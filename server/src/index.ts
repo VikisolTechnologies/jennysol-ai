@@ -5,10 +5,13 @@ import path from "node:path";
 import fs from "node:fs";
 import { chatRouter } from "./routes/chat.js";
 import { documentsRouter } from "./routes/documents.js";
+import { imageRouter } from "./routes/image.js";
+import { activeProviderMissingKey } from "./services/llm.js";
 import "./db/index.js";
 
-if (!process.env.GEMINI_API_KEY) {
-  console.warn("[jennysol] GEMINI_API_KEY is not set — chat requests will fail. See server/.env.example.");
+const missingKey = activeProviderMissingKey();
+if (missingKey) {
+  console.warn(`[jennysol] ${missingKey} is not set — chat requests will fail. See server/.env.example.`);
 }
 
 // Same-origin deploys (or local dev via the Vite proxy) don't need CORS at
@@ -21,6 +24,7 @@ app.use(express.json());
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 app.use("/api/chat", chatRouter);
 app.use("/api/documents", documentsRouter);
+app.use("/api/image", imageRouter);
 
 // In production, serve the built client so a single service hosts both the
 // API and the UI — no separate static host needed for deployment.

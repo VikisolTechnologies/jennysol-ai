@@ -1,15 +1,22 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, Sparkles, User } from "lucide-react";
-import type { ChatTurn, Source } from "../lib/api";
+import { Check, Copy, ImageIcon, Sparkles, User } from "lucide-react";
+import type { ChatTurn, GeneratedImage, Source } from "../lib/api";
 
 export function MessageBubble({
   role,
   content,
   sources,
   streaming,
-}: ChatTurn & { sources?: Source[]; streaming?: boolean }) {
+  image,
+  imageLoading,
+}: ChatTurn & {
+  sources?: Source[];
+  streaming?: boolean;
+  image?: GeneratedImage;
+  imageLoading?: boolean;
+}) {
   const isUser = role === "user";
   const [copied, setCopied] = useState(false);
 
@@ -25,15 +32,26 @@ export function MessageBubble({
         {isUser ? <User size={14} /> : <Sparkles size={14} />}
       </div>
 
-      <div className={`group flex max-w-[80%] flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`group flex min-w-0 max-w-[80%] flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}>
         <div
-          className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+          className={`min-w-0 break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
             isUser
               ? "rounded-tr-sm bg-brand-gradient text-white"
               : "rounded-tl-sm border border-neutral-200 bg-white text-neutral-800 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-100"
           }`}
         >
-          {content ? (
+          {imageLoading ? (
+            <span className="flex items-center gap-2 py-1 text-neutral-500 dark:text-neutral-400">
+              <ImageIcon size={14} className="animate-pulse" />
+              Generating image…
+            </span>
+          ) : image ? (
+            <img
+              src={`data:${image.mimeType};base64,${image.data}`}
+              alt={content || "Generated image"}
+              className="max-w-full rounded-lg"
+            />
+          ) : content ? (
             isUser ? (
               <p className="whitespace-pre-wrap">{content}</p>
             ) : (
