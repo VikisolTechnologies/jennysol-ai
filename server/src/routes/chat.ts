@@ -15,6 +15,7 @@ import {
   createConversation,
   getConversationMessages,
 } from "../services/conversationStore.js";
+import { zodErrorMessage } from "../utils/zodError.js";
 
 export const chatRouter = Router();
 
@@ -26,7 +27,7 @@ const chatRequestSchema = z.object({
 chatRouter.post("/", async (req, res) => {
   const parsed = chatRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    res.status(400).json({ error: zodErrorMessage(parsed.error) });
     return;
   }
   const { message } = parsed.data;

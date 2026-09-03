@@ -32,6 +32,7 @@ import {
 import { verifyGoogleCredential } from "../services/auth/google.js";
 import { sendEmail } from "../services/email.js";
 import { requireAuth } from "../middleware/auth.js";
+import { zodErrorMessage } from "../utils/zodError.js";
 
 export const authRouter = Router();
 
@@ -63,7 +64,7 @@ const signupSchema = z.object({
 authRouter.post("/signup", sensitiveLimiter, async (req, res) => {
   const parsed = signupSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    res.status(400).json({ error: zodErrorMessage(parsed.error) });
     return;
   }
   const { email, password, name, role } = parsed.data;
@@ -211,7 +212,7 @@ const profileSchema = z.object({ name: z.string().trim().min(1).max(200) });
 authRouter.patch("/profile", requireAuth, (req, res) => {
   const parsed = profileSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    res.status(400).json({ error: zodErrorMessage(parsed.error) });
     return;
   }
   const user = updateProfile(req.userId!, parsed.data);
@@ -229,7 +230,7 @@ const changePasswordSchema = z.object({
 authRouter.post("/change-password", requireAuth, async (req, res) => {
   const parsed = changePasswordSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    res.status(400).json({ error: zodErrorMessage(parsed.error) });
     return;
   }
   const passwordHash = getPasswordHash(req.userId!);

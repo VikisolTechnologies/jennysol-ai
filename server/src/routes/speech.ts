@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { generateSpeech } from "../services/providers/geminiTts.js";
+import { zodErrorMessage } from "../utils/zodError.js";
 
 export const speechRouter = Router();
 
@@ -12,7 +13,7 @@ const speechRequestSchema = z.object({
 speechRouter.post("/", async (req, res) => {
   const parsed = speechRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.flatten() });
+    res.status(400).json({ error: zodErrorMessage(parsed.error) });
     return;
   }
 
