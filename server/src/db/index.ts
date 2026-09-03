@@ -90,6 +90,17 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+
+  CREATE TABLE IF NOT EXISTS error_logs (
+    id TEXT PRIMARY KEY,
+    level TEXT NOT NULL,
+    message TEXT NOT NULL,
+    stack TEXT,
+    path TEXT,
+    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_error_logs_created_at ON error_logs(created_at);
 `);
 
 // Pre-auth deployments already have `documents`/`conversations` tables without a
@@ -107,8 +118,12 @@ function addColumnIfMissing(table: string, column: string, ddl: string) {
 
 addColumnIfMissing("documents", "user_id", "user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
 addColumnIfMissing("conversations", "user_id", "user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+addColumnIfMissing("users", "google_id", "google_id TEXT");
+addColumnIfMissing("users", "auth_provider", "auth_provider TEXT NOT NULL DEFAULT 'password'");
+addColumnIfMissing("users", "has_seen_welcome", "has_seen_welcome INTEGER NOT NULL DEFAULT 0");
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);
   CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL;
 `);

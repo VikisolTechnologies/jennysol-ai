@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext";
 import { ROLES, type Role } from "../lib/auth";
+import { GOOGLE_SIGN_IN_ENABLED, GoogleSignInButton } from "../components/GoogleSignInButton";
 import { AuthLayout, AuthError, AuthField, AuthSubmit } from "./AuthLayout";
 
 export function Signup() {
-  const { signup } = useAuth();
+  const { signup, googleLogin } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -28,6 +29,19 @@ export function Signup() {
     }
   }
 
+  async function handleGoogle(credential: string) {
+    setError(null);
+    setLoading(true);
+    try {
+      await googleLogin(credential);
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Google sign-in failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <AuthLayout
       title="Create your account"
@@ -41,6 +55,16 @@ export function Signup() {
         </>
       }
     >
+      {GOOGLE_SIGN_IN_ENABLED && (
+        <>
+          <GoogleSignInButton onCredential={handleGoogle} />
+          <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-neutral-400">
+            <div className="h-px flex-1 bg-neutral-200 dark:bg-white/10" />
+            or
+            <div className="h-px flex-1 bg-neutral-200 dark:bg-white/10" />
+          </div>
+        </>
+      )}
       <form onSubmit={handleSubmit}>
         <AuthError message={error} />
         <AuthField label="Name" value={name} onChange={setName} autoComplete="name" />

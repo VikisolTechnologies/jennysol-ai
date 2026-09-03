@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
   File,
   FileText,
+  LayoutDashboard,
   LogOut,
   MailWarning,
   MessageSquare,
@@ -292,6 +294,16 @@ export function Sidebar({
             </div>
           </div>
         </div>
+      )}
+
+      {user?.role === "admin" && (
+        <Link
+          to="/admin"
+          className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-neutral-500 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-neutral-200"
+        >
+          <LayoutDashboard size={13} />
+          Admin dashboard
+        </Link>
       )}
 
       {user && (

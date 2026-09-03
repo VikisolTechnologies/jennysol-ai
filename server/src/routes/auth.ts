@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomBytes } from "node:crypto";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { checkPasswordStrength, hashPassword, verifyPassword } from "../services/auth/password.js";
@@ -15,15 +16,20 @@ import {
   createEmailVerificationToken,
   createPasswordResetToken,
   createUser,
+  createUserFromGoogle,
   consumeEmailVerificationToken,
   consumePasswordResetToken,
   getPasswordHash,
   getUserByEmail,
+  getUserByGoogleId,
   getUserById,
+  linkGoogleId,
   markEmailVerified,
+  markWelcomeSeen,
   setPasswordHash,
   updateProfile,
 } from "../services/auth/userStore.js";
+import { verifyGoogleCredential } from "../services/auth/google.js";
 import { sendEmail } from "../services/email.js";
 import { requireAuth } from "../middleware/auth.js";
 
@@ -123,6 +129,50 @@ authRouter.post("/login", sensitiveLimiter, async (req, res) => {
   res.json({ token, expiresAt, user });
 });
 
+// ---- Sign in with Google ----
+
+const googleSchema = z.object({ credential: z.string().min(1) });
+
+authRouter.post("/google", sensitiveLimiter, async (req, res) => {
+  const parsed = googleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request" });
+    return;
+  }
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    res.status(500).json({ error: "Google sign-in isn't set up on this server yet." });
+    return;
+  }
+
+  const profile = await verifyGoogleCredential(parsed.data.credential);
+  if (!profile) {
+    res.status(401).json({ error: "That Google sign-in couldn't be verified. Please try again." });
+    return;
+  }
+
+  // Three cases: (1) this Google account has signed in before — log in
+  // directly; (2) no google_id match, but the email already has a
+  // password account — link Google to it rather than erroring, since it's
+  // legitimately the same person; (3) genuinely new — create an account,
+  // taking the display name Google gives us (the user can rename
+  // themselves anytime in profile settings — no separate "what should we
+  // call you" prompt needed for something that's already editable).
+  let user = getUserByGoogleId(profile.googleId);
+  if (!user) {
+    const existingByEmail = getUserByEmail(profile.email);
+    if (existingByEmail) {
+      linkGoogleId(existingByEmail.id, profile.googleId);
+      user = getUserById(existingByEmail.id)!;
+    } else {
+      const unusablePasswordHash = await hashPassword(randomBytes(32).toString("hex"));
+      user = createUserFromGoogle(profile.email, unusablePasswordHash, profile.name, profile.googleId);
+    }
+  }
+
+  const { token, expiresAt } = createSession(user.id, req.header("user-agent"));
+  res.json({ token, expiresAt, user });
+});
+
 // ---- Logout ----
 
 authRouter.post("/logout", requireAuth, (req, res) => {
@@ -149,6 +199,11 @@ authRouter.get("/me", requireAuth, (req, res) => {
     return;
   }
   res.json({ user });
+});
+
+authRouter.post("/mark-welcome-seen", requireAuth, (req, res) => {
+  markWelcomeSeen(req.userId!);
+  res.status(204).send();
 });
 
 const profileSchema = z.object({ name: z.string().trim().min(1).max(200) });

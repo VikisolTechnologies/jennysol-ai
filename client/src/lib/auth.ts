@@ -20,6 +20,8 @@ export interface User {
   role: Role;
   organizationId: string | null;
   emailVerified: boolean;
+  authProvider: "password" | "google";
+  hasSeenWelcome: boolean;
   createdAt: string;
 }
 
@@ -86,6 +88,21 @@ export async function login(email: string, password: string): Promise<User> {
   const data = await parseOrThrow(res);
   setToken(data.token);
   return data.user;
+}
+
+export async function googleLogin(credential: string): Promise<User> {
+  const res = await fetch(`${API_BASE}/api/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential }),
+  });
+  const data = await parseOrThrow(res);
+  setToken(data.token);
+  return data.user;
+}
+
+export async function markWelcomeSeen(): Promise<void> {
+  await authFetch("/api/auth/mark-welcome-seen", { method: "POST" }).catch(() => {});
 }
 
 export async function logout(): Promise<void> {

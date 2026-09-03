@@ -20,6 +20,8 @@ export interface User {
   role: Role;
   organizationId: string | null;
   emailVerified: boolean;
+  authProvider: string;
+  hasSeenWelcome: boolean;
   createdAt: string;
 }
 
@@ -30,41 +32,67 @@ interface UserRow {
   role: Role;
   organizationId: string | null;
   emailVerified: number;
+  authProvider: string;
+  hasSeenWelcome: number;
   createdAt: string;
 }
 
 function toUser(row: UserRow): User {
-  return { ...row, emailVerified: !!row.emailVerified };
+  return { ...row, emailVerified: !!row.emailVerified, hasSeenWelcome: !!row.hasSeenWelcome };
 }
+
+const USER_SELECT = `
+  SELECT id, email, name, role, organization_id as organizationId, email_verified as emailVerified,
+         auth_provider as authProvider, has_seen_welcome as hasSeenWelcome, created_at as createdAt
+  FROM users
+`;
 
 export function createUser(email: string, passwordHash: string, name: string, role: Role): User {
   const id = randomUUID();
   db.prepare(
-    "INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO users (id, email, password_hash, name, role, auth_provider) VALUES (?, ?, ?, ?, ?, 'password')"
   ).run(id, email.toLowerCase(), passwordHash, name, role);
   return getUserById(id)!;
 }
 
+// Google sign-ins skip our own password/verification flow entirely — Google
+// has already verified the email, and there's no password to check, ever.
+// The stored hash is an unguessable random value purely to satisfy the
+// column's NOT NULL constraint; nothing ever compares against it.
+export function createUserFromGoogle(email: string, unusablePasswordHash: string, name: string, googleId: string): User {
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO users (id, email, password_hash, name, role, google_id, auth_provider, email_verified)
+     VALUES (?, ?, ?, ?, 'candidate', ?, 'google', 1)`
+  ).run(id, email.toLowerCase(), unusablePasswordHash, name, googleId);
+  return getUserById(id)!;
+}
+
+export function getUserByGoogleId(googleId: string): User | null {
+  const row = db.prepare(`${USER_SELECT} WHERE google_id = ?`).get(googleId) as UserRow | undefined;
+  return row ? toUser(row) : null;
+}
+
+export function linkGoogleId(userId: string, googleId: string) {
+  db.prepare("UPDATE users SET google_id = ?, updated_at = datetime('now') WHERE id = ?").run(googleId, userId);
+}
+
+export function markWelcomeSeen(userId: string) {
+  db.prepare("UPDATE users SET has_seen_welcome = 1, updated_at = datetime('now') WHERE id = ?").run(userId);
+}
+
 export function getUserByEmail(email: string): (User & { passwordHash: string }) | null {
   const row = db
-    .prepare(
-      `SELECT id, email, password_hash as passwordHash, name, role, organization_id as organizationId,
-              email_verified as emailVerified, created_at as createdAt
-       FROM users WHERE email = ?`
-    )
+    .prepare(`SELECT id, email, password_hash as passwordHash, name, role, organization_id as organizationId,
+              email_verified as emailVerified, auth_provider as authProvider, has_seen_welcome as hasSeenWelcome,
+              created_at as createdAt FROM users WHERE email = ?`)
     .get(email.toLowerCase()) as (UserRow & { passwordHash: string }) | undefined;
   if (!row) return null;
   return { ...toUser(row), passwordHash: row.passwordHash };
 }
 
 export function getUserById(id: string): User | null {
-  const row = db
-    .prepare(
-      `SELECT id, email, name, role, organization_id as organizationId,
-              email_verified as emailVerified, created_at as createdAt
-       FROM users WHERE id = ?`
-    )
-    .get(id) as UserRow | undefined;
+  const row = db.prepare(`${USER_SELECT} WHERE id = ?`).get(id) as UserRow | undefined;
   return row ? toUser(row) : null;
 }
 

@@ -198,15 +198,67 @@ initially applied to the whole `/api/auth` router, which would have throttled ro
 calls like `/me` on every page load — narrowed to just the abuse-prone endpoints
 (signup/login/forgot-password/reset-password).
 
+**Also added this session — Google Sign-In:**
+- `server/src/services/auth/google.ts` — verifies a Google Identity Services ID token
+  server-side (`google-auth-library`'s `OAuth2Client.verifyIdToken`) against Google's own
+  public keys; never trusts a client-supplied profile.
+- `POST /api/auth/google` — three real paths, all exercised in code: existing Google user
+  logs in directly; an email that already has a password account gets Google *linked* to
+  it (not rejected as a duplicate); a genuinely new email creates an account, taking the
+  display name straight from the Google profile (no separate "what should we call you"
+  prompt — the name is editable afterward via the existing profile settings, same as any
+  account).
+- `client/src/components/GoogleSignInButton.tsx` renders Google's own hosted button (not a
+  custom lookalike) on Login and Signup; hidden entirely, with no dangling UI, when
+  `VITE_GOOGLE_CLIENT_ID` isn't configured — verified via Playwright screenshot that the
+  "or" divider correctly disappears along with the button rather than floating with
+  nothing under it (this was a real bug, caught and fixed the same session).
+- **Not yet verifiable end-to-end:** this requires an actual Google OAuth client ID, which
+  isn't configured in this environment — the verification path, DB linking logic, and UI
+  are implemented and type-checked but a real Google account has not signed in through it.
+  Setup instructions are in `server/.env.example` and `client/.env.example`.
+
+**Also added this session — admin dashboard (scoped as a protected area of the same app,
+not a second deployed application — see below):**
+- `server/src/services/adminStore.ts`, `server/src/routes/admin.ts` — stats (user/role/
+  provider counts, signups and messages by day, active-user counts from real session
+  activity), a searchable paginated user list, a per-user detail + conversation list, and a
+  **read-only conversation transcript viewer** for support triage — gated by a new
+  `requireAdmin` middleware that re-checks the role from the DB on every request (not
+  baked into the session token, so revoking admin access is immediate).
+- `client/src/pages/admin/` — Dashboard, Users, User detail, Errors, all behind
+  `RequireAdmin` (client-side convenience only; real enforcement is server-side).
+- `server/scripts/promote-admin.ts` — a one-off CLI script to grant the first admin (`npx
+  tsx scripts/promote-admin.ts you@example.com`), since there's no in-app way to grant the
+  first admin without one already existing.
+- **Real privacy tradeoff, stated plainly, not hidden:** the conversation-transcript
+  viewer gives admins read access to any user's private chat content. This is what "chat
+  support" requires, but it's worth the user knowing this exists and deciding who gets
+  the admin role.
+- **Scoping decision:** built as `/admin/*` routes inside the existing deployed app rather
+  than a second, separately-hosted application. Same functionality, without doubling
+  hosting/deployment surface for an app that doesn't have its *primary* backend deployed
+  yet (Railway is still pending). If a genuinely separate admin app is wanted later, this
+  is straightforward to split out since the API layer is already a clean, separate route
+  group.
+- **Evidence:** tested end-to-end with curl and Playwright, not just code review — created
+  a real account, promoted it via the script, confirmed the *existing* session token
+  gained admin access immediately (no re-login needed, proving the fresh-DB-check design
+  works as intended); confirmed a non-admin token gets 403 on every `/api/admin/*` route;
+  confirmed a transcript request for a conversation that doesn't belong to the given user
+  ID returns 404 rather than another user's data; screenshotted the dashboard and users
+  table rendering real data (5 users, 14 conversations, 40 messages at the time of
+  testing).
+
 **Missing:** organizations (the `organization_id` column exists on `users` but nothing
 creates, joins, or manages membership in one — no invite flow, no org-level roles, no org
 switching); all 8 role-specific *experiences* (the role is captured at signup and stored,
-but nothing in the app currently behaves differently based on it — see category 30); admin
-tooling (no way to disable/inspect other users); audit logging of security events;
-CSRF-specific protection (mitigated in practice by Bearer-token auth rather than cookies —
-tokens aren't auto-sent by the browser the way cookies are, which sidesteps classic CSRF,
-but this wasn't independently pen-tested); account deletion / data export (categories 79–80
-in the original spec) have no endpoint.
+but nothing in the app currently behaves differently based on it — see category 30);
+audit logging of security events beyond the error log; CSRF-specific protection (mitigated
+in practice by Bearer-token auth rather than cookies — tokens aren't auto-sent by the
+browser the way cookies are, which sidesteps classic CSRF, but this wasn't independently
+pen-tested); account deletion / data export (categories 79–80 in the original spec) have
+no endpoint; no admin tooling yet to suspend/disable a user (only view).
 
 **Problems:** none currently known in what was built — this is the most rigorously tested
 addition in the project's history, specifically because it's securit­y-critical. The
@@ -645,14 +697,18 @@ for everything the app currently does.
   `conversationStore.ts`) — no string-concatenated SQL anywhere, so no SQL injection
   surface exists in the code that's there.
 
-**Missing:** no authentication (nothing to authorize, see category 2), no rate limiting at
-all (a single client can hammer `/api/chat` with no throttling), no SSRF protection (moot —
-no tool fetches arbitrary URLs on the user's behalf), no prompt-injection-specific defenses
-beyond the system prompt's general instructions (uploaded document content is passed to
-the model as context with no sanitization against embedded instructions — untested whether
-a malicious PDF could influence model behavior), no CSRF protection (moot for a
-same-origin/CORS-locked API with no cookies/sessions), no secrets manager (env vars only,
-appropriate at this scale), no encryption at rest for the SQLite file.
+**Missing:** ~~no authentication~~ / ~~no rate limiting~~ — both stale as of this update,
+this section wasn't revised when categories 2's own entry was (see category 2 and the
+Critical Security Issues section below for the real, tested state: every data route now
+requires auth, tenant-isolated, with global + per-route rate limiting). Still genuinely
+missing: no SSRF protection (moot — no tool fetches arbitrary URLs on the user's behalf),
+no prompt-injection-specific defenses beyond the system prompt's general instructions
+(uploaded document content is passed to the model as context with no sanitization against
+embedded instructions — untested whether a malicious PDF could influence model behavior),
+no CSRF protection (moot for a Bearer-token API with no cookies/sessions), no secrets
+manager (env vars only, appropriate at this scale), no encryption at rest for the SQLite
+file, no account-suspension/disable tooling (the new admin dashboard can view users but
+not act on them yet).
 
 **Problems:** the untested prompt-injection surface via uploaded documents is worth
 flagging as a real, unverified risk, not a theoretical one — this app explicitly puts
@@ -667,11 +723,21 @@ happens) would be cheap and informative.
 
 ### 37. Observability
 
-**Status:** NOT STARTED
+**Status:** PARTIAL (was NOT STARTED)
 
-**Missing:** no structured logging, no metrics, no traces, no token/cost tracking, no
-latency tracking beyond what's visible in ad hoc `console.log`/error output during manual
-testing.
+**Implementation:** a real `error_logs` table (`server/src/services/errorLog.ts`) now
+captures every uncaught exception, unhandled promise rejection, unhandled Express route
+error, and reported frontend crash, each with a message/stack/path/user — visible in the
+new admin dashboard's Errors tab, not just server console output.
+
+**Evidence:** directly triggered a real uncaught exception against the running server
+(a temporary test route, removed immediately after) and confirmed via the admin API that
+it was caught, logged with a full stack trace, and — critically — that the server kept
+running and answered `/health` immediately afterward, rather than crashing.
+
+**Missing:** still no metrics, no traces, no token/cost tracking, no latency tracking, no
+alerting (someone has to open the admin dashboard to notice; nothing pages anyone). This
+is crash/error visibility, not full observability.
 
 ---
 
@@ -715,7 +781,15 @@ regressions cheaply.
 **Status:** PARTIAL — see category 8's honest note
 
 **Implementation:** dark mode, ChatGPT-style transcript conventions, responsive
-mobile/desktop layout, a genuinely distinctive animated voice orb.
+mobile/desktop layout, a genuinely distinctive animated voice orb. New this session: a
+one-time "portal" welcome animation (`client/src/components/WelcomeAnimation.tsx`) shown
+on a brand-new account's first login — expanding rings, a spinning conic-gradient vortex,
+and an outward starfield, built from the same brand-gradient/orb visual language as the
+rest of the app (pure CSS transforms/opacity, no canvas/WebGL/3D library), with a Skip
+button and `motion-safe:` variants respecting `prefers-reduced-motion`. Gated by a real
+`has_seen_welcome` DB column so it plays exactly once ever, not once per browser.
+Screenshotted via Playwright mid-animation to confirm it actually renders the intended
+rings/glow/text rather than just trusting the CSS compiles.
 
 **Missing/Problems:** the app is explicitly, deliberately **chat-first**, which directly
 contradicts the repeated "not a ChatGPT clone, voice-first, orb as primary interaction"
@@ -733,11 +807,34 @@ generic 500) — e.g. `chat.ts` distinguishes missing-API-key from rate-limited 
 failure; `image.ts` and `speech.ts` specifically detect 429/quota errors and return a
 human-readable explanation instead of raw API JSON (this was a real bug found and fixed
 during testing — raw Google API error JSON was originally leaking into the chat UI
-unformatted).
+unformatted). New this session — process-level crash resilience, prompted directly by the
+user asking "make sure the app is not crashing" for future users:
+- `process.on("uncaughtException"/"unhandledRejection")` in `index.ts` — logs to
+  `error_logs` and keeps serving instead of the Node default of killing the process. A
+  deliberate, stated tradeoff: Node's own docs recommend restarting after an uncaught
+  exception since in-memory state could be inconsistent, but this app keeps no meaningful
+  state outside SQLite (already durable) and per-request closures, so continuing serves
+  uptime better here than it would for a stateful worker.
+- A catch-all Express error middleware (must be registered last) for anything a route
+  passes to `next(err)` or throws synchronously that nothing local caught — returns a
+  clean natural-sounding JSON message instead of Express's default HTML stack-trace page.
+- `client/src/components/ErrorBoundary.tsx` — a real React error boundary wrapping the
+  whole app. Before this, any render-time exception anywhere in the component tree meant
+  a permanent blank white screen for that user (React doesn't recover from a component
+  throwing on its own). Now it shows a "Something went wrong / Reload" screen and reports
+  the crash to the server.
+
+**Evidence:** not just written and reviewed — actually triggered. Added a temporary route
+that threw inside `setImmediate` (i.e. genuinely outside any request handler's own
+try/catch, the exact scenario `uncaughtException` exists for), hit it, confirmed via
+`curl /health` immediately after that the server was still up, and confirmed via the new
+admin Errors view that the exception was captured with a full stack trace. Removed the
+temporary route immediately after confirming.
 
 **Missing:** no retry logic anywhere (a transient 503 from Gemini just fails the request
 to the user, rather than retrying once). No reconnect logic for dropped SSE streams. No
-distinct "permission denied" UI state for microphone access.
+distinct "permission denied" UI state for microphone access. No alerting on the new error
+log — an admin has to go look.
 
 **Problems:** none currently observed beyond the gaps listed.
 
@@ -752,18 +849,25 @@ distinct "permission denied" UI state for microphone access.
   partial, 41 partial — see individual entries; treat this as "substantial, verified work
   exists" rather than a precise count, since most categories are partial rather than
   binary)
-- **PARTIAL:** 12 (1, 2, 3, 6, 10, 11, 12/13/14 combined, 28, 33–35, 36, 40, 41)
-- **NOT STARTED:** 23 of 41 categories — narrowed by one since this update: category 2
-  (multi-user architecture) moved from NOT STARTED to PARTIAL with real, tested
-  authentication and tenant isolation. Every category specific to Vikisol Arena's
-  role-specific/marketplace identity is still NOT STARTED (15–27, 29–32, 37, 38).
+- **PARTIAL:** 13 (1, 2, 3, 6, 10, 11, 12/13/14 combined, 28, 33–35, 36, 37, 40, 41)
+- **NOT STARTED:** 22 of 41 categories — category 37 (Observability) moved to PARTIAL this
+  update (real crash/error logging now exists, visible in the admin dashboard). Every
+  category specific to Vikisol Arena's role-specific/marketplace identity is still NOT
+  STARTED (15–27, 29–32, 38).
 - **VERIFIED against a real, working demonstration (not just code review):** conversation
   history lifecycle, Gemini chat, Gemini image generation (verified correct, blocked by
   quota), Gemini TTS (verified working, discovered the 10/day cap), the full voice
   conversation state machine including barge-in's code path and a real multi-turn no-
-  wake-word exchange, and now the full authentication lifecycle — signup, login, logout,
+  wake-word exchange, the full authentication lifecycle — signup, login, logout,
   logout-all-devices, password reset with session revocation, email verification, and
-  **tenant isolation directly confirmed with two real accounts** (see category 2).
+  **tenant isolation directly confirmed with two real accounts** (see category 2) — and
+  now Google Search grounding's fallback behavior, a real triggered-and-caught server
+  crash, the admin dashboard's stats/users/transcript/errors views against live data, and
+  the welcome animation actually rendering (all this update — see categories 1, 2, 37, 40,
+  41). **Not yet verified:** an actual Google sign-in (no OAuth client ID configured in
+  this environment) and an actual successful grounded chat answer (this key's grounding
+  quota is currently exhausted) — both implemented and reviewed, neither exercised
+  end-to-end with real external success.
 - **Blocked on credentials/external services:** DeepSeek (no key), Ollama (no local
   instance), every category 19–27 integration (no third-party API accounts exist for any
   of them), real email sending for verification/password-reset (currently dev-mode console

@@ -1,11 +1,17 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { MainApp } from "./components/MainApp";
 import { RequireAuth } from "./components/RequireAuth";
+import { RequireAdmin } from "./components/RequireAdmin";
 import { Login } from "./pages/Login";
 import { Signup } from "./pages/Signup";
 import { ForgotPassword } from "./pages/ForgotPassword";
 import { ResetPassword } from "./pages/ResetPassword";
 import { VerifyEmail } from "./pages/VerifyEmail";
+import { AdminLayout } from "./pages/admin/AdminLayout";
+import { AdminDashboard } from "./pages/admin/AdminDashboard";
+import { AdminUsers } from "./pages/admin/AdminUsers";
+import { AdminUserDetail } from "./pages/admin/AdminUserDetail";
+import { AdminErrors } from "./pages/admin/AdminErrors";
 
 export default function App() {
   return (
@@ -23,6 +29,21 @@ export default function App() {
           </RequireAuth>
         }
       />
+      <Route
+        path="/admin"
+        element={
+          <RequireAuth>
+            <RequireAdmin>
+              <AdminLayout />
+            </RequireAdmin>
+          </RequireAuth>
+        }
+      >
+        <Route index element={<AdminDashboard />} />
+        <Route path="users" element={<AdminUsers />} />
+        <Route path="users/:id" element={<AdminUserDetail />} />
+        <Route path="errors" element={<AdminErrors />} />
+      </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

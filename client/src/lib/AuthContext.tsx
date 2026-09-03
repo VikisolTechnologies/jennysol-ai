@@ -7,8 +7,10 @@ interface AuthContextValue {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (input: { email: string; password: string; name: string; role: authApi.Role }) => Promise<void>;
+  googleLogin: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  dismissWelcome: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -44,11 +46,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const u = await authApi.signup(input);
       setUser(u);
     },
+    async googleLogin(credential) {
+      const u = await authApi.googleLogin(credential);
+      setUser(u);
+    },
     async logout() {
       await authApi.logout();
       setUser(null);
     },
     refresh,
+    // Optimistic local flip so the welcome overlay closes immediately
+    // instead of waiting on a round trip; markWelcomeSeen persists it
+    // server-side in the background (best-effort, see auth.ts).
+    dismissWelcome() {
+      authApi.markWelcomeSeen();
+      setUser((u) => (u ? { ...u, hasSeenWelcome: true } : u));
+    },
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

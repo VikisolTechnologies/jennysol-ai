@@ -34,6 +34,11 @@ export default {
         "orb-listen": "orb-listen 1.6s ease-in-out infinite",
         "orb-think": "orb-think 2.2s linear infinite",
         "orb-tool-ring": "orb-tool-ring 1.8s linear infinite",
+        "portal-ring": "portal-ring 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite",
+        "portal-spin": "portal-spin 6s linear infinite",
+        "portal-spin-slow": "portal-spin 11s linear infinite reverse",
+        "portal-star": "portal-star 1.8s ease-out infinite",
+        "portal-zoom-out": "portal-zoom-out 0.7s cubic-bezier(0.6, 0, 0.9, 0.4) forwards",
       },
       keyframes: {
         "fade-in": {
@@ -71,6 +76,24 @@ export default {
         "orb-bar": {
           "0%, 100%": { transform: "scaleY(0.3)" },
           "50%": { transform: "scaleY(1)" },
+        },
+        "portal-ring": {
+          "0%": { transform: "scale(0.15)", opacity: 0 },
+          "12%": { opacity: 0.9 },
+          "100%": { transform: "scale(3.2)", opacity: 0 },
+        },
+        "portal-spin": {
+          "0%": { transform: "rotate(0deg)" },
+          "100%": { transform: "rotate(360deg)" },
+        },
+        "portal-star": {
+          "0%": { transform: "translate(0, 0) scale(0.4)", opacity: 0 },
+          "15%": { opacity: 1 },
+          "100%": { transform: "var(--star-end, translate(120px, 120px)) scale(1)", opacity: 0 },
+        },
+        "portal-zoom-out": {
+          "0%": { transform: "scale(1)", opacity: 1, filter: "blur(0px)" },
+          "100%": { transform: "scale(2.4)", opacity: 0, filter: "blur(12px)" },
         },
       },
       backgroundImage: {

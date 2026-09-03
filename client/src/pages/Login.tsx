@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext";
+import { GOOGLE_SIGN_IN_ENABLED, GoogleSignInButton } from "../components/GoogleSignInButton";
 import { AuthLayout, AuthError, AuthField, AuthSubmit } from "./AuthLayout";
 
 export function Login() {
-  const { login } = useAuth();
+  const { login, googleLogin } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,6 +26,19 @@ export function Login() {
     }
   }
 
+  async function handleGoogle(credential: string) {
+    setError(null);
+    setLoading(true);
+    try {
+      await googleLogin(credential);
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Google sign-in failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <AuthLayout
       title="Welcome back"
@@ -38,6 +52,16 @@ export function Login() {
         </>
       }
     >
+      {GOOGLE_SIGN_IN_ENABLED && (
+        <>
+          <GoogleSignInButton onCredential={handleGoogle} />
+          <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-neutral-400">
+            <div className="h-px flex-1 bg-neutral-200 dark:bg-white/10" />
+            or
+            <div className="h-px flex-1 bg-neutral-200 dark:bg-white/10" />
+          </div>
+        </>
+      )}
       <form onSubmit={handleSubmit}>
         <AuthError message={error} />
         <AuthField label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" />
