@@ -3,9 +3,11 @@
 Jennysol AI is a conversational assistant with persistent chat history (multiple
 conversations, switch between them, like any other AI chat app), optionally grounded in
 documents you upload. Also does image generation and a full hands-free voice conversation
-mode — say "Hey Jenny" once, then just talk, with pause/resume/end controls and a choice
-of 30 natural Gemini voices (or the free instant browser voice). Chat provider is
-swappable — Gemini, DeepSeek, or a local Ollama model today.
+mode — say "Hey Jenny" once, then just talk, with pause/resume/end controls, a choice of
+30 natural Gemini voices (or the free instant browser voice), and an animated voice orb
+that visually reflects what's actually happening (idle/sleeping/listening/thinking/using a
+tool/speaking/paused) rather than a static icon. Chat provider is swappable — Gemini,
+DeepSeek, or a local Ollama model today.
 
 ## Architecture (v1)
 
@@ -17,6 +19,7 @@ jennysol-ai/
     lib/useVoiceConversation.ts     "Hey Jenny" hands-free conversation: sleeping/listening/paused state machine
     lib/voices.ts                   The 30 Gemini voice names + persisted voice selection
     lib/speak.ts                    Speaks via Gemini TTS (chosen voice) or falls back to browser speechSynthesis
+    components/VoiceOrb.tsx         Animated per-state orb (idle/sleeping/listening/thinking/tool/speaking/paused)
   server/   Node + Express + TypeScript — REST API
     services/llm.ts                     Picks the configured LlmProvider (LLM_PROVIDER, default "gemini")
     services/llmProvider.ts             LlmProvider interface — swap/add providers without touching routes
@@ -77,6 +80,22 @@ on/off switch, a dropdown of all 30 Gemini voice names plus "Browser default," a
 Preview button that speaks a sample in whichever voice is selected before you commit to it
 — their actual tone/character isn't documented anywhere reliably enough to label honestly,
 so preview-by-ear is the intended way to pick, not a guessed description.
+
+**Voice orb (`VoiceOrb.tsx`):** a real per-state animated indicator, not a static icon —
+tiny calm breathing glow at idle, dimmed slow pulse while sleeping/paused, an expanded orb
+with a small waveform while listening, a rotating gradient swirl while thinking, an
+orbiting dashed ring (with a wrench glyph) while a tool is running (e.g. image generation),
+and while speaking through Gemini TTS the orb's scale is driven by a live `AnalyserNode` on
+the actual outgoing `<audio>` element — real amplitude reaction, not a canned loop (the
+browser-voice path has no analyzable stream, so that one gets a steady pulse instead of
+faking reactivity it can't have). Click the orb while it's speaking to interrupt: this stops
+playback immediately and — the part that's easy to get wrong — properly unblocks the
+voice-conversation loop's "wait for playback to finish before listening again" state, since
+`audio.pause()` alone never fires the `ended` event a naive implementation would rely on.
+All orb animation respects `prefers-reduced-motion` via Tailwind's `motion-safe:` variant.
+Large orb replaces the empty-state hero icon (reacts live even before you've sent a first
+message); a compact version appears above the composer whenever a voice conversation is
+active.
 
 Flow: a document is uploaded -> chunked -> each chunk embedded locally -> stored in SQLite.
 A chat message is embedded the same way -> top-k similar chunks are retrieved -> sent to
@@ -203,6 +222,19 @@ Ollama instance were available to verify against here. Actual speech *recognitio
 (hearing real spoken words correctly) is unverified — headless browser automation has no
 real microphone to test with, so that needs a manual check in an actual browser; everything
 downstream of recognition (the state machine, the TTS pipeline, the UI) is verified.
+
+The animated voice orb was verified with a deterministic test rig — a fake
+`SpeechRecognition` injected via `page.addInitScript` that fires scripted transcript events
+on demand, since headless automation can't produce real microphone audio for the wake-word
+flow to react to. That confirmed, with zero runtime errors: idle → sleeping (on start) →
+listening (on hearing "hey jenny") → thinking (on sending a question) → speaking (styling
+confirmed; real audio-reactive scaling requires actual playback, which this rig did
+trigger) → paused, plus the manual push-to-talk and image-mode paths. The "tool" state's
+code path was exercised (voice conversation active in the background, an image request sent
+manually) without error, but wasn't caught mid-flight in a screenshot — image generation
+fails against the current API key's quota almost instantly, so the window is too narrow to
+reliably screenshot; it's the same rendering branch as the already-verified "thinking"
+state, just gated on `imageLoading` instead of plain `sending`.
 
 Explicitly not implemented, by design: Siri-style "only responds to the owner's voice"
 speaker verification. That's a distinct ML capability from speech-to-text — the free/open

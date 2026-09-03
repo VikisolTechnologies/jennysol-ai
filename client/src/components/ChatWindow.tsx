@@ -10,7 +10,6 @@ import {
   Moon,
   Pause,
   SendHorizontal,
-  Sparkles,
   Sun,
   X,
 } from "lucide-react";
@@ -24,6 +23,7 @@ import {
 } from "../lib/api";
 import { MessageBubble } from "./MessageBubble";
 import { VoicePicker } from "./VoicePicker";
+import { VoiceOrb, type OrbState } from "./VoiceOrb";
 import { useTheme } from "../lib/useTheme";
 import { useSpeechRecognition } from "../lib/useSpeechRecognition";
 import { useVoiceConversation } from "../lib/useVoiceConversation";
@@ -57,6 +57,7 @@ export function ChatWindow({
   const [imageMode, setImageMode] = useState(false);
   const [spokenReplies, setSpokenReplies] = useState(false);
   const [voice, setVoiceState] = useState<VoiceId>(getStoredVoice);
+  const [assistantSpeaking, setAssistantSpeaking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { theme, toggleTheme } = useTheme();
@@ -92,6 +93,25 @@ export function ChatWindow({
   // regardless of the spokenReplies toggle, since a spoken question implies
   // a spoken answer.
   const voiceConv = useVoiceConversation((transcript) => handleSend(transcript, true));
+
+  const lastMessage = messages[messages.length - 1];
+  const orbState: OrbState = assistantSpeaking
+    ? "speaking"
+    : sending
+      ? lastMessage?.imageLoading
+        ? "tool"
+        : "thinking"
+      : voiceConv.state === "listening"
+        ? "listening"
+        : voiceConv.state === "sleeping"
+          ? "sleeping"
+          : voiceConv.state === "paused"
+            ? "paused"
+            : "idle";
+
+  function handleInterrupt() {
+    stopSpeaking(); // resolves the in-flight speak() promise too, so playback state never gets stuck
+  }
 
   useEffect(() => {
     if (conversationId === loadedIdRef.current) return;
@@ -205,7 +225,11 @@ export function ChatWindow({
           });
           if (spokenReplies || forceSpeak) {
             voiceConv.suspendForPlayback();
-            speak(fullText, voice).finally(() => voiceConv.resumeAfterPlayback());
+            setAssistantSpeaking(true);
+            speak(fullText, voice).finally(() => {
+              voiceConv.resumeAfterPlayback();
+              setAssistantSpeaking(false);
+            });
           }
         }
       );
@@ -318,9 +342,7 @@ export function ChatWindow({
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-8">
         {messages.length === 0 && (
           <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-4 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-gradient text-white shadow-lg shadow-brand-500/30">
-              <Sparkles size={26} />
-            </div>
+            <VoiceOrb state={orbState} size="lg" onInterrupt={handleInterrupt} />
             <div>
               <h2 className="text-lg font-bold">Ask Jennysol anything</h2>
               <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
@@ -358,6 +380,24 @@ export function ChatWindow({
       </div>
 
       <div className="shrink-0 border-t border-neutral-200 bg-white/80 p-3 backdrop-blur-xl dark:border-white/10 dark:bg-neutral-950/80 sm:p-4">
+        {messages.length > 0 && voiceConv.state !== "off" && (
+          <div className="mx-auto mb-3 flex max-w-3xl animate-fade-in items-center gap-2.5 rounded-xl border border-neutral-200 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]">
+            <VoiceOrb state={orbState} size="sm" onInterrupt={handleInterrupt} />
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">
+              {orbState === "speaking"
+                ? "Speaking — tap the orb to interrupt"
+                : orbState === "listening"
+                  ? "Listening…"
+                  : orbState === "thinking"
+                    ? "Thinking…"
+                    : orbState === "tool"
+                      ? "Working on it…"
+                      : orbState === "paused"
+                        ? "Paused"
+                        : "Listening for “Hey Jenny”…"}
+            </span>
+          </div>
+        )}
         <div className="mx-auto flex max-w-3xl items-center gap-2">
           <div className="flex rounded-lg border border-neutral-200 p-0.5 dark:border-white/10">
             <button
