@@ -53,24 +53,48 @@ async function speakWithGemini(text: string, voice: string): Promise<void> {
 // Resolves once playback actually finishes — callers (like the voice
 // conversation loop) use this to know when it's safe to start listening
 // again instead of picking up the assistant's own voice as input.
+//
+// Wrapped in a generous timeout as a last-resort safety net: browser
+// speechSynthesis is known to sometimes never fire onend/onerror at all in
+// some environments (e.g. headless browsers, or a platform with no voices
+// installed) — without this, that hangs speak() forever, which leaves the
+// voice orb stuck showing "speaking" and (worse) leaves the conversation
+// loop's barge-in detection permanently primed against audio that isn't
+// actually playing.
 export async function speak(text: string, voice: VoiceId = "browser"): Promise<void> {
   const clean = stripMarkdown(text);
   if (!clean) return;
 
+  const ceilingMs = Math.min(60_000, Math.max(6_000, clean.length * 120));
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<void>((resolve) => {
+    timeoutId = setTimeout(() => {
+      // Best-effort silence anything that might still actually be playing
+      // in the background once we've given up waiting on it.
+      if (speechSynthesisSupported) window.speechSynthesis.cancel();
+      currentAudio?.pause();
+      resolve();
+    }, ceilingMs);
+  });
+
   try {
-    if (voice === "browser") {
-      await speakWithBrowser(clean);
-    } else {
-      try {
-        await speakWithGemini(clean, voice);
-      } catch {
-        // Gemini TTS unavailable (quota, network, etc.) — fall back rather
-        // than go silent, since for the voice loop a spoken answer is the
-        // whole point.
+    const playback = (async () => {
+      if (voice === "browser") {
         await speakWithBrowser(clean);
+      } else {
+        try {
+          await speakWithGemini(clean, voice);
+        } catch {
+          // Gemini TTS unavailable (quota, network, etc.) — fall back rather
+          // than go silent, since for the voice loop a spoken answer is the
+          // whole point.
+          await speakWithBrowser(clean);
+        }
       }
-    }
+    })();
+    await Promise.race([playback, timeout]);
   } finally {
+    clearTimeout(timeoutId!);
     currentAudio = null;
     resolveActivePlayback = null;
   }

@@ -20,25 +20,39 @@ function matchWakePhrase(text: string): { woke: boolean; rest: string } {
 
 export type VoiceConversationState = "off" | "sleeping" | "listening" | "paused";
 
-// A real back-and-forth voice conversation, not "repeat the wake word every
-// turn": say "hey jenny" (or any of its variants) once to start, then just
-// keep talking — every reply you give afterward is sent straight through
-// until you pause or end it. PAUSE is a first-class control here (not an
-// afterthought) precisely because "listening" now means "anything you say
-// gets sent," so you need a fast, obvious way to step out of that when you
-// want to talk to someone else in the room.
-//
-// States: off (nothing running) -> sleeping (armed, only matching the wake
-// phrase) -> listening (every utterance is a command) <-> paused (mic off,
-// but resume goes back to listening, not back to needing the wake phrase
-// again — you're still "in" the conversation, just stepped away).
-export function useVoiceConversation(onCommand: (transcript: string) => void) {
+// A real back-and-forth voice conversation, not "press start / say the wake
+// phrase before every single turn": clicking Start is itself the activation
+// — that already IS explicit consent, so it goes straight to LISTENING
+// rather than making you also say "hey jenny" on top of it. The wake phrase
+// stays available as an opt-in hands-free entry point (pass
+// requireWakeWord: true to start()) for anyone who wants to arm listening
+// without touching the UI at all; sleeping is that armed-but-not-yet-woken
+// state. Once listening, every turn goes straight through and Jenny returns
+// to listening automatically after each answer — no re-arming needed.
+// PAUSE is the explicit way to step out of that (talk to someone else in the
+// room without Jenny jumping in); resume goes back to listening directly,
+// not back through the wake phrase.
+export function useVoiceConversation(
+  onCommand: (transcript: string) => void,
+  onBargeIn?: () => void
+) {
   const [state, setState] = useState<VoiceConversationState>("off");
   const stateRef = useRef<VoiceConversationState>("off");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const mutedForPlaybackRef = useRef(false);
+  // True while the assistant's TTS audio is actually playing — drives voice
+  // barge-in (see onresult below), not a mute switch. Real interruption-by-
+  // talking, not just click-to-interrupt, was explicitly asked for; it rides
+  // on whatever echo cancellation the browser's getUserMedia pipeline
+  // applies by default, since a web app has no way to verify or improve on
+  // that itself. On hardware/browsers with weak AEC this can misfire (Jenny
+  // hearing her own voice through open speakers) — clicking the orb to
+  // interrupt stays the fully reliable fallback regardless.
+  const speakingRef = useRef(false);
+  const bargedInRef = useRef(false);
   const onCommandRef = useRef(onCommand);
   onCommandRef.current = onCommand;
+  const onBargeInRef = useRef(onBargeIn);
+  onBargeInRef.current = onBargeIn;
 
   function setStateBoth(s: VoiceConversationState) {
     stateRef.current = s;
@@ -55,12 +69,18 @@ export function useVoiceConversation(onCommand: (transcript: string) => void) {
     recognition.lang = navigator.language || "en-US";
 
     recognition.onresult = (e) => {
-      if (mutedForPlaybackRef.current) return;
-
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const result = e.results[i];
         const transcript = result[0]?.transcript ?? "";
         if (!transcript) continue;
+
+        // Barge-in: the instant we hear anything while Jenny is talking,
+        // cut her off — don't wait for the final transcript, a real
+        // assistant stops the moment you start talking over it.
+        if (speakingRef.current && !bargedInRef.current) {
+          bargedInRef.current = true;
+          onBargeInRef.current?.();
+        }
 
         if (stateRef.current === "sleeping") {
           const { woke, rest } = matchWakePhrase(transcript);
@@ -97,9 +117,12 @@ export function useVoiceConversation(onCommand: (transcript: string) => void) {
     recognition.start();
   }
 
-  function start() {
+  // requireWakeWord: true arms wake-word-only listening (sleeping) instead
+  // of jumping straight into listening — an opt-in for hands-free arming,
+  // not the default (see the module doc comment above for why).
+  function start(requireWakeWord = false) {
     if (stateRef.current !== "off") return;
-    setStateBoth("sleeping");
+    setStateBoth(requireWakeWord ? "sleeping" : "listening");
     launchRecognition();
   }
 
@@ -121,13 +144,13 @@ export function useVoiceConversation(onCommand: (transcript: string) => void) {
     recognitionRef.current = null;
   }
 
-  // Called around TTS playback so the mic doesn't hear the assistant's own
-  // voice and treat it as the next thing to respond to.
-  function suspendForPlayback() {
-    mutedForPlaybackRef.current = true;
+  // Called around TTS playback so barge-in has something to compare against.
+  function notifySpeakingStart() {
+    bargedInRef.current = false;
+    speakingRef.current = true;
   }
-  function resumeAfterPlayback() {
-    mutedForPlaybackRef.current = false;
+  function notifySpeakingEnd() {
+    speakingRef.current = false;
   }
 
   useEffect(() => {
@@ -143,8 +166,8 @@ export function useVoiceConversation(onCommand: (transcript: string) => void) {
     pause,
     resume,
     stop,
-    suspendForPlayback,
-    resumeAfterPlayback,
+    notifySpeakingStart,
+    notifySpeakingEnd,
     supported: speechRecognitionSupported,
   };
 }

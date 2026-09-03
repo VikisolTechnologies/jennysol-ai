@@ -87,12 +87,18 @@ export function ChatWindow({
     requestAnimationFrame(autoResize);
   });
 
-  // Continuous "Hey Jenny" voice conversation — see useVoiceConversation.ts
-  // for the sleeping/listening/paused state machine. Commands heard this way
-  // always go to chat (never image mode) and are always spoken back
-  // regardless of the spokenReplies toggle, since a spoken question implies
-  // a spoken answer.
-  const voiceConv = useVoiceConversation((transcript) => handleSend(transcript, true));
+  // Continuous voice conversation — clicking the button starts LISTENING
+  // directly (no wake phrase needed, since clicking already is the explicit
+  // activation); "Hey Jenny" stays available as an opt-in hands-free entry
+  // point. See useVoiceConversation.ts for the full state machine. Commands
+  // heard this way always go to chat (never image mode) and are always
+  // spoken back regardless of the spokenReplies toggle, since a spoken
+  // question implies a spoken answer. The second argument wires real voice
+  // barge-in: talking over Jenny while she's speaking stops her immediately.
+  const voiceConv = useVoiceConversation(
+    (transcript) => handleSend(transcript, true),
+    () => stopSpeaking()
+  );
 
   const lastMessage = messages[messages.length - 1];
   const orbState: OrbState = assistantSpeaking
@@ -224,10 +230,10 @@ export function ChatWindow({
             return copy;
           });
           if (spokenReplies || forceSpeak) {
-            voiceConv.suspendForPlayback();
+            voiceConv.notifySpeakingStart();
             setAssistantSpeaking(true);
             speak(fullText, voice).finally(() => {
-              voiceConv.resumeAfterPlayback();
+              voiceConv.notifySpeakingEnd();
               setAssistantSpeaking(false);
             });
           }
@@ -276,18 +282,18 @@ export function ChatWindow({
                 }`}
                 aria-label={
                   voiceConv.state === "off"
-                    ? "Start hands-free voice conversation"
+                    ? "Start talking to Jenny"
                     : voiceConv.state === "paused"
                       ? "Resume voice conversation"
                       : "Pause voice conversation"
                 }
                 title={
                   voiceConv.state === "off"
-                    ? "Say “Hey Jenny” to talk hands-free"
+                    ? "Tap to start talking — no wake word needed"
                     : voiceConv.state === "sleeping"
                       ? "Listening for “Hey Jenny”…"
                       : voiceConv.state === "listening"
-                        ? "Listening — click to pause"
+                        ? "Listening — click to pause, or just talk over Jenny to interrupt her"
                         : "Paused — click to resume"
                 }
               >
@@ -300,7 +306,7 @@ export function ChatWindow({
                 )}
                 <span className="hidden sm:inline">
                   {voiceConv.state === "off"
-                    ? "Hey Jenny"
+                    ? "Talk to Jenny"
                     : voiceConv.state === "sleeping"
                       ? "Hey Jenny"
                       : voiceConv.state === "listening"

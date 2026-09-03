@@ -58,22 +58,40 @@ Gemini TTS for the natural-sounding voices, with the browser's own `speechSynthe
 both a selectable free/instant option and the automatic fallback if a Gemini TTS call ever
 fails — voice output degrades rather than going silent.
 
-**Voice conversation ("Hey Jenny"), redesigned around one piece of real feedback:**
-repeating the wake phrase before every single turn is tedious and not how a normal
-conversation works. So it only gates getting *in*: say "hey jenny" (or "hi/hello/wake up/ok
-jenny") once and every following turn is heard and answered automatically — no wake phrase
-needed again — until you end it. States: **sleeping** (armed, only matching the wake
-phrase) → hearing it → **listening** (everything you say is sent) ⇄ **paused** (mic off,
-one click to resume back into **listening** — for when you want to talk to someone else in
-the room without Jenny jumping in) → **off** (fully ended). Say the wake phrase and your
-first question in one breath ("hey jenny what's the capital of France") and it skips
-straight to answering. The header shows one state-aware button that does the right thing
-for whatever state you're in (start/pause/resume) plus a separate "end conversation" (✕)
-button. Answers heard through this flow are always spoken back regardless of the separate
-spoken-replies toggle — a spoken question gets a spoken answer. Continuous browser speech
-recognition drops out on its own periodically (silence timeouts, network blips);
-`useVoiceConversation` restarts it automatically while active, and mutes recognition during
-TTS playback so the mic doesn't hear Jenny's own voice and treat it as the next command.
+**Voice conversation, redesigned twice around real feedback.** First pass: repeating a wake
+phrase before every single turn is tedious. Second pass, further: even requiring the wake
+phrase to *start* is friction — clicking Start is already the explicit activation, so it
+shouldn't also demand a spoken password on top of that. So now: click the header control
+(or the orb) and you're in **listening** immediately — every turn from here is heard and
+answered automatically, with no wake phrase, ever, unless you deliberately want the
+hands-free entry path (`start(true)` arms **sleeping** — wake-word-only listening — as an
+opt-in, not the default). Say your first question the moment you click; no "yes?" gate in
+between. States: **listening** (everything you say is sent, and Jenny automatically returns
+to it after every answer — no re-arming between turns) ⇄ **paused** (mic off, one click to
+resume straight back into listening — for stepping away to talk to someone else in the
+room) → **off** (fully ended). One state-aware header button does start/pause/resume; a
+separate "end conversation" (✕) fully stops it.
+
+**Real voice barge-in, not just click-to-interrupt.** Talk over Jenny while she's speaking
+and she stops immediately — the instant any speech is detected mid-playback, not waiting
+for a full transcript first — and whatever you said becomes the next turn. This rides on
+whatever echo cancellation the browser's microphone pipeline applies by default (a web app
+has no way to inspect or improve on that); on hardware/browsers with weak echo cancellation
+— open speakers rather than headphones, mainly — it can misfire and hear Jenny's own voice
+as an interruption. Clicking the orb to interrupt stays the fully reliable fallback
+regardless of microphone/speaker setup. Answers heard through voice are always spoken back
+regardless of the separate spoken-replies toggle — a spoken question gets a spoken answer.
+Continuous browser speech recognition drops out on its own periodically (silence timeouts,
+network blips); `useVoiceConversation` restarts it automatically while active.
+
+`speak()` now has a defensive timeout (6s floor, scales with reply length, 60s ceiling):
+found while testing multi-turn conversations that if TTS playback — Gemini's or the browser
+fallback's — never fires a completion event for any reason (this reliably happens for
+browser `speechSynthesis` in a headless/voiceless environment, and could in principle happen
+on a real device with a misbehaving audio stack too), `speak()` hung forever, permanently
+stuck showing "speaking" and blocking every turn after it. The timeout force-resolves
+(attempting to silence anything still actually playing first) so one bad playback can't wedge
+the whole conversation.
 
 **Voice picker:** the speaker icon in the header opens a panel with the spoken-replies
 on/off switch, a dropdown of all 30 Gemini voice names plus "Browser default," and a
@@ -223,18 +241,25 @@ Ollama instance were available to verify against here. Actual speech *recognitio
 real microphone to test with, so that needs a manual check in an actual browser; everything
 downstream of recognition (the state machine, the TTS pipeline, the UI) is verified.
 
-The animated voice orb was verified with a deterministic test rig — a fake
-`SpeechRecognition` injected via `page.addInitScript` that fires scripted transcript events
-on demand, since headless automation can't produce real microphone audio for the wake-word
-flow to react to. That confirmed, with zero runtime errors: idle → sleeping (on start) →
-listening (on hearing "hey jenny") → thinking (on sending a question) → speaking (styling
-confirmed; real audio-reactive scaling requires actual playback, which this rig did
-trigger) → paused, plus the manual push-to-talk and image-mode paths. The "tool" state's
-code path was exercised (voice conversation active in the background, an image request sent
-manually) without error, but wasn't caught mid-flight in a screenshot — image generation
-fails against the current API key's quota almost instantly, so the window is too narrow to
-reliably screenshot; it's the same rendering branch as the already-verified "thinking"
-state, just gated on `imageLoading` instead of plain `sending`.
+The animated voice orb and the conversation flow were verified with a deterministic test
+rig — a fake `SpeechRecognition` injected via `page.addInitScript` that fires scripted
+transcript events on demand, since headless automation can't produce real microphone audio.
+Confirmed, with zero runtime errors: clicking start goes directly to listening (no wake
+phrase gate); a spoken command with no wake phrase gets answered; a *second* consecutive
+spoken command, still with no wake phrase, also gets answered — the actual "continuous
+conversation" claim, not just the first-turn case; orb states idle → listening → thinking →
+speaking → paused; the manual push-to-talk and image-mode paths. Also, incidentally, found
+that Gemini TTS's free tier caps at **10 requests/day** (not a per-minute limit, as
+initially assumed) — testing exhausted it mid-session, which is what surfaced the
+`speak()` hang described above and led to fixing it. Barge-in's code path was exercised
+without error but its *reliability* — whether the browser's echo cancellation actually
+keeps Jenny from hearing herself — is inherently something no headless environment (no real
+speakers-to-microphone acoustic path) can verify; that needs a manual check on real
+hardware. The "tool" state's code path was exercised (voice conversation active in the
+background, an image request sent manually) without error but wasn't caught mid-flight in a
+screenshot — image generation fails against the current API key's quota almost instantly,
+too narrow a window to reliably screenshot; it's the same rendering branch as the
+already-verified "thinking" state, just gated on `imageLoading` instead of plain `sending`.
 
 Explicitly not implemented, by design: Siri-style "only responds to the owner's voice"
 speaker verification. That's a distinct ML capability from speech-to-text — the free/open
