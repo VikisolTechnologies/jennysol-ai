@@ -60,8 +60,9 @@ server on Railway, as separate projects/services.
 - *Client → Vercel:* zero-config Vite detection. Set the project's `VITE_API_BASE_URL`
   env var to the Railway service's URL (e.g. `https://jennysol-api.up.railway.app` or a
   custom subdomain) so the built client calls the right origin.
-- *Server → Railway:* deploys straight from the root `Dockerfile`, no extra config.
-  Set `GEMINI_API_KEY` (required), `GEMINI_MODEL` (optional, defaults to
+- *Server → Railway:* set the service's Root Directory to `server`; Railway then finds
+  `server/Dockerfile` (server-only image, no client build) automatically. Set
+  `GEMINI_API_KEY` (required), `GEMINI_MODEL` (optional, defaults to
   `gemini-3.5-flash-lite`), and `CORS_ORIGIN` to the Vercel domain (e.g.
   `https://jennysol.vikisol.in`) so the API only accepts requests from that origin.
 - Railway's free/starter tiers don't guarantee a persistent disk on redeploy — uploaded
@@ -70,7 +71,9 @@ server on Railway, as separate projects/services.
 
 **Single service (simplest, e.g. local Docker or a single-host deploy):** the server
 serves the built client itself (`server/src/index.ts` serves `client/dist` and falls back
-to it for any non-`/api` route), so one process can host both:
+to it for any non-`/api` route), so one process can host both. Use the root `Dockerfile`
+(builds both client and server) for this shape — not `server/Dockerfile`, which is
+server-only and expects a separately-hosted frontend:
 
 ```bash
 docker build -t jennysol-ai .
