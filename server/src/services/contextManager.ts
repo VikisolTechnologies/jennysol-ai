@@ -52,12 +52,12 @@ export interface BuiltContext {
   weatherChunk: string | null;
 }
 
-function boundedHistory(conversationId: string, fullHistory: ChatTurn[]): ChatTurn[] {
+function boundedHistory(userId: string, conversationId: string, fullHistory: ChatTurn[]): ChatTurn[] {
   if (fullHistory.length <= RECENT_WINDOW) return fullHistory;
 
   const recent = fullHistory.slice(-RECENT_WINDOW);
   const olderCount = fullHistory.length - RECENT_WINDOW;
-  const { summary, throughIndex } = getConversationSummary(conversationId);
+  const { summary, throughIndex } = getConversationSummary(userId, conversationId);
 
   // Anything the summarizer hasn't caught up to yet is sent raw rather than
   // silently dropped — the summary is purely a latency/cost optimization,
@@ -160,7 +160,7 @@ export async function buildContext(
   message: string,
   fullHistory: ChatTurn[]
 ): Promise<BuiltContext> {
-  const historyTurns = boundedHistory(conversationId, fullHistory);
+  const historyTurns = boundedHistory(userId, conversationId, fullHistory);
   const [retrieval, webContext, weather] = await Promise.all([
     retrieveDocuments(userId, message),
     retrieveWebContext(message),
@@ -189,10 +189,10 @@ const SUMMARY_PROMPT = [
 // generating a summary is itself a full model call. A failed summarization
 // just means the next message resends a slightly larger raw gap; nothing is
 // lost or corrupted.
-export function summarizeIfNeeded(conversationId: string, fullHistory: ChatTurn[]): void {
+export function summarizeIfNeeded(userId: string, conversationId: string, fullHistory: ChatTurn[]): void {
   if (fullHistory.length <= RECENT_WINDOW) return;
   const olderCount = fullHistory.length - RECENT_WINDOW;
-  const { throughIndex, summary: previousSummary } = getConversationSummary(conversationId);
+  const { throughIndex, summary: previousSummary } = getConversationSummary(userId, conversationId);
   if (olderCount - throughIndex < SUMMARY_BATCH_SIZE) return;
 
   void (async () => {
@@ -212,7 +212,7 @@ export function summarizeIfNeeded(conversationId: string, fullHistory: ChatTurn[
           newSummary += delta;
         }
       );
-      if (newSummary.trim()) saveConversationSummary(conversationId, newSummary.trim(), olderCount);
+      if (newSummary.trim()) saveConversationSummary(userId, conversationId, newSummary.trim(), olderCount);
     } catch (err) {
       console.error(
         "[contextManager] background summarization failed (non-fatal):",

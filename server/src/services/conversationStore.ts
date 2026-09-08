@@ -113,17 +113,30 @@ export interface ConversationSummaryRow {
 // See ContextManager (contextManager.ts) for how this is used — it's the
 // rolling compression that keeps what gets sent to the model bounded instead
 // of the full, ever-growing transcript.
-export function getConversationSummary(conversationId: string): ConversationSummaryRow {
+//
+// Scoped by userId as well as conversationId (defense in depth — see
+// db/index.ts's migration comment): every real caller already validates
+// conversation ownership before reaching here, so this never changes
+// observable behavior for a legitimate request, but it means this table can
+// never become the first place a cross-user leak is introduced.
+export function getConversationSummary(userId: string, conversationId: string): ConversationSummaryRow {
   const row = db
-    .prepare(`SELECT summary, through_index as throughIndex FROM conversation_summaries WHERE conversation_id = ?`)
-    .get(conversationId) as ConversationSummaryRow | undefined;
+    .prepare(
+      `SELECT summary, through_index as throughIndex FROM conversation_summaries WHERE conversation_id = ? AND user_id = ?`
+    )
+    .get(conversationId, userId) as ConversationSummaryRow | undefined;
   return row ?? { summary: "", throughIndex: 0 };
 }
 
-export function saveConversationSummary(conversationId: string, summary: string, throughIndex: number): void {
+export function saveConversationSummary(
+  userId: string,
+  conversationId: string,
+  summary: string,
+  throughIndex: number
+): void {
   db.prepare(
-    `INSERT INTO conversation_summaries (conversation_id, summary, through_index, updated_at)
-     VALUES (?, ?, ?, datetime('now'))
+    `INSERT INTO conversation_summaries (conversation_id, user_id, summary, through_index, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
      ON CONFLICT(conversation_id) DO UPDATE SET summary = excluded.summary, through_index = excluded.through_index, updated_at = excluded.updated_at`
-  ).run(conversationId, summary, throughIndex);
+  ).run(conversationId, userId, summary, throughIndex);
 }

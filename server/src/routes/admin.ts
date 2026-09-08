@@ -3,12 +3,22 @@ import { z } from "zod";
 import { requireAuth, requireAdmin } from "../middleware/auth.js";
 import { getAdminStats, listUsers, countUsers, getAdminUser, listConversationsForUser, getConversationForAdmin, conversationBelongsToUser } from "../services/adminStore.js";
 import { listRecentErrors, countRecentErrors } from "../services/errorLog.js";
+import { getCapabilityRegistry } from "../services/capabilityRegistry.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);
 
 adminRouter.get("/stats", (_req, res) => {
   res.json({ stats: getAdminStats(), errorsLast24h: countRecentErrors(24) });
+});
+
+// Admin-only (see requireAdmin above) — reports configured/missing and
+// available/unavailable per capability, computed live from the same checks
+// each capability's own code path already uses. Never returns a secret
+// value, only booleans/labels — see capabilityRegistry.ts and its test
+// asserting no key value ever appears in this output.
+adminRouter.get("/config-health", (_req, res) => {
+  res.json({ capabilities: getCapabilityRegistry() });
 });
 
 const listQuerySchema = z.object({

@@ -151,14 +151,14 @@ describe("summarizeIfNeeded", () => {
   });
 
   it("does nothing for a conversation still within the recent window", () => {
-    summarizeIfNeeded("c1", turns(6));
+    summarizeIfNeeded("u1", "c1", turns(6));
     expect(routeChatCompletion).not.toHaveBeenCalled();
   });
 
   it("does not re-summarize on every message — only once the unsummarized gap is large enough to batch", () => {
     (getConversationSummary as ReturnType<typeof vi.fn>).mockReturnValue({ summary: "", throughIndex: 2 });
     // olderCount = 15 - 12 = 3; gap = 3 - 2 = 1 — below the default batch threshold of 5
-    summarizeIfNeeded("c1", turns(15));
+    summarizeIfNeeded("u1", "c1", turns(15));
     expect(routeChatCompletion).not.toHaveBeenCalled();
   });
 
@@ -168,10 +168,10 @@ describe("summarizeIfNeeded", () => {
     // summarizeIfNeeded itself is synchronous (not async, returns no
     // promise) — the request handler that calls it never awaits the actual
     // summarization model call, only kicks it off.
-    const returned = summarizeIfNeeded("c1", turns(20)); // olderCount = 8, gap = 8 >= default batch size 5
+    const returned = summarizeIfNeeded("u1", "c1", turns(20)); // olderCount = 8, gap = 8 >= default batch size 5
     expect(returned).toBeUndefined();
 
     await vi.waitFor(() => expect(routeChatCompletion).toHaveBeenCalled());
-    await vi.waitFor(() => expect(saveConversationSummary).toHaveBeenCalledWith("c1", expect.any(String), 8));
+    await vi.waitFor(() => expect(saveConversationSummary).toHaveBeenCalledWith("u1", "c1", expect.any(String), 8));
   });
 });

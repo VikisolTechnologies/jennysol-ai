@@ -179,8 +179,22 @@ addColumnIfMissing("users", "has_seen_welcome", "has_seen_welcome INTEGER NOT NU
 // chat history carry over when they sign up.
 addColumnIfMissing("users", "is_guest", "is_guest INTEGER NOT NULL DEFAULT 0");
 
+// Defense-in-depth hardening: conversation_summaries was previously scoped
+// only by conversation_id (an unguessable UUID, and in practice every real
+// call site already validates ownership of that id before ever reaching
+// this table) — adding user_id and requiring it in every query means a
+// future call site that forgets to validate ownership first still can't
+// leak another user's summary, rather than relying solely on "nobody would
+// ever call this wrong." Non-destructive: existing rows get user_id = NULL
+// and simply stop matching (see conversationStore.ts) — the summary is a
+// performance cache, not authoritative data, so a miss just means that one
+// conversation's context resends slightly more raw history until it
+// resummarizes, never data loss or an error.
+addColumnIfMissing("conversation_summaries", "user_id", "user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);
   CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
+  CREATE INDEX IF NOT EXISTS idx_conversation_summaries_user_id ON conversation_summaries(user_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL;
 `);

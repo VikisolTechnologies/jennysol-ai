@@ -286,7 +286,7 @@ export async function executeChatRun(
     timings.completedAt = Date.now();
     emit(runId, "done", { sources });
 
-    summarizeIfNeeded(conversationId, [
+    summarizeIfNeeded(userId, conversationId, [
       ...fullHistory.slice(0, -1),
       { role: "user", content: message },
       { role: "assistant", content: fullReply },
