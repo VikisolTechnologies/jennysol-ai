@@ -56,6 +56,12 @@ DELETE FROM conversations WHERE id = ? AND user_id = ?
 - `insertDocument`, `listDocuments`, `deleteDocument`, `documentBelongsToUser` are all scoped by `user_id`.
 - `searchSimilarChunks(userId, ...)` joins `chunks` to `documents` and filters `WHERE d.user_id = ?` **before** scoring/ranking — a user's semantic search can only ever rank against their own uploaded chunks. There is no cross-tenant vector index; SQLite + brute-force cosine similarity per user, scoped by the join.
 
+### 3.5a Conversation summaries hardening (added 2026-09-08, `server/src/services/conversationStore.ts`)
+
+`conversation_summaries` (the rolling compression cache `contextManager.ts` uses to bound how much raw history is resent per turn — see Section 3.7) was previously keyed only by `conversation_id`, not `user_id`. This was **not exploitable in practice**: every real call path reaches it only after `conversationExists(userId, conversationId)` has already validated ownership upstream, and `conversation_id` is an unguessable UUID — but it meant this one table relied on caller discipline rather than being self-defending the way every other user-scoped table in this app is.
+
+Hardened as defense-in-depth: `conversation_summaries` now has a `user_id` column, and both `getConversationSummary`/`saveConversationSummary` require and filter on it — `SELECT ... WHERE conversation_id = ? AND user_id = ?`. Additive migration (`addColumnIfMissing`, the same idiom already used for `documents`/`conversations`), non-destructive: pre-migration rows get `user_id = NULL` and simply stop matching, which just means that one conversation's summary regenerates on its next turn rather than leaking or erroring. VERIFIED by `server/src/services/conversationStore.test.ts` (real SQLite, asserts a summary is invisible when looked up with the wrong `user_id` even given the correct `conversation_id`).
+
 ### 3.6 Image / speech generation (`server/src/routes/image.ts`, `server/src/routes/speech.ts`)
 
 - Stateless — nothing is persisted per-user, so there is no cross-user storage to leak from. Both routes require `requireAuth` at the mount level (Section 3.1), meaning an authenticated session is needed to invoke them, but generation itself doesn't read or write anything scoped to `req.userId`.

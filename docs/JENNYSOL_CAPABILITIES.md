@@ -2,6 +2,8 @@
 
 Written 2026-09-08. States plainly, per capability, whether it's implemented, model-independent, and actually working in production — traced end-to-end, not assumed from the presence of a file or UI button.
 
+**Live, authoritative source**: `server/src/services/capabilityRegistry.ts` computes this same information live from real env vars and reachability checks (never a second hand-maintained copy this file could drift from) — read it directly, or hit `GET /api/admin/config-health` (admin-authenticated, never returns secret values) for the current state of a running deployment. This document is the narrative explanation; the registry is the source of truth if the two ever disagree.
+
 ## Canonical identity
 
 Defined once, in `server/src/services/identity.ts` — not scattered across prompts:
@@ -65,9 +67,9 @@ USER REQUEST → frontend (image mode toggle, ChatWindow.tsx)
 
 ## Weather
 
-**MISSING CAPABILITY.** No weather provider, adapter, or API integration exists anywhere in this codebase — confirmed by a full search of `server/src/services/` and `server/src/services/providers/`. When a user asks about weather, Jennysol has no tool to call; it can only respond honestly that it can't check live conditions (verified in production — see `docs/CURRENT_INFORMATION_ARCHITECTURE.md`'s test log) or, if Gemini's native search grounding worked (it doesn't right now — see that same document), surface whatever a generic web search happens to return, which is not the same as a real structured weather API.
+**IMPLEMENTED, model-independent, free, no API key.** `server/src/services/weather/` — `weatherProvider.ts` calls Open-Meteo's free geocoding + forecast endpoints (no key, no card, 10,000 calls/day non-commercial), `weatherIntent.ts` detects a weather question and extracts a location. Real conditions are injected into the system prompt as `LIVE WEATHER DATA` with an explicit "never invent these figures" instruction; a failed lookup injects an explicit "tell the user honestly it's unavailable" instruction instead. Handles the real, confirmed-in-production two-turn case ("How's weather" → "Am in Guntur can u please check") by checking whether the previous user turn was a weather question.
 
-Not built this session: no weather API key was provided, and it wasn't part of the two explicitly requested fixes (identity, image generation). Flagged here as PLANNED, requiring a new API key decision (e.g., OpenWeatherMap, WeatherAPI.com, or a similar service) before it can move to IMPLEMENTED.
+**Verified live in production** against the real Open-Meteo API (not mocked): `What's the weather in Guntur?` → real current temperature/feels-like/humidity/wind/precipitation/conditions, correctly attributed to Open-Meteo. See `docs/JENNYSOL_FREE_FIRST_ARCHITECTURE.md` Section 4 for the full implementation writeup and Section 13 for test evidence. Known limitation: location extraction requires a capitalized place name (a heuristic, not NLP) — `"weather in guntur"` (lowercase) isn't caught and falls back to asking the user for their city, same honest behavior as before this capability existed.
 
 ## Search / current information
 
@@ -83,7 +85,9 @@ See `docs/CURRENT_INFORMATION_ARCHITECTURE.md` for the full audit. Summary: the 
 | Provider-independent web search | Yes (code) | Yes | Yes (once configured) | **No** — no key configured |
 | Gemini native search grounding | Yes (code) | No (Gemini-only) | N/A | **No** — quota-blocked on this key |
 | Image generation | Yes (code) | No (Gemini-only) | No | **No** — quota-blocked on this key |
-| Weather | **No** | — | — | **No** — missing capability |
+| Weather | Yes | Yes — bypasses no model, injects real data any provider can state | Yes | **Yes, verified** — Open-Meteo, no key |
+| Current date/time | Yes, deterministic | Yes — bypasses the model entirely | Yes | Yes, verified |
+| Timezone | Yes | Yes — browser `Intl` header, server formats | Yes | Yes, verified |
 | Voice/TTS | Yes (separate from AgentRun) | No (Gemini-only) | N/A | Yes |
 
 ## Environment variables (capability-relevant)
@@ -93,12 +97,14 @@ See `docs/CURRENT_INFORMATION_ARCHITECTURE.md` for the full audit. Summary: the 
 | `GEMINI_API_KEY` | chat, image gen, native grounding | Configured; tier lacks image-gen and grounding quota specifically |
 | `GEMINI_IMAGE_MODEL` | image generation | Configured (`gemini-3.1-flash-image`) — model choice isn't the problem, billing tier is |
 | `TAVILY_API_KEY` | provider-independent search | Not configured |
+| `SEARXNG_BASE_URL` | self-hosted search | Not configured — coded, not deployed (see free-first architecture doc) |
 | `DEEPSEEK_API_KEY` | cloud fallback chat | Not configured |
 | `OLLAMA_BASE_URL` | local chat fallback | Configured with a default; Ollama itself not installed on the dev machine yet |
+
+Live status for all of these, without secret values: `GET /api/admin/config-health` (admin-authenticated) or `server/src/services/capabilityRegistry.ts` directly.
 
 ## Known limitations (capabilities-specific)
 
 - Image generation and Gemini's native search grounding share the same root cause (a zero-quota billing tier) — fixing one credential/billing change likely fixes both.
 - Image generation bypasses the AgentRun architecture entirely (see above) — a real gap, not fixed this session, scoped out as a larger change than requested.
-- No formal capability registry exists — today's capability boundaries are enforced by which route/function is called, which happens to be correct but isn't a queryable, extensible data structure the way `models/modelRegistry.ts` is for chat models.
-- Weather is fully absent, not degraded — there's no fallback path better than "search," and search itself is currently non-functional (see above).
+- A formal capability registry now exists (`capabilityRegistry.ts`, added 2026-09-08) — the note above about "no formal registry" no longer applies.
