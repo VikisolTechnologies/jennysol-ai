@@ -21,6 +21,13 @@ interface AuthContextValue {
   startNewGuestSession: () => Promise<void>;
   refresh: () => Promise<void>;
   dismissWelcome: () => void;
+  // Client-side only, never persisted or sent to the server — bumping this
+  // makes RequireAuth show the intro again without touching the real
+  // hasSeenWelcome flag, so replaying it for a demo never changes what a
+  // returning visit shows on some OTHER device/session for this account.
+  introReplayToken: number;
+  replayIntro: () => void;
+  clearIntroReplay: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -28,6 +35,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [introReplayToken, setIntroReplayToken] = useState(0);
 
   async function refresh() {
     const u = await authApi.fetchMe();
@@ -116,6 +124,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     dismissWelcome() {
       authApi.markWelcomeSeen();
       setUser((u) => (u ? { ...u, hasSeenWelcome: true } : u));
+    },
+    introReplayToken,
+    replayIntro() {
+      setIntroReplayToken((t) => t + 1);
+    },
+    clearIntroReplay() {
+      setIntroReplayToken(0);
     },
   };
 

@@ -39,6 +39,14 @@ export default {
         "portal-spin-slow": "portal-spin 11s linear infinite reverse",
         "portal-star": "portal-star 1.8s ease-out infinite",
         "portal-zoom-out": "portal-zoom-out 0.7s cubic-bezier(0.6, 0, 0.9, 0.4) forwards",
+        "intro-spark": "intro-spark 0.5s ease-out forwards",
+        "intro-scene-in": "intro-scene-in 3.5s ease-out 0.5s forwards",
+        "intro-core-in": "intro-core-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards",
+        "intro-title-in": "intro-title-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) 1.3s forwards",
+        "intro-card-pop": "intro-card-pop 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+        "intro-tagline-in": "intro-tagline-in 0.8s ease-out 3.3s forwards",
+        "intro-exit": "intro-exit 0.85s cubic-bezier(0.6, 0, 0.85, 0.35) forwards",
+        "intro-exit-reduced": "intro-exit-reduced 0.3s ease-in forwards",
       },
       keyframes: {
         "fade-in": {
@@ -94,6 +102,51 @@ export default {
         "portal-zoom-out": {
           "0%": { transform: "scale(1)", opacity: 1, filter: "blur(0px)" },
           "100%": { transform: "scale(2.4)", opacity: 0, filter: "blur(12px)" },
+        },
+        // --- JennySolIntro (see components/intro/) ---
+        "intro-spark": {
+          "0%": { transform: "scale(0)", opacity: 0 },
+          "100%": { transform: "scale(1)", opacity: 1 },
+        },
+        "intro-scene-in": {
+          "0%": { opacity: 0 },
+          "60%": { opacity: 0.22 },
+          "100%": { opacity: 0.38 },
+        },
+        "intro-core-in": {
+          "0%": { transform: "scale(0.2)", opacity: 0, filter: "blur(8px)" },
+          "70%": { filter: "blur(0px)" },
+          "100%": { transform: "scale(1)", opacity: 1, filter: "blur(0px)" },
+        },
+        "intro-title-in": {
+          "0%": { opacity: 0, transform: "translateY(10px)", filter: "blur(4px)" },
+          "100%": { opacity: 1, transform: "translateY(0)", filter: "blur(0px)" },
+        },
+        // Cards start slightly inset/blurred (as if still inside the
+        // portal) and settle into place sharp — the "pop into existence"
+        // motion the spec calls for, driven per-card by an inline
+        // animation-delay (see JennySolIntro.tsx), one shared keyframe.
+        "intro-card-pop": {
+          "0%": { opacity: 0, transform: "scale(0.82) translateY(6px)", filter: "blur(6px)" },
+          "70%": { filter: "blur(0px)" },
+          "100%": { opacity: 1, transform: "scale(1) translateY(0)", filter: "blur(0px)" },
+        },
+        "intro-tagline-in": {
+          "0%": { opacity: 0, letterSpacing: "0.05em" },
+          "100%": { opacity: 1, letterSpacing: "0.25em" },
+        },
+        // The transition mechanism: the whole scene brightens and expands
+        // toward the camera, then dissolves — never a hard cut/white flash.
+        // The parent unmounts this component once the matching JS timeout
+        // fires (see JennySolIntro.tsx), revealing the real app underneath.
+        "intro-exit": {
+          "0%": { transform: "scale(1)", opacity: 1, filter: "brightness(1) blur(0px)" },
+          "55%": { transform: "scale(1.15)", opacity: 1, filter: "brightness(1.6) blur(2px)" },
+          "100%": { transform: "scale(1.6)", opacity: 0, filter: "brightness(2.2) blur(18px)" },
+        },
+        "intro-exit-reduced": {
+          "0%": { opacity: 1 },
+          "100%": { opacity: 0 },
         },
       },
       backgroundImage: {

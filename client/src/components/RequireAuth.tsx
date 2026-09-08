@@ -2,10 +2,10 @@ import { useState, type ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
-import { WelcomeAnimation } from "./WelcomeAnimation";
+import { JennySolIntro } from "./intro/JennySolIntro";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading, dismissWelcome } = useAuth();
+  const { user, loading, dismissWelcome, introReplayToken, clearIntroReplay } = useAuth();
   // Local flag so dismissing plays the exit animation before children ever
   // mount, instead of popping straight to the app the instant the optimistic
   // user.hasSeenWelcome flip in AuthContext lands.
@@ -21,12 +21,17 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  if (!user.hasSeenWelcome && !welcomeDismissed) {
+  // introReplayToken is a purely client-side, non-persisted counter (see
+  // AuthContext's replayIntro) — bumping it re-satisfies this condition
+  // without ever touching the server-side hasSeenWelcome flag, so "replay
+  // the intro" for a demo never affects what a returning visit shows.
+  if ((!user.hasSeenWelcome && !welcomeDismissed) || introReplayToken > 0) {
     return (
-      <WelcomeAnimation
+      <JennySolIntro
         name={user.name}
         onDone={() => {
-          dismissWelcome();
+          if (introReplayToken > 0) clearIntroReplay();
+          else dismissWelcome();
           setWelcomeDismissed(true);
         }}
       />

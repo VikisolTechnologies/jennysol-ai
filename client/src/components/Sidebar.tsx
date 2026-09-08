@@ -62,7 +62,7 @@ export function Sidebar({
   onNewChat: () => void;
   onRequestAuthGate: () => void;
 }) {
-  const { user, logout, startNewGuestSession } = useAuth();
+  const { user, logout, startNewGuestSession, replayIntro } = useAuth();
   // For the "is this the same identity/build on both devices?" diagnostic
   // below — fetched once, not on any hot path. Never a secret: the backend
   // build SHA is the same thing `git log` shows anyone with repo access,
@@ -385,11 +385,17 @@ export function Sidebar({
           <summary className="cursor-pointer select-none text-center hover:text-neutral-600 dark:hover:text-neutral-300">
             Diagnostics
           </summary>
-          <div className="mt-1.5 space-y-0.5 rounded-lg bg-neutral-100 px-2 py-1.5 font-mono dark:bg-white/5">
+          <div className="mt-1.5 space-y-1 rounded-lg bg-neutral-100 px-2 py-1.5 font-mono dark:bg-white/5">
             <p>account: {user.isGuest ? "guest" : "full"}</p>
             <p className="break-all">user id: {user.id}</p>
             <p>app build: {__BUILD_VERSION__}</p>
             <p>server build: {serverVersion ?? "…"}</p>
+            <button
+              onClick={replayIntro}
+              className="mt-1 rounded-md border border-neutral-300 px-2 py-1 font-sans text-[10px] text-neutral-500 transition hover:border-neutral-400 hover:text-neutral-700 dark:border-white/10 dark:hover:border-white/25 dark:hover:text-neutral-200"
+            >
+              Replay JennySol intro
+            </button>
           </div>
         </details>
       )}
