@@ -20,6 +20,17 @@ import { logError } from "./services/errorLog.js";
 import { BUILD_VERSION } from "./version.js";
 import "./db/index.js";
 
+// GIT_COMMIT_SHA (a Railway variable, set by the deploy step right before
+// `railway up`) takes priority over BUILD_VERSION — confirmed necessary:
+// Railway's Nixpacks build phase does NOT expose service variables to the
+// `npm run build` step (only to the running container afterward), so a
+// value baked in at build time via scripts/write-version.mjs always came
+// back "unknown" in production even with the variable correctly set. Reading
+// it here, at runtime, is what actually works; BUILD_VERSION (a real git
+// SHA via a local `git rev-parse`) remains a useful fallback for local dev,
+// where no such variable is typically set.
+const RUNTIME_VERSION = process.env.GIT_COMMIT_SHA || BUILD_VERSION;
+
 if (noProviderConfigured()) {
   console.warn(
     "[jennysol] No AI provider is configured (checked LLM_PROVIDER_CHAIN / LLM_PROVIDER and each provider's own credentials) — chat requests will fail. See server/.env.example."
@@ -81,7 +92,7 @@ app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyH
 // secret, it's the same information `git log` gives anyone with repo
 // access), and it's what makes "is Device A talking to the same backend
 // build as Device B?" a value to read instead of a guess.
-app.get("/health", (_req, res) => res.json({ status: "ok", version: BUILD_VERSION }));
+app.get("/health", (_req, res) => res.json({ status: "ok", version: RUNTIME_VERSION }));
 app.use("/api/auth", authRouter);
 app.use("/api/chat", requireAuth, chatRouter);
 app.use("/api/agent/runs", requireAuth, agentRunsRouter);
