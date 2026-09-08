@@ -121,5 +121,13 @@ chatRouter.post("/", (req, res) => {
     cleanup();
   });
 
-  void executeChatRun(run.id, requestId, userId, conversationId, parsed.data.message);
+  // The browser's own Intl.DateTimeFormat().resolvedOptions().timeZone (see
+  // client's authFetch) — a real IANA identifier reported by the client that
+  // actually knows it, not an IP-geolocation guess. Validated downstream in
+  // dateTime.ts before ever reaching Intl with it; a header this route
+  // itself doesn't otherwise trust is fine to pass through untouched.
+  const timezoneHeader = req.headers["x-timezone"];
+  const timezone = typeof timezoneHeader === "string" ? timezoneHeader : undefined;
+
+  void executeChatRun(run.id, requestId, userId, conversationId, parsed.data.message, timezone);
 });

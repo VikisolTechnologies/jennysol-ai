@@ -1,4 +1,5 @@
 import { tavilyProvider } from "./tavily.js";
+import { searxngProvider } from "./searxng.js";
 import type { SearchProvider, SearchResultItem } from "./searchProvider.js";
 import { isHealthy, recordSuccess, recordFailure } from "../providerHealth.js";
 import { classifyError, affectsProviderHealth } from "../retryClassifier.js";
@@ -8,7 +9,7 @@ import { classifyError, affectsProviderHealth } from "../retryClassifier.js";
 // how model fallback works here. Add a second search provider by
 // implementing SearchProvider (see searchProvider.ts) and adding it here;
 // SEARCH_PROVIDER_CHAIN then controls preference order without a code change.
-const REGISTRY: SearchProvider[] = [tavilyProvider];
+const REGISTRY: SearchProvider[] = [searxngProvider, tavilyProvider];
 
 // providerHealth.ts's stats map is a single shared namespace keyed by plain
 // string name — prefixed here so a search provider and an LLM provider that
@@ -18,8 +19,12 @@ function healthKey(name: string): string {
   return `search:${name}`;
 }
 
+// searxng first: free-first policy — a self-hosted, no-per-query-cost
+// provider is preferred whenever it's actually configured (inert otherwise,
+// since searxngProvider.configured() is false without SEARXNG_BASE_URL set,
+// so this default is a no-op change until someone stands one up).
 function resolveChain(): SearchProvider[] {
-  const configuredNames = (process.env.SEARCH_PROVIDER_CHAIN || "tavily")
+  const configuredNames = (process.env.SEARCH_PROVIDER_CHAIN || "searxng,tavily")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);

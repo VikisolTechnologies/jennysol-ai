@@ -5,6 +5,8 @@ import { getConversationSummary, saveConversationSummary } from "./conversationS
 import { routeChatCompletion } from "./modelRouter.js";
 import { needsCurrentInfo } from "./currentInfo.js";
 import { search as runWebSearch, hasAnySearchProviderConfigured } from "./search/searchRouter.js";
+import { isWeatherQuestion, extractLocationFromMessage } from "./weather/weatherIntent.js";
+import { getWeather } from "./weather/weatherProvider.js";
 
 // How many of the most recent raw messages get sent to the model verbatim.
 // Everything older than this is represented by a rolling summary instead —
@@ -42,6 +44,12 @@ export interface BuiltContext {
   // search integration.
   webChunks: string[];
   webSources: WebSource[];
+  // Non-null only when this turn (or the immediately preceding one — see
+  // retrieveWeatherContext's two-turn "how's weather" -> "I'm in Guntur"
+  // handling) is actually about weather AND a location could be resolved.
+  // Free/no-key (Open-Meteo — see weather/weatherProvider.ts), so this never
+  // gates on any configured() check the way search/image do.
+  weatherChunk: string | null;
 }
 
 function boundedHistory(conversationId: string, fullHistory: ChatTurn[]): ChatTurn[] {
@@ -101,6 +109,51 @@ async function retrieveWebContext(message: string): Promise<{ chunks: string[]; 
   };
 }
 
+// Handles the real, confirmed-in-production two-turn case: "How's weather"
+// (no location given) followed by "Am in Guntur can u please check" (no
+// weather keyword at all in this turn, just a location statement replying
+// to the assistant's implicit "where are you?"). Only looks one user-turn
+// back — deliberately shallow, matching this codebase's existing
+// "detectable signal, not invented inference" philosophy (see
+// modelRegistry.ts's classifyTask comment).
+async function retrieveWeatherContext(
+  message: string,
+  fullHistory: ChatTurn[]
+): Promise<{ weatherChunk: string | null }> {
+  const weatherIntentNow = isWeatherQuestion(message);
+  const lastUserMessage = weatherIntentNow
+    ? undefined
+    : [...fullHistory].reverse().find((t) => t.role === "user")?.content;
+  const isLocationReplyToPendingWeatherQuestion =
+    !weatherIntentNow && !!lastUserMessage && isWeatherQuestion(lastUserMessage);
+
+  if (!weatherIntentNow && !isLocationReplyToPendingWeatherQuestion) return { weatherChunk: null };
+
+  const location = extractLocationFromMessage(message);
+  // No location found — leave it to the model/persona to ask for one, same
+  // honest behavior as before this capability existed. Never guess a city.
+  if (!location) return { weatherChunk: null };
+
+  const result = await getWeather(location);
+  if (!result) {
+    return {
+      weatherChunk: `[Live weather lookup for "${location}" failed — tell the user plainly that live weather is temporarily unavailable right now. Never guess or invent a temperature/condition.]`,
+    };
+  }
+
+  return {
+    weatherChunk: [
+      `LIVE WEATHER DATA for ${result.resolvedLocation} (source: Open-Meteo, observed ${result.observedAt}):`,
+      `- Condition: ${result.conditionText}`,
+      `- Temperature: ${result.temperatureC}°C (feels like ${result.feelsLikeC}°C)`,
+      `- Humidity: ${result.humidityPercent}%`,
+      `- Wind: ${result.windKph} km/h`,
+      `- Precipitation: ${result.precipitationMm} mm`,
+      "State these exact figures as the current weather — never invent or adjust them.",
+    ].join("\n"),
+  };
+}
+
 export async function buildContext(
   userId: string,
   conversationId: string,
@@ -108,9 +161,10 @@ export async function buildContext(
   fullHistory: ChatTurn[]
 ): Promise<BuiltContext> {
   const historyTurns = boundedHistory(conversationId, fullHistory);
-  const [retrieval, webContext] = await Promise.all([
+  const [retrieval, webContext, weather] = await Promise.all([
     retrieveDocuments(userId, message),
     retrieveWebContext(message),
+    retrieveWeatherContext(message, fullHistory),
   ]);
 
   return {
@@ -119,6 +173,7 @@ export async function buildContext(
     documentMatches: retrieval.matches,
     webChunks: webContext.chunks,
     webSources: webContext.sources,
+    weatherChunk: weather.weatherChunk,
   };
 }
 

@@ -67,8 +67,16 @@ function buildPersona(): string {
   return `${currentDateLine()} ${PERSONA_INTRO}`;
 }
 
-export function buildSystemPrompt(ctx: { documentChunks: string[]; webChunks: string[] }): string {
+export function buildSystemPrompt(ctx: {
+  documentChunks: string[];
+  webChunks: string[];
+  weatherChunk?: string | null;
+}): string {
   const sections: string[] = [buildPersona()];
+
+  if (ctx.weatherChunk) {
+    sections.push("", ctx.weatherChunk);
+  }
 
   if (ctx.webChunks.length > 0) {
     sections.push(

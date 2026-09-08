@@ -125,7 +125,8 @@ export async function executeChatRun(
   requestId: string,
   userId: string,
   conversationId: string,
-  message: string
+  message: string,
+  timezone?: string
 ): Promise<void> {
   const timings: RunTimings = { startedAt: Date.now() };
   emit(runId, "run.started", { requestId, runId, conversationId, timestamp: new Date().toISOString() });
@@ -176,7 +177,7 @@ export async function executeChatRun(
     // clock access at all rather than using the date already in their
     // system prompt.
     if (isDateTimeQuestion(message)) {
-      const response = getCurrentDateTimeResponse();
+      const response = getCurrentDateTimeResponse(timezone);
       timings.firstTokenAt = Date.now();
       runStore.markFirstToken(runId);
       emit(runId, "agent.status", { status: "streaming" });
@@ -210,6 +211,7 @@ export async function executeChatRun(
     const systemPrompt = buildSystemPrompt({
       documentChunks: context.documentMatches.map((m) => m.text),
       webChunks: context.webChunks,
+      weatherChunk: context.weatherChunk,
     });
 
     let fullReply = "";

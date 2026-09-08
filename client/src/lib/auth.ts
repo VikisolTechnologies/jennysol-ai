@@ -62,10 +62,24 @@ function setToken(token: string | null) {
 // Every other API module (chat, documents, image, speech, conversations)
 // calls this instead of raw fetch, so the auth header and 401 handling live
 // in exactly one place.
+// Best-effort — Intl.DateTimeFormat is available in every browser this app
+// already requires (it's also used for date formatting elsewhere), but this
+// stays defensive since a missing/failed timezone header just means the
+// server falls back to UTC (see server's dateTime.ts), never a broken request.
+function browserTimezone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  const timezone = browserTimezone();
+  if (timezone) headers.set("X-Timezone", timezone);
   const res = await doFetch(`${API_BASE}${path}`, { ...init, headers });
   if (res.status === 401) {
     setToken(null);

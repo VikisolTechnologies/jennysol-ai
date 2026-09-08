@@ -41,7 +41,18 @@ describe("getCurrentDateTimeResponse", () => {
     expect(response).toMatch(/UTC/);
   });
 
-  it("is honest about not knowing the caller's local timezone", () => {
+  it("is honest about not knowing the caller's local timezone when none is given", () => {
     expect(getCurrentDateTimeResponse().toLowerCase()).toContain("timezone");
+  });
+
+  it("uses the caller's real IANA timezone when provided, instead of UTC", () => {
+    const response = getCurrentDateTimeResponse("Asia/Kolkata");
+    expect(response).toContain("Asia/Kolkata");
+    expect(response).not.toContain("UTC");
+  });
+
+  it("falls back to UTC for a malformed/unsafe timezone string rather than throwing", () => {
+    expect(() => getCurrentDateTimeResponse("'; DROP TABLE users; --")).not.toThrow();
+    expect(getCurrentDateTimeResponse("not-a-real-timezone")).toContain("UTC");
   });
 });
