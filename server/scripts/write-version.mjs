@@ -12,21 +12,35 @@ import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-let sha = "unknown";
-try {
-  sha = execSync("git rev-parse --short HEAD", { cwd: join(__dirname, ".."), encoding: "utf8" }).trim();
-} catch {
-  // Not a git checkout (e.g. a tarball deploy with no .git) — "unknown" is
-  // honest here, never a guessed/hardcoded value.
+// Prefer an explicitly-set env var over reading .git directly — confirmed
+// necessary: Railway's `railway up` uploads source and rebuilds inside its
+// own container, which does NOT include .git (unlike a git-triggered
+// deploy, which is what Vercel's auto-populated VERCEL_GIT_COMMIT_SHA
+// relies on). GIT_COMMIT_SHA is set by the deploy step itself
+// (`railway variables --set GIT_COMMIT_SHA=$(git rev-parse --short HEAD)`
+// immediately before `railway up`) for exactly this reason.
+let sha = process.env.GIT_COMMIT_SHA || "unknown";
+if (sha === "unknown") {
+  try {
+    sha = execSync("git rev-parse --short HEAD", { cwd: join(__dirname, ".."), encoding: "utf8" }).trim();
+  } catch {
+    // Neither an env var nor a usable .git checkout — "unknown" is honest
+    // here, never a guessed/hardcoded value.
+  }
 }
 
-const dirty = (() => {
-  try {
-    return execSync("git status --porcelain", { cwd: join(__dirname, ".."), encoding: "utf8" }).trim().length > 0;
-  } catch {
-    return false;
-  }
-})();
+// Only meaningful for a local `git rev-parse` fallback above — irrelevant
+// (and unreliable without .git) once GIT_COMMIT_SHA came from an env var,
+// which by construction is set from a specific commit right before deploy.
+const dirty =
+  !process.env.GIT_COMMIT_SHA &&
+  (() => {
+    try {
+      return execSync("git status --porcelain", { cwd: join(__dirname, ".."), encoding: "utf8" }).trim().length > 0;
+    } catch {
+      return false;
+    }
+  })();
 
 writeFileSync(
   join(__dirname, "../src/version.ts"),
