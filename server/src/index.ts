@@ -12,15 +12,23 @@ import { imageRouter } from "./routes/image.js";
 import { speechRouter } from "./routes/speech.js";
 import { errorsRouter } from "./routes/errors.js";
 import { adminRouter } from "./routes/admin.js";
+import { agentRunsRouter } from "./routes/agentRuns.js";
 import { requireAuth } from "./middleware/auth.js";
-import { activeProviderMissingKey } from "./services/llm.js";
+import { noProviderConfigured } from "./services/llm.js";
+import { warmUpGemini } from "./services/providers/gemini.js";
 import { logError } from "./services/errorLog.js";
 import "./db/index.js";
 
-const missingKey = activeProviderMissingKey();
-if (missingKey) {
-  console.warn(`[jennysol] ${missingKey} is not set — chat requests will fail. See server/.env.example.`);
+if (noProviderConfigured()) {
+  console.warn(
+    "[jennysol] No AI provider is configured (checked LLM_PROVIDER_CHAIN / LLM_PROVIDER and each provider's own credentials) — chat requests will fail. See server/.env.example."
+  );
 }
+
+// Kicked off once at boot, before the server accepts any traffic, so the
+// ~15s grounding-availability probe (see warmUpGemini's own comment) never
+// runs concurrently with a real user's first request.
+warmUpGemini();
 
 // A single unhandled error anywhere (a promise nobody awaited, a callback
 // throwing outside a route handler) would otherwise kill the whole process
@@ -44,7 +52,19 @@ process.on("unhandledRejection", (reason) => {
 // all; set CORS_ORIGIN when the client is hosted separately (e.g. Vercel)
 // so this API isn't left open to every origin.
 const app = express();
-app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN } : {}));
+
+// Railway (and Vercel) put this app behind a reverse proxy, which sets
+// X-Forwarded-For. Without telling Express to trust it, req.ip resolves to
+// the proxy's own address for every request — express-rate-limit then can't
+// tell users apart and buckets everyone into one shared limit, so one
+// person's traffic can lock out someone else's login attempts.
+app.set("trust proxy", 1);
+
+// CORS_ORIGIN accepts a comma-separated list so both the current custom
+// domain and any previous hosting URL (e.g. the old *.vercel.app one)
+// keep working for anyone who still has it bookmarked or cached.
+const allowedOrigins = process.env.CORS_ORIGIN?.split(",").map((o) => o.trim()).filter(Boolean);
+app.use(cors(allowedOrigins ? { origin: allowedOrigins } : {}));
 app.use(express.json());
 
 // Light global limit (abuse/cost protection on every route). A much
@@ -58,6 +78,7 @@ app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyH
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 app.use("/api/auth", authRouter);
 app.use("/api/chat", requireAuth, chatRouter);
+app.use("/api/agent/runs", requireAuth, agentRunsRouter);
 app.use("/api/conversations", requireAuth, conversationsRouter);
 app.use("/api/documents", requireAuth, documentsRouter);
 app.use("/api/image", requireAuth, imageRouter);

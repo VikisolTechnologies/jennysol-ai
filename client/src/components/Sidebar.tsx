@@ -52,6 +52,7 @@ export function Sidebar({
   conversationsVersion,
   onSelectConversation,
   onNewChat,
+  onRequestAuthGate,
 }: {
   open: boolean;
   onClose: () => void;
@@ -59,8 +60,9 @@ export function Sidebar({
   conversationsVersion: number;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
+  onRequestAuthGate: () => void;
 }) {
-  const { user, logout } = useAuth();
+  const { user, logout, startNewGuestSession } = useAuth();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [documentsExpanded, setDocumentsExpanded] = useState(false);
@@ -306,7 +308,45 @@ export function Sidebar({
         </Link>
       )}
 
-      {user && (
+      {user?.isGuest && (
+        <div className="flex shrink-0 flex-col gap-1.5">
+          {/* Guests have no password to log back in with, so there's no
+              plain "log out" here — signing up (GuestLimitModal) is the
+              path that keeps access to this guest's history. */}
+          <button
+            onClick={onRequestAuthGate}
+            className="flex items-center gap-2 rounded-lg border border-dashed border-brand-300 px-2.5 py-2 text-left text-xs font-medium text-brand-700 transition hover:bg-brand-50 dark:border-brand-500/30 dark:text-brand-300 dark:hover:bg-brand-500/10"
+          >
+            <Sparkles size={13} className="shrink-0" />
+            <span>
+              You're chatting as a guest.{" "}
+              <span className="underline">Sign up to save your chats</span>
+            </span>
+          </button>
+          {/* Shared-device escape hatch — see docs/SECURITY_AUDIT.md. On a
+              shared phone/computer, whoever opens Jennysol next would
+              otherwise silently continue THIS guest's session (and see its
+              chat history) with no indication anything is wrong. Native
+              confirm() is deliberate here: this is a rare, high-stakes
+              action, not a place for a custom dialog to add polish to. */}
+          <button
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Start a new session on this device? You'll lose access to this guest conversation unless you've already signed up."
+                )
+              ) {
+                void startNewGuestSession();
+              }
+            }}
+            className="px-2.5 text-left text-[10px] text-neutral-400 underline decoration-dotted transition hover:text-neutral-600 dark:hover:text-neutral-300"
+          >
+            Not you? Start a new session
+          </button>
+        </div>
+      )}
+
+      {user && !user.isGuest && (
         <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg px-1 py-1">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold text-neutral-700 dark:text-neutral-200">{user.name}</p>

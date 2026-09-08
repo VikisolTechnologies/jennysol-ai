@@ -14,6 +14,7 @@ import { isLockedOut, recordLoginAttempt } from "../services/auth/loginAttempts.
 import {
   ROLES,
   createEmailVerificationToken,
+  createGuestUser,
   createPasswordResetToken,
   createUser,
   createUserFromGoogle,
@@ -28,6 +29,7 @@ import {
   markWelcomeSeen,
   setPasswordHash,
   updateProfile,
+  upgradeGuestToFullAccount,
 } from "../services/auth/userStore.js";
 import { verifyGoogleCredential } from "../services/auth/google.js";
 import { sendEmail } from "../services/email.js";
@@ -94,6 +96,73 @@ authRouter.post("/signup", sensitiveLimiter, async (req, res) => {
 
   const { token, expiresAt } = createSession(user.id, req.header("user-agent"));
   res.status(201).json({ token, expiresAt, user });
+});
+
+// ---- Guest session ----
+//
+// The app no longer requires signing up before you can talk to Jenny at
+// all — the frontend calls this automatically on first visit (see
+// AuthContext.tsx) so a brand-new visitor lands straight in a working chat.
+// A guest is a real row in `users` (see userStore.createGuestUser), so
+// every existing user-scoped query works unchanged; the only difference is
+// chat.ts capping how many prompts a guest gets before nudging them to
+// upgrade (see the guest_limit_reached check there).
+authRouter.post("/guest", sensitiveLimiter, async (req, res) => {
+  const user = await createGuestUser();
+  const { token, expiresAt } = createSession(user.id, req.header("user-agent"));
+  res.status(201).json({ token, expiresAt, user });
+});
+
+// Upgrades the CURRENTLY authenticated guest session into a full account in
+// place — same user id, same session token, so every conversation the guest
+// already had keeps working with zero migration. Not available once an
+// account is already a full one (nothing to upgrade).
+const upgradeSchema = z.object({
+  email: emailSchema,
+  password: z.string(),
+  name: z.string().trim().min(1).max(200),
+});
+
+authRouter.post("/upgrade", requireAuth, sensitiveLimiter, async (req, res) => {
+  const current = getUserById(req.userId!);
+  if (!current) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  if (!current.isGuest) {
+    res.status(400).json({ error: "This account already has full access." });
+    return;
+  }
+
+  const parsed = upgradeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: zodErrorMessage(parsed.error) });
+    return;
+  }
+  const { email, password, name } = parsed.data;
+
+  const strength = checkPasswordStrength(password);
+  if (!strength.ok) {
+    res.status(400).json({ error: strength.reason });
+    return;
+  }
+  if (getUserByEmail(email)) {
+    res.status(409).json({ error: "That email can't be used. Try logging in instead." });
+    return;
+  }
+
+  const passwordHash = await hashPassword(password);
+  const user = upgradeGuestToFullAccount(req.userId!, email, passwordHash, name);
+
+  const verifyToken = createEmailVerificationToken(user.id);
+  await sendEmail(
+    email,
+    "Verify your Jennysol AI account",
+    `Hi ${name},\n\nVerify your email: ${frontendUrl()}/verify-email?token=${verifyToken}\n\nThis link expires in 24 hours.`
+  );
+
+  // Same session token still works — no new login needed to keep going.
+  res.json({ user });
 });
 
 // ---- Login ----

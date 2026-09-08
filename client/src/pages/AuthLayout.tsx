@@ -13,7 +13,11 @@ export function AuthLayout({
   footer?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4 py-10 dark:bg-neutral-950">
+    // h-[var(--app-vh)] + overflow-y-auto (not min-h-) because the document
+    // itself no longer scrolls at all (see index.css) — this is now the one
+    // scroll region that has to handle a form taller than the viewport
+    // (e.g. signup's extra fields with the keyboard open on a short screen).
+    <div className="flex h-[var(--app-vh)] items-center justify-center overflow-y-auto bg-neutral-50 px-4 py-10 dark:bg-neutral-950">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-gradient text-white shadow-lg shadow-brand-500/30">
@@ -68,7 +72,7 @@ export function AuthField({
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
         required={required}
-        className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 dark:border-white/10 dark:bg-white/5 dark:text-neutral-100"
+        className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-base outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20 dark:border-white/10 dark:bg-white/5 dark:text-neutral-100"
       />
     </label>
   );

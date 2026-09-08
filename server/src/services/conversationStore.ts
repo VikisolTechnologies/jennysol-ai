@@ -83,10 +83,47 @@ export function addMessage(
   );
 }
 
+// Powers the guest-account prompt gate (see routes/chat.ts) — total user
+// turns across every conversation this account owns, not per-conversation,
+// so the limit can't be dodged by just starting a new chat.
+export function countUserMessages(userId: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) as count FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       WHERE c.user_id = ? AND m.role = 'user'`
+    )
+    .get(userId) as { count: number };
+  return row.count;
+}
+
 export function conversationExists(userId: string, conversationId: string): boolean {
   return !!db.prepare("SELECT 1 FROM conversations WHERE id = ? AND user_id = ?").get(conversationId, userId);
 }
 
 export function deleteConversation(userId: string, conversationId: string) {
   db.prepare("DELETE FROM conversations WHERE id = ? AND user_id = ?").run(conversationId, userId);
+}
+
+export interface ConversationSummaryRow {
+  summary: string;
+  throughIndex: number;
+}
+
+// See ContextManager (contextManager.ts) for how this is used — it's the
+// rolling compression that keeps what gets sent to the model bounded instead
+// of the full, ever-growing transcript.
+export function getConversationSummary(conversationId: string): ConversationSummaryRow {
+  const row = db
+    .prepare(`SELECT summary, through_index as throughIndex FROM conversation_summaries WHERE conversation_id = ?`)
+    .get(conversationId) as ConversationSummaryRow | undefined;
+  return row ?? { summary: "", throughIndex: 0 };
+}
+
+export function saveConversationSummary(conversationId: string, summary: string, throughIndex: number): void {
+  db.prepare(
+    `INSERT INTO conversation_summaries (conversation_id, summary, through_index, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(conversation_id) DO UPDATE SET summary = excluded.summary, through_index = excluded.through_index, updated_at = excluded.updated_at`
+  ).run(conversationId, summary, throughIndex);
 }

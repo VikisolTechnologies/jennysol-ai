@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "models": "tsx scripts/models-cli.ts"
   },
   "dependencies": {
     "@google/genai": "^2.21.0",
@@ -29,6 +31,7 @@
     "@types/node": "^22.9.0",
     "@types/pdf-parse": "^1.1.5",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^5.0.0"
   }
 }

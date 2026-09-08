@@ -19,6 +19,11 @@ function matchWakePhrase(text: string): { woke: boolean; rest: string } {
 }
 
 export type VoiceConversationState = "off" | "sleeping" | "listening" | "paused";
+// null when there's nothing to show. Set on a fatal recognition error so the
+// UI has something concrete to display instead of silently doing nothing —
+// previously a denied/blocked mic left the button stuck on "Listening…"
+// forever while recognition failed and silently retried in a loop underneath.
+export type VoiceConversationError = "unsupported" | "mic-denied" | "mic-unavailable" | null;
 
 // A real back-and-forth voice conversation, not "press start / say the wake
 // phrase before every single turn": clicking Start is itself the activation
@@ -37,6 +42,7 @@ export function useVoiceConversation(
   onBargeIn?: () => void
 ) {
   const [state, setState] = useState<VoiceConversationState>("off");
+  const [error, setError] = useState<VoiceConversationError>(null);
   const stateRef = useRef<VoiceConversationState>("off");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   // True while the assistant's TTS audio is actually playing — drives voice
@@ -61,14 +67,25 @@ export function useVoiceConversation(
 
   function launchRecognition() {
     const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor) return;
+    if (!Ctor) {
+      setError("unsupported");
+      setStateBoth("off");
+      return;
+    }
 
     const recognition = new Ctor();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = navigator.language || "en-US";
 
+    // Set once this recognition instance hits an error severe enough that
+    // retrying is pointless (permission denied, no mic hardware) — onend
+    // fires right after onerror either way, so this is what tells that
+    // handler "stop, don't restart" instead of looping forever.
+    let fatal = false;
+
     recognition.onresult = (e) => {
+      setError(null);
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const result = e.results[i];
         const transcript = result[0]?.transcript ?? "";
@@ -97,11 +114,26 @@ export function useVoiceConversation(
       }
     };
 
-    recognition.onerror = () => {
-      // Common on silence/network blips; onend fires right after and
-      // restarts things, so there's nothing to do here but not crash.
+    recognition.onerror = (e) => {
+      // "no-speech", "network" and "aborted" are common on silence/blips and
+      // are self-healing — onend fires right after and restarts things, so
+      // there's nothing to do here but not crash. "not-allowed" (denied or
+      // never granted) and "service-not-allowed" (blocked by a permissions
+      // policy) and "audio-capture" (no mic hardware) are not — retrying
+      // those forever just burns battery while the user sees a "Listening…"
+      // button that will never actually hear anything.
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        fatal = true;
+        setError("mic-denied");
+        setStateBoth("off");
+      } else if (e.error === "audio-capture") {
+        fatal = true;
+        setError("mic-unavailable");
+        setStateBoth("off");
+      }
     };
     recognition.onend = () => {
+      if (fatal) return;
       const active = stateRef.current === "sleeping" || stateRef.current === "listening";
       if (active) {
         try {
@@ -122,6 +154,7 @@ export function useVoiceConversation(
   // not the default (see the module doc comment above for why).
   function start(requireWakeWord = false) {
     if (stateRef.current !== "off") return;
+    setError(null);
     setStateBoth(requireWakeWord ? "sleeping" : "listening");
     launchRecognition();
   }
@@ -162,6 +195,8 @@ export function useVoiceConversation(
 
   return {
     state,
+    error,
+    clearError: () => setError(null),
     start,
     pause,
     resume,

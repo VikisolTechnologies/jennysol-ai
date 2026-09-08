@@ -11,11 +11,17 @@ export function MessageBubble({
   streaming,
   image,
   imageLoading,
+  statusLabel,
 }: ChatTurn & {
   sources?: Source[];
   streaming?: boolean;
   image?: GeneratedImage;
   imageLoading?: boolean;
+  // Shown next to the "thinking" dots while content is still empty — lets a
+  // slow/reconnecting request read as active status ("Still working…",
+  // "Reconnecting…") instead of an indefinite spinner with no explanation.
+  // Never shown once real content has started streaming.
+  statusLabel?: string;
 }) {
   const isUser = role === "user";
   const [copied, setCopied] = useState(false);
@@ -59,12 +65,26 @@ export function MessageBubble({
                 <span className="ml-0.5 inline-block h-[1em] w-[0.5em] translate-y-[0.15em] animate-pulse bg-current align-middle" />
               )}
             </div>
-          ) : (
-            <span className="flex gap-1 py-1">
-              <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current [animation-delay:-0.3s]" />
-              <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current [animation-delay:-0.15s]" />
-              <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current" />
+          ) : streaming ? (
+            <span className="flex items-center gap-2 py-1">
+              <span className="flex gap-1">
+                <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current [animation-delay:-0.3s]" />
+                <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current [animation-delay:-0.15s]" />
+                <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current" />
+              </span>
+              {statusLabel && (
+                <span className="text-xs text-neutral-400 dark:text-neutral-500">{statusLabel}</span>
+              )}
             </span>
+          ) : (
+            // Not streaming and no content — a genuinely finished reply
+            // with nothing in it (should be rare now that chatRunner.ts
+            // guarantees non-empty text server-side, but this covers any
+            // message saved before that fix, and any future edge case).
+            // Previously this fell into the same branch as the dots above,
+            // which meant a finished empty message looked identical to one
+            // still "thinking" — indistinguishable from being stuck forever.
+            <span className="italic text-neutral-400 dark:text-neutral-500">No response.</span>
           )}
         </div>
 

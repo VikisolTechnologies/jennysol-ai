@@ -20,9 +20,26 @@ export interface User {
   role: Role;
   organizationId: string | null;
   emailVerified: boolean;
-  authProvider: "password" | "google";
+  authProvider: "password" | "google" | "guest";
   hasSeenWelcome: boolean;
+  isGuest: boolean;
   createdAt: string;
+}
+
+// fetch() rejects with a raw, browser-specific TypeError when a request
+// never reaches the server at all (offline, DNS failure, CORS rejection,
+// dropped connection) — "Load failed" in Safari, "Failed to fetch" in
+// Chrome. Left uncaught, that string ends up shown to the user verbatim as
+// if it meant something. Route every request through this so a real network
+// failure gets a message that actually explains what happened, while HTTP
+// error responses (which already carry a proper server message) pass through
+// untouched.
+async function doFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new Error("Can't reach the server right now. Check your connection and try again.");
+  }
 }
 
 export function getToken(): string | null {
@@ -49,7 +66,7 @@ export async function authFetch(path: string, init: RequestInit = {}): Promise<R
   const token = getToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const res = await doFetch(`${API_BASE}${path}`, { ...init, headers });
   if (res.status === 401) {
     setToken(null);
     window.dispatchEvent(new CustomEvent("jennysol-unauthorized"));
@@ -69,7 +86,7 @@ export async function signup(input: {
   name: string;
   role: Role;
 }): Promise<User> {
-  const res = await fetch(`${API_BASE}/api/auth/signup`, {
+  const res = await doFetch(`${API_BASE}/api/auth/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -80,7 +97,7 @@ export async function signup(input: {
 }
 
 export async function login(email: string, password: string): Promise<User> {
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
+  const res = await doFetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -90,8 +107,34 @@ export async function login(email: string, password: string): Promise<User> {
   return data.user;
 }
 
+// Called automatically on first visit (see AuthContext.tsx) — there is no
+// "please log in" wall before you can talk to Jenny. Creates a real user
+// row server-side with a synthetic email/password nobody ever sees; the
+// returned session token behaves exactly like a normal login's from here
+// on, so every other API call needs zero special-casing for guests.
+export async function guestLogin(): Promise<User> {
+  const res = await doFetch(`${API_BASE}/api/auth/guest`, { method: "POST" });
+  const data = await parseOrThrow(res);
+  setToken(data.token);
+  return data.user;
+}
+
+// Upgrades the currently-signed-in guest into a full account in place —
+// same user id, same session, so their chat history carries over. Only
+// valid while the current session belongs to a guest; the server rejects
+// this otherwise.
+export async function upgradeGuestAccount(input: { email: string; password: string; name: string }): Promise<User> {
+  const res = await authFetch("/api/auth/upgrade", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await parseOrThrow(res);
+  return data.user;
+}
+
 export async function googleLogin(credential: string): Promise<User> {
-  const res = await fetch(`${API_BASE}/api/auth/google`, {
+  const res = await doFetch(`${API_BASE}/api/auth/google`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ credential }),
@@ -143,7 +186,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+  const res = await doFetch(`${API_BASE}/api/auth/forgot-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
@@ -152,7 +195,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+  const res = await doFetch(`${API_BASE}/api/auth/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token, newPassword }),
@@ -161,7 +204,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
 }
 
 export async function verifyEmail(token: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/auth/verify-email`, {
+  const res = await doFetch(`${API_BASE}/api/auth/verify-email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),

@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { useViewportHeight } from "./lib/useViewportHeight";
 import { MainApp } from "./components/MainApp";
 import { RequireAuth } from "./components/RequireAuth";
 import { RequireAdmin } from "./components/RequireAdmin";
@@ -14,6 +15,8 @@ import { AdminUserDetail } from "./pages/admin/AdminUserDetail";
 import { AdminErrors } from "./pages/admin/AdminErrors";
 
 export default function App() {
+  useViewportHeight();
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

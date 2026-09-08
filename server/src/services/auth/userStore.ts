@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { db } from "../../db/index.js";
+import { hashPassword } from "./password.js";
 
 export const ROLES = [
   "candidate",
@@ -22,6 +23,7 @@ export interface User {
   emailVerified: boolean;
   authProvider: string;
   hasSeenWelcome: boolean;
+  isGuest: boolean;
   createdAt: string;
 }
 
@@ -34,16 +36,18 @@ interface UserRow {
   emailVerified: number;
   authProvider: string;
   hasSeenWelcome: number;
+  isGuest: number;
   createdAt: string;
 }
 
 function toUser(row: UserRow): User {
-  return { ...row, emailVerified: !!row.emailVerified, hasSeenWelcome: !!row.hasSeenWelcome };
+  return { ...row, emailVerified: !!row.emailVerified, hasSeenWelcome: !!row.hasSeenWelcome, isGuest: !!row.isGuest };
 }
 
 const USER_SELECT = `
   SELECT id, email, name, role, organization_id as organizationId, email_verified as emailVerified,
-         auth_provider as authProvider, has_seen_welcome as hasSeenWelcome, created_at as createdAt
+         auth_provider as authProvider, has_seen_welcome as hasSeenWelcome, is_guest as isGuest,
+         created_at as createdAt
   FROM users
 `;
 
@@ -68,6 +72,37 @@ export function createUserFromGoogle(email: string, unusablePasswordHash: string
   return getUserById(id)!;
 }
 
+// A synthetic, unguessable email (never shown to anyone, never used to log
+// in — a guest doesn't know it exists) purely to satisfy the `email`
+// column's NOT NULL/UNIQUE constraint, same idea as the unusable password
+// hash Google sign-ins already use above. hashPassword is still run over a
+// random value rather than storing raw bytes, so this row is
+// indistinguishable in shape from any other user's — nothing downstream
+// (verifyPassword, exports, etc.) needs to special-case it.
+export async function createGuestUser(): Promise<User> {
+  const id = randomUUID();
+  const email = `guest-${id}@guest.jennysol.local`;
+  const unusablePasswordHash = await hashPassword(randomBytes(32).toString("hex"));
+  db.prepare(
+    `INSERT INTO users (id, email, password_hash, name, role, auth_provider, is_guest, email_verified)
+     VALUES (?, ?, ?, 'Guest', 'candidate', 'guest', 1, 1)`
+  ).run(id, email, unusablePasswordHash);
+  return getUserById(id)!;
+}
+
+// Upgrades a guest account to a full one **in place** — same row, same id,
+// same session token — rather than creating a new user and migrating data.
+// This is the entire mechanism behind "signing up saves your guest chat
+// history": every conversation/message/document is already foreign-keyed to
+// this user's id, so nothing needs to move.
+export function upgradeGuestToFullAccount(id: string, email: string, passwordHash: string, name: string): User {
+  db.prepare(
+    `UPDATE users SET email = ?, password_hash = ?, name = ?, auth_provider = 'password', is_guest = 0,
+     updated_at = datetime('now') WHERE id = ?`
+  ).run(email.toLowerCase(), passwordHash, name, id);
+  return getUserById(id)!;
+}
+
 export function getUserByGoogleId(googleId: string): User | null {
   const row = db.prepare(`${USER_SELECT} WHERE google_id = ?`).get(googleId) as UserRow | undefined;
   return row ? toUser(row) : null;
@@ -85,7 +120,7 @@ export function getUserByEmail(email: string): (User & { passwordHash: string })
   const row = db
     .prepare(`SELECT id, email, password_hash as passwordHash, name, role, organization_id as organizationId,
               email_verified as emailVerified, auth_provider as authProvider, has_seen_welcome as hasSeenWelcome,
-              created_at as createdAt FROM users WHERE email = ?`)
+              is_guest as isGuest, created_at as createdAt FROM users WHERE email = ?`)
     .get(email.toLowerCase()) as (UserRow & { passwordHash: string }) | undefined;
   if (!row) return null;
   return { ...toUser(row), passwordHash: row.passwordHash };

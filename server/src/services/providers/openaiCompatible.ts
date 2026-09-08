@@ -1,4 +1,4 @@
-import type { ChatTurn } from "../llmProvider.js";
+import type { ChatTurn, StreamOptions } from "../llmProvider.js";
 
 // Shared streaming client for any OpenAI-compatible chat completions endpoint
 // (DeepSeek, Ollama, and most other providers all speak this same shape).
@@ -8,11 +8,13 @@ export async function streamOpenAiCompatible(
   model: string,
   systemPrompt: string,
   history: ChatTurn[],
-  onDelta: (text: string) => void
+  onDelta: (text: string) => void,
+  opts?: StreamOptions
 ): Promise<void> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
+    signal: opts?.signal,
     body: JSON.stringify({
       model,
       stream: true,

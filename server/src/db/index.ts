@@ -101,6 +101,55 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_error_logs_created_at ON error_logs(created_at);
+
+  -- Rolling per-conversation summary of every message older than the recent
+  -- sliding window ContextManager sends the model. through_index counts how
+  -- many of the conversation's oldest messages are already folded into the
+  -- summary text; anything from through_index up to (length - window size)
+  -- is a gap the summarizer hasn't caught up on yet (see contextManager.ts).
+  CREATE TABLE IF NOT EXISTS conversation_summaries (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
+    summary TEXT NOT NULL DEFAULT '',
+    through_index INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- One row per chat turn's full lifecycle, independent of any particular
+  -- HTTP connection — this is what lets a request survive the browser
+  -- closing, refreshing, or losing its network connection. See
+  -- agentRunStore.ts and JENNY_IMPLEMENTATION_STATUS.md section 43.
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    request_id TEXT,
+    user_message TEXT NOT NULL,
+    response_text TEXT NOT NULL DEFAULT '',
+    provider TEXT,
+    status TEXT NOT NULL DEFAULT 'queued',
+    error TEXT,
+    sources TEXT,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    first_event_at TEXT,
+    first_token_at TEXT,
+    completed_at TEXT,
+    last_heartbeat_at TEXT,
+    seen_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_conversation ON agent_runs(conversation_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_user_status ON agent_runs(user_id, status);
+
+  -- Append-only log of everything that happened during a run, so a client
+  -- that reconnects mid-stream (or long after completion) can replay
+  -- exactly what it missed via "?after=<id>" instead of re-deriving state.
+  CREATE TABLE IF NOT EXISTS agent_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    payload TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_events_run ON agent_events(run_id, id);
 `);
 
 // Pre-auth deployments already have `documents`/`conversations` tables without a
@@ -121,6 +170,14 @@ addColumnIfMissing("conversations", "user_id", "user_id TEXT REFERENCES users(id
 addColumnIfMissing("users", "google_id", "google_id TEXT");
 addColumnIfMissing("users", "auth_provider", "auth_provider TEXT NOT NULL DEFAULT 'password'");
 addColumnIfMissing("users", "has_seen_welcome", "has_seen_welcome INTEGER NOT NULL DEFAULT 0");
+// A guest account is a real row in this table (so every existing
+// user_id-scoped query — conversations, messages, agent_runs, documents —
+// already works for it with zero special-casing) created automatically on
+// first visit, with a synthetic unusable email/password. Upgrading to a
+// full account (see userStore.upgradeGuestToFullAccount) updates this same
+// row in place rather than creating a new one, which is what lets a guest's
+// chat history carry over when they sign up.
+addColumnIfMissing("users", "is_guest", "is_guest INTEGER NOT NULL DEFAULT 0");
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);

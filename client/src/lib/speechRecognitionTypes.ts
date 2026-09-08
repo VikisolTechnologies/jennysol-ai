@@ -8,6 +8,9 @@ export interface SpeechRecognitionEventLike extends Event {
   resultIndex: number;
   results: ArrayLike<ArrayLike<SpeechRecognitionResultLike> & { isFinal: boolean }>;
 }
+export interface SpeechRecognitionErrorEventLike extends Event {
+  error: string;
+}
 export interface SpeechRecognitionLike extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
@@ -15,7 +18,7 @@ export interface SpeechRecognitionLike extends EventTarget {
   start(): void;
   stop(): void;
   onresult: ((e: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((e: Event) => void) | null;
+  onerror: ((e: SpeechRecognitionErrorEventLike) => void) | null;
   onend: (() => void) | null;
 }
 

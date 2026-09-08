@@ -2,10 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Overwritten in real time by useViewportHeight() with the actual
+     window.visualViewport height — this default only covers the instant
+     before that effect first runs. */
+  --app-vh: 100dvh;
+}
+
 html,
 body,
 #root {
   height: 100%;
+}
+
+/* The single biggest source of "layout jumps when the keyboard opens" on iOS
+   Safari isn't wrong height math — it's that the *document itself* can still
+   scroll a few pixels via iOS's native "scroll the focused input into view"
+   heuristic, which can fire against a stale (pre-keyboard) viewport size a
+   frame or two before our own JS updates --app-vh. Pinning html/body out of
+   document flow entirely removes that possibility: there is no longer a
+   document scroll position for iOS to perturb. Every screen scrolls via its
+   own explicitly-owned overflow-y-auto region instead (ChatWindow's message
+   list, AuthLayout's card, etc.) — never the page itself.
+   #root fills the pinned body; app-level layouts size themselves from
+   --app-vh (see useViewportHeight.ts) within that. */
+html,
+body {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
 }
 
 body {

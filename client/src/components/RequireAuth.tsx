@@ -13,7 +13,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-white dark:bg-neutral-950">
+      <div className="flex h-[var(--app-vh)] w-screen items-center justify-center bg-white dark:bg-neutral-950">
         <Sparkles size={22} className="animate-pulse text-brand-500" />
       </div>
     );

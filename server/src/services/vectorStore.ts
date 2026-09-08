@@ -52,6 +52,13 @@ export function documentBelongsToUser(userId: string, documentId: string): boole
   return !!db.prepare("SELECT 1 FROM documents WHERE id = ? AND user_id = ?").get(documentId, userId);
 }
 
+// Cheap existence check used by ContextManager's fast path — a user with no
+// documents at all can never get a document match, so there's no reason to
+// pay for embedding the query or scanning chunks for them.
+export function userHasDocuments(userId: string): boolean {
+  return !!db.prepare("SELECT 1 FROM documents d JOIN chunks c ON c.document_id = d.id WHERE d.user_id = ? LIMIT 1").get(userId);
+}
+
 export function deleteDocument(userId: string, id: string) {
   db.prepare("DELETE FROM documents WHERE id = ? AND user_id = ?").run(id, userId);
 }

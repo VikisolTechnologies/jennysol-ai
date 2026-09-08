@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import * as authApi from "./auth";
 import type { User } from "./auth";
+import { ACTIVE_CONVERSATION_KEY } from "./storageKeys";
 
 interface AuthContextValue {
   user: User | null;
@@ -8,7 +9,16 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   signup: (input: { email: string; password: string; name: string; role: authApi.Role }) => Promise<void>;
   googleLogin: (credential: string) => Promise<void>;
+  upgradeGuest: (input: { email: string; password: string; name: string }) => Promise<void>;
   logout: () => Promise<void>;
+  // Guest-only escape hatch — see docs/SECURITY_AUDIT.md. A guest session
+  // has no credentials to log back in with, so unlike logout() this doesn't
+  // just clear the token: it immediately establishes a brand-new, distinct
+  // guest identity (same mechanism as a first-time visitor) and reloads,
+  // guaranteeing no in-memory state from the previous guest survives —
+  // critical on a shared device where the next person must never see the
+  // previous guest's conversations.
+  startNewGuestSession: () => Promise<void>;
   refresh: () => Promise<void>;
   dismissWelcome: () => void;
 }
@@ -25,7 +35,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    refresh().finally(() => setLoading(false));
+    (async () => {
+      let u = await authApi.fetchMe();
+      // No signed-in user (first visit, or a cleared/expired token) — start
+      // a guest session automatically instead of forcing a login wall.
+      // guestLogin() persists its own token the same way login()/signup()
+      // do, so this is invisible on every subsequent visit: fetchMe() above
+      // will just succeed with the same guest identity from then on.
+      if (!u) {
+        try {
+          u = await authApi.guestLogin();
+        } catch {
+          // Network down, or the guest-creation rate limit (abuse
+          // protection) was hit — fall through with user=null; RequireAuth
+          // sends them to /login as a fallback rather than the app hanging.
+        }
+      }
+      setUser(u);
+      setLoading(false);
+    })();
     // authFetch dispatches this if any request comes back 401 (e.g. the
     // session was revoked elsewhere, or a password reset invalidated it) —
     // without this listener the UI would keep showing a "logged in" state
@@ -50,9 +78,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const u = await authApi.googleLogin(credential);
       setUser(u);
     },
+    async upgradeGuest(input) {
+      const u = await authApi.upgradeGuestAccount(input);
+      setUser(u);
+    },
     async logout() {
       await authApi.logout();
       setUser(null);
+    },
+    async startNewGuestSession() {
+      // logout() deletes the CURRENT session server-side (see
+      // /api/auth/logout) and clears the token — the previous guest's
+      // conversations are untouched in the database (orphaned, not
+      // deleted; still recoverable if that guest later signs up from a
+      // browser that still has their old token), just no longer reachable
+      // from this browser.
+      await authApi.logout().catch(() => {});
+      try {
+        localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
+      } catch {
+        // storage unavailable — nothing to clear, the reload below still
+        // lands on a clean boot either way
+      }
+      // A full reload (rather than calling guestLogin() + setUser() here)
+      // is deliberate: it re-runs every component's initial state from
+      // scratch, which is the only way to be certain nothing an earlier
+      // guest's session populated into React state (loaded messages,
+      // refs, in-flight requests) survives the switch. The boot effect
+      // above sees no token and calls guestLogin() itself, exactly like a
+      // first-time visitor.
+      window.location.reload();
     },
     refresh,
     // Optimistic local flip so the welcome overlay closes immediately

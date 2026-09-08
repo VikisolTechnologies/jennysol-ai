@@ -9,8 +9,11 @@ export { speechRecognitionSupported };
 
 // Push-to-talk: one click, one utterance, auto-stops. For always-on wake-word
 // listening see useWakeWord.ts — that needs a different (continuous) mode.
+export type SpeechRecognitionError = "mic-denied" | "mic-unavailable" | null;
+
 export function useSpeechRecognition(onResult: (transcript: string) => void) {
   const [listening, setListening] = useState(false);
+  const [error, setError] = useState<SpeechRecognitionError>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   useEffect(() => {
@@ -21,6 +24,7 @@ export function useSpeechRecognition(onResult: (transcript: string) => void) {
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) return;
 
+    setError(null);
     const recognition = new Ctor();
     recognition.continuous = false;
     recognition.interimResults = false;
@@ -30,7 +34,14 @@ export function useSpeechRecognition(onResult: (transcript: string) => void) {
       const transcript = e.results[e.results.length - 1]?.[0]?.transcript;
       if (transcript) onResult(transcript);
     };
-    recognition.onerror = () => setListening(false);
+    recognition.onerror = (e) => {
+      setListening(false);
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        setError("mic-denied");
+      } else if (e.error === "audio-capture") {
+        setError("mic-unavailable");
+      }
+    };
     recognition.onend = () => setListening(false);
 
     recognitionRef.current = recognition;
@@ -43,5 +54,5 @@ export function useSpeechRecognition(onResult: (transcript: string) => void) {
     setListening(false);
   }
 
-  return { listening, start, stop, supported: speechRecognitionSupported };
+  return { listening, error, start, stop, supported: speechRecognitionSupported };
 }

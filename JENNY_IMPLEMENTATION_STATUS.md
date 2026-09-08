@@ -272,8 +272,9 @@ already has a place for `organization_id` to avoid a second migration.
 
 ### 3. AI Model Providers
 
-**Status:** IMPLEMENTED (Gemini), PARTIAL (DeepSeek, Ollama — implemented but never
-verified against their real APIs), TESTED (Gemini specifically)
+**Status:** IMPLEMENTED + TESTED (Gemini), IMPLEMENTED + UNIT-TESTED but **not yet run
+against a real API** (DeepSeek), IMPLEMENTED + gracefully self-disabling when unreachable
+(Ollama)
 
 **Implementation:**
 - `server/src/services/llmProvider.ts` — the interface
@@ -281,45 +282,105 @@ verified against their real APIs), TESTED (Gemini specifically)
   implementations
 - `server/src/services/providers/openaiCompatible.ts` — shared streaming client for
   DeepSeek/Ollama
-- Selection via `LLM_PROVIDER` env var in `llm.ts`
+- Provider selection is no longer a single static choice — see category 4, the
+  `ModelRouter`, which now owns this.
+- `ollama.ts` now also exports `isOllamaAvailable()` — a background reachability probe
+  (`GET /api/tags`, 1.5s timeout, cached 60s, defaults to unavailable until proven
+  otherwise) so the router can skip it instantly rather than let every chat request pay for
+  a doomed connection attempt on a host with no Ollama running.
 
 **Evidence:** Gemini chat verified live repeatedly (curl + browser) throughout this
-project. DeepSeek and Ollama are real, complete implementations against documented API
-shapes, but **no DeepSeek API key and no local Ollama instance have ever been available in
-this environment to run an actual request through them** — they are unverified, not fake.
+project, most recently through the new router in production (`https://jennysol.vikisol.in`
+— real signup, real message "What is the capital of France?", real 200 response, real
+answer "That's Paris!", `[router] gemini ok` observed in Railway logs). DeepSeek's routing
+logic (credential detection, fallback ordering, circuit breaker interaction) is covered by
+real automated tests with a mocked HTTP layer — see category 39 — but **DeepSeek has still
+never made one real network call to `api.deepseek.com`**, because no `DEEPSEEK_API_KEY` has
+ever been available in this environment. That is the one honest gap left: the router will
+correctly *try* DeepSeek the moment a key is set, but "the code is right" and "it's been
+proven against the real API" are different claims, and only the first one is true today.
 
-**Missing:** cost tracking, token usage tracking, provider health checks, no Claude
-provider (intentionally removed). Automatic fallback now exists in one narrow, real form —
-see category 1 — but only for Gemini's own grounding-tool failure, not a general "Gemini
-down, try DeepSeek" cross-provider fallback; if the *active* provider itself errors, the
-request still just fails.
+**Missing:** cost tracking, token usage tracking, no Claude provider (intentionally
+removed), no real DeepSeek API key to verify against.
 
-**Problems:** none in the code itself; the honest status is "correct-looking code, two of
-three providers never actually exercised."
-
-**Next action:** get a DeepSeek key and a local Ollama instance running, send one real
-message through each, confirm end to end. This is a fast, low-risk verification, not new
-implementation.
+**Next action:** get a real `DEEPSEEK_API_KEY` and set `LLM_PROVIDER_CHAIN=gemini,deepseek`
+in Railway, send one real message, confirm the response and check Railway logs for
+`[router] deepseek ok`. Fast, low-risk verification, not new implementation.
 
 ---
 
-### 4. Model Router
+### 4. Model Router / Provider Resilience
 
-**Status:** NOT STARTED (beyond a static switch)
+**Status:** IMPLEMENTED + TESTED (unit/integration level, mocked providers) — built in
+direct response to a real Gemini 503 ("high demand") observed live in production during
+this project's own testing.
 
-**Implementation:** `LLM_PROVIDER` env var picks one provider for *all* chat traffic.
+**Implementation:**
+- `server/src/services/retryClassifier.ts` — turns a raw provider error into one of
+  `503 | 429 | quota | auth | invalid_request | timeout | other`. `isRetryableNow()` says
+  whether it's worth a same-provider retry right now (503/timeout only — a 429/quota won't
+  clear by immediately hammering it again, an auth/invalid-request error will never clear
+  by retrying at all). `affectsProviderHealth()` excludes `invalid_request` from counting
+  against a provider's health, since a malformed request is this app's fault, not the
+  provider being unreliable.
+- `server/src/services/providerHealth.ts` — an in-memory (single-instance, not shared
+  across processes — see Missing) circuit breaker per provider: 3 consecutive
+  transient-looking failures trips a 30s cooldown; a single auth failure trips a 1-hour
+  cooldown instead (retrying a bad key every 30s is pure waste — the real fix is someone
+  updating the env var). Cooldown expiry is a half-open trial: the next request through is
+  a live test of recovery, and one success clears the breaker.
+- `server/src/services/modelRouter.ts` — `routeChatCompletion()` walks an ordered provider
+  chain (`LLM_PROVIDER_CHAIN`, comma-separated; falls back to the old single-provider
+  `LLM_PROVIDER` env var unchanged if that's all that's set), skipping any provider that
+  isn't configured (no key / Ollama unreachable) or is currently in cooldown, and tries the
+  next one automatically on a failure — *except* when the failed provider already streamed
+  part of a reply, in which case it surfaces the failure rather than stitching two
+  providers' output into one answer or sending a second independent reply after a partial
+  one the user already saw. Throws a typed `AllProvidersUnavailableError` (listing every
+  attempt and why) when nothing in the chain could handle the request.
+- `server/src/routes/chat.ts` — catches `AllProvidersUnavailableError` specifically and
+  gives a natural message ("I can't reach any AI engine right now...") distinct from a
+  single provider's own transient failure; never leaks raw provider error bodies either
+  way, extending the pattern from category 41 to the router level.
+- `server/src/services/providers/gemini.ts` — a real, evidence-backed addition: a single
+  automatic retry specifically for Gemini's 503 "high demand" response (Google's own error
+  message says to retry shortly), only when nothing has streamed yet.
 
-**Missing:** any actual *model* routing logic — nothing considers task complexity, latency,
-cost, or context size per-request; changing providers means changing an env var and
-restarting the server, not a live per-request decision. Worth distinguishing from what
-category 1 now has: Gemini's own per-turn decision to invoke (or not invoke) the
-`googleSearch` tool is real *tool* routing, but it's the model reasoning about one binary
-choice on a fixed provider — not model routing in the sense this category means (e.g.
-sending trivial queries to a cheaper model and complex ones to a stronger one).
+**Evidence:** 20 automated tests across `retryClassifier.test.ts` and
+`providerHealth.test.ts` (error classification, circuit breaker tripping/recovery/
+independence-per-provider, auth vs. transient cooldown length) plus 9 in
+`modelRouter.test.ts` covering the actual chaos scenarios this category asks for: fallback
+on failure, no-fallback-after-partial-stream, skipping unconfigured/cooling-down providers,
+all-providers-down, and a provider staying excluded across multiple subsequent requests
+after an auth failure — all with mocked providers (`vi.mock`), so this is real behavioral
+coverage, not just "the code compiles." `npm test` in `server/` (vitest, newly added — this
+project had zero test infrastructure before this). Separately confirmed live in production
+that the happy path (single healthy Gemini provider, the overwhelmingly common case) still
+works exactly as before through the new router.
 
-**Next action:** not worth building until there's a second real reason to route (e.g. a
-genuinely cheap/fast model for trivial queries vs. a stronger one for complex ones) — right
-now Gemini alone handles every request type this app has.
+**Missing, deliberately deferred (see the request that prompted this category for the full
+reasoning):**
+- Request queue + concurrency limits + P0–P3 priority scheduling — real infrastructure not
+  yet justified by this app's actual traffic; sizing it before there's real concurrent-load
+  data to size it against would be guessing.
+- Cost budgets / spend tracking per user or org — needs token-usage accounting wired to a
+  real per-model pricing table, plus somewhere to configure and view it. A genuine follow-up
+  feature once the router is producing real usage data to track.
+- Complexity-based "cheap/local model first, escalate if it's not good enough" quality
+  routing — a real NLU/classification problem, not a resilience fix. What exists instead is
+  the same *heuristic* pattern already used for Gemini's search-grounding decision (category
+  1): keyword/shape-based, not learned or verified for quality.
+- Health/circuit-breaker state is in-memory and per-process — correct for this app's actual
+  deployment (one Railway instance) but would need to move to something shared (Redis etc.)
+  if that ever changes.
+- No Retry-After header parsing for 429s — currently a flat 30s cooldown regardless of what
+  the provider actually says to wait.
+- Ollama is real and wired into the chain, but genuinely cannot run on Railway itself (no
+  GPU/persistent host for it there) — it's correctly detected as unavailable and skipped,
+  not a shortfall in the code.
+
+**Problems:** none observed in what's built; the honest gap is DeepSeek's live-API
+verification (category 3) and the deferred items above.
 
 ---
 
@@ -756,23 +817,29 @@ erroring.
 
 ### 39. Testing
 
-**Status:** NOT STARTED (as an automated suite) — extensively manually verified
+**Status:** PARTIAL — real automated suite now exists, but scoped to one subsystem
+(provider resilience); everything else is still manual-only.
 
-**Implementation:** zero files matching `*.test.*`/`*.spec.*`, no test runner configured
-in either `package.json`.
+**Implementation:** `vitest` added as a dev dependency in `server/` (this project had zero
+test runner configured before this). 29 tests across `retryClassifier.test.ts`,
+`providerHealth.test.ts`, and `modelRouter.test.ts` — see category 4 for what they cover.
+`npm test` runs them; `*.test.ts` is excluded from the production `tsc` build so nothing
+test-only ships in `dist/`.
 
-**Evidence of manual verification instead:** this project's history includes real,
-repeated verification via TypeScript compilation, live curl requests against every
+**Evidence of manual verification for everything else:** this project's history includes
+real, repeated verification via TypeScript compilation, live curl requests against every
 endpoint, and Playwright-driven browser sessions (including a deterministic fake-
 `SpeechRecognition` rig used to test the entire voice conversation flow without real
-microphone hardware) — but none of this is captured as a repeatable, committed test suite.
-Every verification claim in this document that says "tested" means "manually exercised and
-observed to work at the time," not "covered by a test that will catch a future regression."
+microphone hardware) — but outside the new provider-resilience suite, none of this is
+captured as a repeatable, committed test. Every other verification claim in this document
+that says "tested" still means "manually exercised and observed to work at the time," not
+"covered by a test that will catch a future regression."
 
-**Next action:** this is a real gap given how much manual re-verification has been needed
-across this project's history (e.g., the same voice states re-verified multiple times
-after each redesign). At minimum, a smoke-test script hitting each API route would catch
-regressions cheaply.
+**Next action:** the pattern now exists (vitest, mocked dependencies, real behavioral
+assertions) — extend it to the next highest-value area rather than the whole app at once.
+Auth routes and the conversation store would be the next reasonable candidates: both are
+pure-enough logic to unit test without a browser, and both have been hand-verified
+repeatedly across this project's history the same way voice states have.
 
 ---
 
@@ -831,12 +898,259 @@ try/catch, the exact scenario `uncaughtException` exists for), hit it, confirmed
 admin Errors view that the exception was captured with a full stack trace. Removed the
 temporary route immediately after confirming.
 
-**Missing:** no retry logic anywhere (a transient 503 from Gemini just fails the request
-to the user, rather than retrying once). No reconnect logic for dropped SSE streams. No
-distinct "permission denied" UI state for microphone access. No alerting on the new error
-log — an admin has to go look.
+**Missing:** no reconnect logic for dropped SSE streams. No alerting on the new error log —
+an admin has to go look. (The "no retry logic anywhere" gap noted here previously is now
+addressed for chat specifically — see category 4: a real cross-provider circuit
+breaker/fallback, plus a same-provider retry for Gemini's 503. A distinct "permission
+denied" UI state for microphone access was also since built — see category 6/8's voice
+error-state work.)
 
 **Problems:** none currently observed beyond the gaps listed.
+
+---
+
+### 42. iOS Keyboard / Visual Viewport
+
+**Status:** PARTIAL — architecturally fixed and verified as far as simulation allows;
+**not yet confirmed on a real iPhone**, which is the one thing that would fully close this
+out. Explicitly not marking VERIFIED per the standing rule of this document: simulated
+verification, however careful, is not the same claim as "observed working on real iOS
+Safari hardware."
+
+**Previous state:** two earlier passes this session had already addressed part of this —
+(1) `h-screen`→`h-dvh` plus `interactive-widget=resizes-content`, then (2) a real
+`window.visualViewport`-driven `--app-vh` CSS variable (replacing reliance on `*vh` units
+alone) and fixing the chat/auth inputs' font-size to 16px (iOS auto-zooms the page on
+focusing anything smaller, which reads as "the screen getting disturbed"). Both were real
+fixes, verified via simulated viewport resizes at the time. This request is what came next:
+a third, more precise report describing exactly which parts of the layout still misbehave,
+which pointed at what those first two passes hadn't touched.
+
+**Root cause (the part the first two passes missed):** `html`/`body` were still normal,
+in-flow, scrollable elements. Even with `--app-vh` correctly tracking
+`visualViewport.height` in real time, the *document itself* could still be nudged a few
+pixels by iOS's native "scroll the focused input into view" heuristic — particularly
+plausible in the gap between the keyboard starting to animate open (against the old, taller
+viewport) and our own resize listener firing with the corrected height a frame or two
+later. That's what produces a layout that's numerically correct (the height math works) but
+visually "disturbed" (the whole page seems to shift/jump). Two secondary gaps compounded
+it: `viewport-fit=cover` was never set, so every `env(safe-area-inset-*)` in the codebase
+(there weren't any yet, but any future one too) silently resolved to `0`; and the welcome
+screen's Orb/heading/subtitle/suggestions were vertically centered inside a region that, when
+it shrinks a lot, doesn't fit that content — since it's centered, the Orb (first in the
+stack) is what scrolls out of view above the fold, with no adaptive/compact state to prevent
+it.
+
+**Changes made:**
+- `client/index.html` — added `viewport-fit=cover` to the viewport meta tag (prerequisite
+  for safe-area support to do anything at all).
+- `client/src/index.css` — `html, body { position: fixed; inset: 0; overflow: hidden; }`.
+  This is the core fix: the document can no longer scroll at all, so there is nothing left
+  for iOS's native scroll-into-view behavior to perturb. Every screen now scrolls via its
+  own explicitly-owned `overflow-y-auto` region instead — never the page.
+- `client/src/lib/useViewportHeight.ts` — also tracks `visualViewport.offsetTop` into a
+  `--app-vh-offset` CSS variable (defense in depth / an escape hatch if a future browser
+  quirk needs it; not currently consumed anywhere since the `position: fixed` change removes
+  the main reason it would be needed).
+- `client/src/lib/useKeyboardOpen.ts` (new) — a small, deliberately scoped hook: a real
+  `keyboardOpen` boolean derived from comparing current `visualViewport.height` against the
+  largest height seen since mount (>150px drop = keyboard), only calling `setState` when the
+  boolean actually flips (not on every animation-frame resize tick), and only mounted where
+  it's actually consumed (`ChatWindow`) rather than at the app root — so a keyboard
+  open/close transition re-renders one component, not the whole tree.
+- `client/src/components/ChatWindow.tsx` — three changes: (1) the welcome screen now reads
+  `useKeyboardOpen()` and swaps to a compact top-aligned layout (small Orb, subtitle and
+  suggestions collapsed via `max-h-0 opacity-0` with a `transition-all duration-300`, so it's
+  a smooth collapse/expand, not a pop) whenever the keyboard is open — voice-first when idle,
+  typing-first the instant a keyboard appears, per this app's stated design; (2) the header's
+  top padding and the composer's bottom padding now include
+  `env(safe-area-inset-top)`/`env(safe-area-inset-bottom)` respectively — the bottom one in
+  particular matters only when the keyboard is *closed* (iOS zeroes that inset while the
+  keyboard is showing, so this never adds an artificial gap above an open keyboard, only
+  above the home indicator when it's the real bottom edge).
+- `client/src/pages/AuthLayout.tsx`, `client/src/pages/admin/AdminLayout.tsx` — **a
+  regression these changes would otherwise have introduced, caught and fixed in the same
+  pass**: both previously relied entirely on the document scrolling to reveal content taller
+  than the viewport (a long signup form, a long admin table). Pinning `html`/`body` removes
+  that entirely, so both now own their own `overflow-y-auto` scroll region instead
+  (`h-[var(--app-vh)]` + `overflow-y-auto` in place of the old `min-h-[var(--app-vh)]` with
+  no overflow handling at all).
+
+**Files changed:** `client/index.html`, `client/src/index.css`,
+`client/src/lib/useViewportHeight.ts`, `client/src/lib/useKeyboardOpen.ts` (new),
+`client/src/components/ChatWindow.tsx`, `client/src/pages/AuthLayout.tsx`,
+`client/src/pages/admin/AdminLayout.tsx`.
+
+**Tests performed (all against the live production deploy at `jennysol.vikisol.in`, not
+just a local dev build):**
+- Confirmed `position: fixed` / `overflow: hidden` actually landed on `html`/`body` via
+  `getComputedStyle` in a real (Chromium, mobile-emulated) browser session — not just
+  reading the CSS source.
+- Simulated a keyboard opening on a fresh welcome screen (iPhone 13 viewport, 390×664 →
+  390×365, a ~55% height reduction matching a real keyboard's footprint) and confirmed via
+  both `getBoundingClientRect()` and screenshots: header stays pinned at the top, the Orb
+  shrinks and the subtitle/suggestions collapse (`opacity: 0` confirmed), the composer with
+  all four controls (mode toggle, mic, text input, send button) stays fully within the new
+  365px viewport with zero horizontal overflow, and `--app-vh` tracks the new height exactly
+  (`365px`).
+- Confirmed the keyboard-close transition restores the original layout (screenshot
+  comparison before/after).
+- Regression check: signup form submit button remains reachable (scrolled into view,
+  confirmed visible) even under an extreme 390×280 viewport that forces real overflow —
+  this is the exact regression the `AuthLayout`/`AdminLayout` fix above was needed for.
+- Regression check: the narrow-width (320px, iPhone SE) composer fix from an earlier session
+  still holds — send button fully within bounds, verified via bounding box math, not just
+  visually.
+- Regression check: sidebar drawer still opens/closes correctly.
+- Regression check: a real end-to-end chat message ("What is 2+2?") on the unmodified,
+  non-simulated production site — real 200 response, real answer containing "4", zero
+  console errors.
+- Landscape orientation (844×390): no horizontal overflow.
+
+**iOS-specific verification status: NOT YET CONFIRMED ON REAL HARDWARE.** Every test above
+runs in Chromium with mobile device emulation (viewport size, user agent, touch flag) plus
+manual `visualViewport`/viewport-size manipulation to *approximate* what a real keyboard
+does. This is a good-faith, rigorous approximation — the architecture (pinned document +
+real `visualViewport.height` tracking + a real `keyboardOpen` state) is the same technique
+production iOS web apps use specifically because it doesn't depend on emulator-only
+behavior — but Chromium's emulation does not run WebKit, does not reproduce Safari's actual
+`visualViewport` timing/quirks, and cannot simulate a real keyboard animating open. The
+honest position: this should now work correctly on real iOS Safari, and every piece of it
+was built and tested against the actual documented cause of the bug rather than trial-and-
+error CSS tweaking — but "should work, verified as rigorously as possible without the
+hardware" is a different, weaker claim than "confirmed on a real iPhone," and this document
+says so explicitly rather than blurring the two.
+
+**Remaining limitations:**
+- No real-device confirmation (see above) — the single biggest open item.
+- The `keyboardOpen` threshold (150px) is a heuristic, not something iOS exposes directly;
+  it should catch every real keyboard while ignoring minor chrome changes (address bar
+  show/hide), but hasn't been tuned against real keyboard-height data across iPhone models,
+  keyboard types (predictive text on/off, third-party keyboards), or accessibility settings.
+- `--app-vh-offset` is tracked but not currently consumed by any layout — it's there as an
+  escape hatch, not an active part of the fix; if real-device testing surfaces a residual
+  offset issue the `position: fixed` change didn't fully resolve, this is where that fix
+  would plug in.
+- Landscape + Dynamic Island + keyboard-open in combination (the most constrained real case)
+  was not specifically simulated — only landscape-alone and portrait-keyboard-open were.
+- No automated test coverage for this (client has no test suite at all yet — see category
+  39, which is server-only so far); every verification above is a one-off Playwright script,
+  not a committed regression test.
+
+---
+
+### 43. Ultra-Low-Latency + Background Agent Architecture
+
+**Status: PARTIAL — core architecture implemented, unit-tested, and verified live against real Gemini. Several explicitly-scoped-out items below (Redis/queue-based execution, voice/TTS mid-stream integration, the local computer-use agent) are NOT implemented — see "Explicitly out of scope."**
+
+**Previous state:** Every chat request re-sent the entire conversation history to Gemini, unbounded — directly confirmed in `JENNY_RESPONSE_LATENCY_AUDIT.md` as the cause of a live-reproduced 1.46s → 1.25s → 2.03s → 12.78s latency climb across 4 messages. The grounding-availability probe ran lazily on the first real chat request, contending with it for the same process/API key. There was no persisted run state: a chat request lived and died with its one HTTP connection — a dropped connection meant the frontend had no way to know whether the reply still completed server-side (the audit found it usually did, but there was no way to check). No SSE heartbeat. No request/run IDs. No timing instrumentation. The app always opened to a blank "New chat" screen on reload, regardless of what was open before. No first-token timeout existed anywhere in the provider chain — a hung provider blocked indefinitely.
+
+**Root cause (confirmed, not assumed):** Architectural, not provider-specific — the app trusted one HTTP connection to be both the trigger and the sole record of a chat turn's outcome, and sent the full transcript on every turn with no compression.
+
+**Changes made:**
+
+*Bounded context (server/src/services/contextManager.ts, new):*
+- `buildContext()` sends only the last `CONTEXT_RECENT_WINDOW` (default 12) raw messages plus a rolling summary of everything older, instead of the full transcript.
+- The summary is generated **asynchronously, after the response is sent** (`summarizeIfNeeded`, fire-and-forget) — it never blocks the request that triggered it. It only re-summarizes once the unsummarized gap reaches `CONTEXT_SUMMARY_BATCH` (default 5) messages, not on every turn, to bound the extra LLM-call cost this introduces.
+- Honest limitation: the *first* request after a conversation crosses the window isn't compressed yet (the gap is sent raw, since nothing's been dropped) — compression takes effect starting the request after summarization catches up. Live-verified (see below): this produces a bounded sawtooth pattern (grows a few messages, drops back down, repeats) rather than either unbounded growth or a hard cap that could silently lose content.
+- Fast path: `userHasDocuments()` and a trivial-greeting regex skip the local ONNX embedding pass and vector search entirely when they can't matter (no documents at all, or a bare "Hi"/"Thanks"/etc.) — real cost avoided, not merely deferred.
+
+*Grounding probe (server/src/services/providers/gemini.ts):* `probeGroundingAvailability` renamed to `warmUpGemini`, moved from "runs lazily on the first real chat request" (still true after the earlier `c18b34a` fix that made it non-blocking, but it still *ran concurrently* with that first user request) to "runs once at server boot, before the process accepts traffic" (`index.ts`). No longer contends with any real request for the same process/API key.
+
+*Provider router (server/src/services/modelRouter.ts, rewritten):*
+- `attemptWithTimeout()` bounds how long a single attempt can produce **zero** output before the router gives up and moves to the next provider (`LLM_FIRST_TOKEN_TIMEOUT_MS`, default 15s) — an `AbortController` signal is threaded through every provider (`llmProvider.ts`'s `StreamOptions`, `openaiCompatible.ts`'s `fetch` signal, Gemini SDK's own `abortSignal`). Once real output starts streaming, no timeout applies — only silence is bounded.
+- **Live-discovered bug, fixed in the same pass:** the first-token timeout initially counted toward the same circuit breaker as real provider errors. Measured directly against production Gemini with only one provider configured (today's actual `LLM_PROVIDER_CHAIN`): three consecutive slow-but-would-have-eventually-succeeded responses tripped the breaker and locked the *only* configured provider out for a full 30s cooldown, with nothing to fail over to — strictly worse than not timing out at all. Fixed: a timeout now only counts against a provider's health when a configured, healthy fallback actually exists to move to (`routeChatCompletion`'s `hasFallbackLeft` check). Verified both by re-running the exact live scenario that exposed it, and by two new unit tests (`modelRouter.test.ts`: "does NOT trip the circuit breaker on a timeout when there's no fallback" / "DOES trip... when a healthy fallback exists").
+- Optional hedging (`LLM_HEDGE_ENABLED`, default `false`; `LLM_HEDGE_DELAY_MS`, default 4000): if the primary hasn't produced a first token within the delay, a second configured/healthy provider starts concurrently; whichever answers first wins, the other is aborted (best-effort — see the code comment on why `AbortSignal` doesn't guarantee the upstream request itself stops being billed). Resolves the instant a winner emerges rather than waiting for the loser too. **Known, documented limitation:** if the *winning* arm fails partway through after already streaming some output, that failure currently has no path back to the caller (the promise already resolved) — flagged in code rather than silently shipped as fully solved. Off by default; only does anything once a second real provider is configured (today's production is Gemini-only, so it's currently inert there).
+
+*Persistent AgentRun architecture (server/src/services/agentRunStore.ts, chatRunner.ts, runBus.ts, routes/agentRuns.ts — all new):*
+- New SQLite tables `agent_runs` (one row per chat turn's full lifecycle: `queued → running → streaming → completed/failed`, with `started_at`/`first_event_at`/`first_token_at`/`completed_at`/`last_heartbeat_at`) and `agent_events` (append-only per-run event log, autoincrement id used as a replay cursor) and `conversation_summaries`.
+- `startChatRun()` does only synchronous SQLite writes (create the run row, save the user's message) — this is what lets the HTTP route acknowledge a request in single-digit milliseconds, before any model call starts. `executeChatRun()` then runs the actual generation **with no reference to the HTTP `res` object at all** — it persists to SQLite regardless of whether any client is still connected. This is the concrete mechanism behind "browser closed ≠ Jenny stopped": nothing about it depends on the connection surviving.
+- `POST /api/chat` subscribes to the run's live events (`runBus.ts`, an in-process `EventEmitter` — explicitly documented as single-process, matching this app's existing single-Railway-instance SQLite deployment, same tradeoff already accepted by `providerHealth.ts`) and streams them as SSE, but the generation itself is `void`-detached from the request. A dropped connection stops this one response from continuing, not the run.
+- `GET /api/agent/runs/:id` (current status/text/sources — used for recovery), `GET /api/agent/runs/:id/events?after=<id>` (event replay), `GET /api/agent/runs/active` (every run still in flight or finished-but-unseen, powers "Jenny finished while you were away"), `POST /api/agent/runs/:id/seen`.
+- SSE heartbeat every `SSE_HEARTBEAT_MS` (default 10s) during idle generation gaps.
+- Every event on the wire is one JSON object with a `type` discriminator (`run.started`, `agent.status`, `message.delta`, `heartbeat`, `done`, `error`) carrying `requestId`/`runId`/`conversationId` — threaded from the HTTP route through the router to structured `chat_timing` JSON log lines (provider used, fell-back, hedged, retrieval-skipped, context-built/first-token/total ms, history turns sent).
+
+*Frontend recovery (client/src/lib/api.ts, useAgentRunRecovery.ts (new), ChatWindow.tsx, MainApp.tsx):*
+- `sendChatMessage` rewritten around the typed event stream; `onRunStarted` captures the runId immediately.
+- `recoverRun()` in ChatWindow: if the SSE connection itself errors, polls `GET /api/agent/runs/:id` (backoff up to ~13.5s) before showing a hard failure — reflects partial text as it arrives, applies the final result once the run reaches a terminal state.
+- A second `visibilitychange`/`pageshow` listener proactively reconciles against the run's server-side state the instant the tab becomes visible again, specifically because iOS Safari can suspend a backgrounded tab's JS without ever surfacing a network error to the stream reader — the audit's own named background-then-return scenario.
+- `activeConversationId` now persists to `localStorage` and restores on load — no more blank "New chat" on reload when a real conversation was open. On conversation load, checks for a run still active in that conversation (browser was closed mid-reply) and resumes watching it.
+- `useAgentRunRecovery` checks `GET /api/agent/runs/active` on mount/visibility/online and surfaces a dismissible "Jenny finished while you were away" banner (MainApp.tsx) for conversations other than the one currently open.
+- Escalating status text while a reply is still empty: "Thinking…" → "Still working…" (8s) → "This is taking longer than expected — I'm still working on it." (20s) → "Reconnecting…" (on a dropped connection) — `MessageBubble`'s existing thinking-dots indicator now carries an explanatory label instead of being an unexplained indefinite spinner.
+
+**Files changed:** `server/src/db/index.ts`, `server/src/services/{agentRunStore,chatRunner,runBus,contextManager,llmProvider,llm,modelRouter,vectorStore,conversationStore}.ts`, `server/src/services/providers/{gemini,deepseek,ollama,openaiCompatible}.ts`, `server/src/routes/{chat,agentRuns}.ts`, `server/src/index.ts`, `server/.env.example`; `client/src/lib/{api,useAgentRunRecovery}.ts`, `client/src/components/{ChatWindow,MessageBubble,MainApp}.tsx`. New tests: `contextManager.test.ts` (11), `agentRunStore.test.ts` (6, against the real SQLite db, not mocked), plus 8 new/updated cases in `modelRouter.test.ts`.
+
+**Tests performed:**
+- `npm test` (server): **54/54 passing** (29 pre-existing + 25 new), `npx tsc --noEmit` clean on both server and client, `npm run build` clean on both.
+- Live, against real production Gemini (not mocked), via a real signed-up test user and a running local server:
+  - Simple message ("Hi", fresh conversation): first SSE event (ack) at **62-71ms**; first real token at **713-1214ms**; full response done at **718-1321ms**.
+  - 5-turn conversation, realistic 10s human-like pacing: first tokens **713-990ms** throughout — no growth.
+  - 16-turn conversation, 8s pacing, crossing the 12-message window: `historyTurnsSent` (from structured logs) climbed 1→3→5→7→9→11→13→15→17, then **dropped back to 15** once background summarization caught up, then climbed 17→19 and dropped again — the designed bounded sawtooth, directly confirming the audit's headline bug (unbounded linear growth) no longer happens.
+  - Reconnect: started a request, read 3 SSE events, then forcibly cancelled the connection (simulating the app closing) — 2.5s later, `GET /api/agent/runs/:id` returned `status: "completed"` with the complete final answer, despite the client connection having been dead the whole time.
+  - Discovered and fixed the circuit-breaker interaction described above via this same live testing, not merely reasoned about — see modelRouter.ts changes.
+- **Honest gap:** live testing also surfaced real Gemini-side latency variance (several 15s+ first-token timeouts) under back-to-back rapid-fire requests against this specific dev API key; a follow-up test with 10s spacing showed consistent sub-1s responses, strongly suggesting this dev key's own request-rate quota, not this architecture, though the exact cause on Google's side wasn't independently confirmed. This is exactly the kind of upstream variance the architecture is now built to *bound and report* (15s max wait, structured logs, graceful failure message) rather than eliminate — consistent with the spec's own instruction not to fake a sub-1s guarantee a remote provider can't always honor.
+
+**iOS-specific / real-device verification status:** NOT independently re-verified on physical hardware in this pass — the `visibilitychange`/`pageshow` reconciliation logic is new and, like the rest of this session's iOS keyboard work (section 42), needs real-device confirmation before being called VERIFIED for backgrounding specifically. Simulated via a deliberate connection-cancel in Node, which exercises the same recovery code path but is not proof of iOS's exact JS-suspension behavior.
+
+**Explicitly out of scope in this pass (not implemented — flagged rather than silently skipped):**
+- **Redis/queue-based background execution.** Not built. Not needed for the actual requirement: `executeChatRun` already runs independent of the HTTP response inside this single Node process, which is what makes "Chrome closed ≠ Jenny stopped" true today. A real job queue (Redis/BullMQ) would only start to matter if this app ever runs as more than one instance — `runBus.ts` and `providerHealth.ts` both document this same single-instance assumption explicitly.
+- **Model complexity-based routing (cheap/fast vs. strong model tiers).** Not built — there is currently only one configured model per provider (`gemini-3.5-flash-lite`, already the fast/cheap tier), so there is nothing to route between yet. Would be a straightforward follow-up once a second tier is actually configured with real credentials, rather than speculative scaffolding now.
+- **Voice/TTS mid-generation streaming** (send-to-TTS-as-text-arrives instead of waiting for the full reply). The existing voice pipeline (`speak.ts`, `useVoiceConversation.ts`) is unchanged — it still waits for `onDone`. A real implementation needs incremental TTS chunking most cleanly, which is a separate, non-trivial feature.
+- **Local Windows computer-use agent.** No such agent exists to integrate with in this environment — the AgentRun schema is generic enough (`agent_runs`/`agent_events`, not chat-specific field names) to plug a future one into, but that's extensibility, not an implementation.
+- **Event replay actually consumed by the frontend.** `GET /api/agent/runs/:id/events?after=` exists and is tested server-side, but the client currently recovers via the simpler full-state `GET /api/agent/runs/:id` rather than incremental replay — sufficient for today's UI, listed here for completeness against the spec's own acceptance list.
+
+**Remaining limitations:**
+- DeepSeek fallback and hedging remain code-complete-but-unverified against a real DeepSeek API key in this environment (still no real key configured anywhere here, same gap noted in section 4) — verified only via mocked unit tests.
+- The hedge-mode "winner fails mid-stream" gap noted above.
+- No automated test drives the actual HTTP/SSE route end-to-end (`chat.ts`/`agentRuns.ts`) — the live testing above exercised it manually via a real server process, not as a committed regression test.
+
+---
+
+### 44. Guest Mode (No Login Wall, Gated After 10 Prompts)
+
+**Status: VERIFIED — implemented and confirmed live, end to end, against a local server with the real production code path.**
+
+**Previous state:** Every route except `/health`, `/api/auth/*`, `/api/errors`, `/api/admin` required a valid session (`requireAuth`); `RequireAuth.tsx` redirected anyone without one straight to `/login`. There was no way to use Jenny at all without creating a full account first.
+
+**Changes made:**
+- **Guest accounts are real `users` rows**, not a separate parallel system — `is_guest INTEGER NOT NULL DEFAULT 0` added to the schema (`db/index.ts`), `createGuestUser()` (`userStore.ts`) inserts one with a synthetic unusable email/password (same pattern already used for Google sign-ins' unusable password hash) and a real session via the existing `sessions` table. Because it's a normal user row, every existing user_id-scoped query — conversations, messages, documents, agent_runs — works for a guest with zero special-casing anywhere else in the codebase.
+- `POST /api/auth/guest` (rate-limited via the existing `sensitiveLimiter`) creates one and returns a token exactly shaped like signup/login's response. `AuthContext.tsx` calls this automatically on first visit whenever `fetchMe()` comes back empty — a brand-new visitor lands directly in a working chat, no login wall. The guest's token persists in `localStorage` the same way a real login's does, so it's the *same* guest identity (and their history) on every later visit — not a fresh one each time.
+- **Prompt gate:** `chat.ts` checks, before creating any run or message, whether the requester `isGuest` and has already sent `GUEST_PROMPT_LIMIT` (default 10, env-configurable) user turns total across every conversation they own (`countUserMessages`, a real `COUNT(*)` query — not a client-trusted number, so it can't be bypassed by resending a stale count, and it's a total across conversations, not per-conversation, so starting a new chat doesn't reset it). Past the limit: `403` with `{ error, code: "guest_limit_reached" }`, checked *before* the user's message is ever persisted — a blocked attempt leaves no phantom row behind.
+- **Upgrade preserves history by construction, not by migration:** `POST /api/auth/upgrade` (authenticated) updates the *current* guest's row in place — same `id`, same session token — setting a real email/password/name and flipping `is_guest` to 0, rather than creating a new account and copying data over. Every conversation/message already foreign-keyed to that user id is simply already there afterward. Live-verified: upgraded a guest after 10 messages, confirmed `user.id` unchanged, confirmed the same session token kept working with zero re-login, confirmed the original conversation (with all its messages) was still visible via `GET /api/conversations`, and confirmed the 11th message — previously blocked — went through immediately after upgrading.
+- Frontend: `ChatWindow.tsx` catches the `guest_limit_reached` `ChatError` (a new typed error class in `api.ts`, threading the server's `code` field through instead of string-matching a message), rolls back the optimistic user/assistant bubbles that were never actually sent, restores what the user typed, and opens `GuestLimitModal.tsx` — a compact inline signup form wired to the upgrade endpoint. `Sidebar.tsx` shows a proactive "You're chatting as a guest — sign up to save your chats" prompt instead of a logout button for a guest (logging out a guest would orphan their history with no way back in, since they never set real credentials) — same modal, opened manually rather than by hitting the limit.
+- A guest who instead navigates directly to `/signup` (bypassing the modal) gets the pre-existing signup behavior: a brand-new, separate account — their guest history does **not** carry over that path. This is an accepted, documented limitation, not an oversight; the modal is the one path that preserves history, and it's the one surfaced by both entry points (limit-hit and the sidebar prompt).
+
+**Files changed:** `server/src/db/index.ts`, `server/src/services/auth/userStore.ts`, `server/src/services/conversationStore.ts`, `server/src/routes/{auth,chat}.ts`; `client/src/lib/{auth,AuthContext,api}.ts`, `client/src/components/{Sidebar,ChatWindow,MainApp}.tsx`, `client/src/components/GuestLimitModal.tsx` (new).
+
+**Tests performed:** `npx tsc --noEmit` clean (server + client), `npm run build` clean (server + client), server test suite still 54/54 (no regressions — no new unit tests were added specifically for the gate/upgrade routes; verification here is a real end-to-end run instead, see below, consistent with this app's existing gap that `chat.ts`/`auth.ts` have no automated route-level test coverage yet). Live, against a real local server (not mocked): created a guest, sent 12 messages in the same conversation, confirmed messages 1-10 succeeded and 11-12 were blocked with exactly `403`/`guest_limit_reached`, confirmed `/me` still reported `isGuest: true` right up to the upgrade call, upgraded with a real email/password, confirmed the user id was unchanged, confirmed the same bearer token kept working with no new login, confirmed the original conversation and its messages were still there, confirmed sending was unblocked immediately after upgrading, and confirmed a second brand-new guest got a fully independent id/limit (the gate is per-account, not global).
+
+**Remaining limitations:**
+- No automated regression test exists for the gate/upgrade routes themselves (see above) — only the live manual run.
+- No "upgrade via Google" path — only email/password. A guest can still use the existing Google sign-in, but that creates a separate account rather than upgrading the current guest in place.
+- The synthetic guest email (`guest-<uuid>@guest.jennysol.local`) is never sent anywhere and never needs to be — flagged here only so it's not mistaken for a real address if ever seen in the admin panel's user list.
+- `GUEST_PROMPT_LIMIT` is a soft gate: a determined user can always clear `localStorage` and get a fresh guest with a new 10-message allowance. This was a deliberate scope decision (an anonymous product surface can't have a hard paywall without real bot-detection work, which wasn't asked for here), not an oversight — flagged so it isn't mistaken for one.
+
+---
+
+### 45. Empty-Response Hang (Live Production Incident)
+
+**Status: VERIFIED — root-caused from real production logs, fixed, and confirmed live.**
+
+**Reported symptom:** user sent "Do u know this guy named Syam Prabhakar", Jenny replied "Let me look that up real quick... (Running a search)" and then never responded again — confirmed stuck for 3+ minutes across multiple follow-up messages, screenshots provided.
+
+**Root cause (confirmed via production `chat_timing` structured logs, not guessed):** the exact turn's log line read `[router] gemini ok` with no `firstTokenMs` — proof Gemini's stream resolved **successfully, with zero text output**, no exception thrown anywhere. Nothing in the code was watching for "succeeded but produced nothing," so `chatRunner.ts` persisted an empty assistant message and emitted `done` as if everything were fine. Separately, `MessageBubble.tsx`'s empty-content branch always showed the "thinking" dots regardless of whether the message was still streaming or had already finished — so a legitimately-empty completed message was visually indistinguishable from one still stuck generating, which is what made this look like an infinite hang rather than a bad-but-finished reply.
+
+**Contributing factor:** the system persona told the model it "has a Google Search tool available" without qualifying that this is only true on some turns — the model narrated "let me search"/"running a search" (which the persona already explicitly told it not to do) even on turns where no tool was actually attached, then apparently attempted a function-call-shaped response instead of text, producing nothing.
+
+**Fixes:**
+- `gemini.ts`: when a stream resolves with zero deltas sent and no error, retry once forcing plain text (no tool) — mirrors the existing 503-retry pattern already in this file.
+- `chatRunner.ts`: guaranteed non-empty reply as a provider-agnostic safety net — if `fullReply` is still empty after the model call resolves, substitute a plain "I wasn't able to put together an answer for that one — mind trying again?" before persisting/marking complete, so a "done" event can never carry zero content.
+- `llm.ts`: persona rewritten to explicitly say the search tool is only attached "on some turns (not every one)," to never narrate the act of searching, and to say plainly "I'm not sure" rather than claim it's about to check.
+- `MessageBubble.tsx`: the thinking-dots animation now only renders while `streaming` is actually true; a finished message with empty content shows "No response." instead — fixes both new occurrences and any already-saved historical empty messages from before this fix.
+
+**Verified live in production**, post-deploy: resent a message pattern designed to reproduce the original trigger ("Do you know a guy named Syam Prabhakar" → "Yea sure please let me know once you are done"). The second message — same shape as the one that hung in the original report — took 11,959ms (internal retry visibly firing) but returned a real, honest answer ("It looks like there's no search tool attached to this chat right now... I don't have enough public info on Syam Prabhakar"). All four messages in the test sequence returned real content; `firstTokenMs` was non-null in the logs for every one, where the original incident showed `null`.
+
+**Remaining limitation:** the underlying model behavior (attempting a function-call-shaped response with no tool attached) is not something this codebase can prevent outright — the fix bounds and recovers from it, it doesn't guarantee it can never happen a third time in a row (retry-once, not retry-forever, by design, to avoid an unbounded latency tax on every message). No automated regression test was added for this specific empty-stream scenario — verification here is the live production reproduction above.
 
 ---
 

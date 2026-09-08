@@ -9,8 +9,10 @@ const NAV_ITEMS = [
 
 export function AdminLayout() {
   return (
-    <div className="flex min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      <aside className="flex w-56 shrink-0 flex-col gap-1 border-r border-neutral-200 p-4 dark:border-white/10">
+    // h-[var(--app-vh)] (not min-h-) since the document itself no longer
+    // scrolls — each pane below owns its own scroll region instead.
+    <div className="flex h-[var(--app-vh)] bg-neutral-50 dark:bg-neutral-950">
+      <aside className="flex w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r border-neutral-200 p-4 dark:border-white/10">
         <NavLink
           to="/"
           className="mb-4 flex items-center gap-1.5 text-xs font-medium text-neutral-500 hover:text-brand-500 dark:text-neutral-400"
@@ -36,7 +38,7 @@ export function AdminLayout() {
           </NavLink>
         ))}
       </aside>
-      <main className="min-w-0 flex-1 overflow-x-auto p-6 sm:p-8">
+      <main className="min-w-0 flex-1 overflow-auto p-6 sm:p-8">
         <Outlet />
       </main>
     </div>
