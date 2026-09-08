@@ -76,6 +76,30 @@ export function ChatWindow({
   const { theme, toggleTheme } = useTheme();
   const keyboardOpen = useKeyboardOpen();
 
+  // Lets the empty-state hero shrink away instead of hard-unmounting the
+  // instant the first message lands (see the render below) — "visible" for
+  // an empty conversation, "collapsing" for one CSS transition's worth of
+  // time right after the first message, then "gone" so nothing keeps
+  // animating (VoiceOrb's idle glow, specifically) once it's off-screen.
+  // Returning to an existing conversation (messages already populated on
+  // mount/switch) skips straight to "gone" — no cinematic hero for that
+  // case, matching a fresh empty conversation always starting at "visible".
+  const [heroPhase, setHeroPhase] = useState<"visible" | "collapsing" | "gone">(
+    messages.length === 0 ? "visible" : "gone"
+  );
+  useEffect(() => {
+    if (messages.length === 0) {
+      setHeroPhase("visible");
+      return;
+    }
+    if (heroPhase === "visible") {
+      setHeroPhase("collapsing");
+      const t = setTimeout(() => setHeroPhase("gone"), 420);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length]);
+
   // Tracks which conversation `messages` currently reflects, so the
   // load-on-switch effect below can tell "the sidebar picked a different
   // chat" (needs a fetch) apart from "we just created this chat ourselves
@@ -464,8 +488,21 @@ export function ChatWindow({
   }
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-neutral-100/50 dark:bg-neutral-950">
-      <header className="flex shrink-0 items-center justify-between border-b border-neutral-200 bg-white/80 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] backdrop-blur-xl dark:border-white/10 dark:bg-neutral-950/80">
+    <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-neutral-100/50 dark:bg-neutral-950">
+      {/* Extremely subtle continuation of the intro's atmosphere — dark mode
+          only (light mode keeps its own clean white look untouched). A
+          felt-not-noticed radial glow, not a wallpaper: no light-mode
+          equivalent, no animation, no reason for it to ever cost a repaint
+          after first render. */}
+      <div
+        className="pointer-events-none absolute inset-0 hidden dark:block"
+        aria-hidden="true"
+        style={{
+          background:
+            "radial-gradient(ellipse 60% 45% at 50% 38%, rgba(118,69,255,0.08), transparent 70%)",
+        }}
+      />
+      <header className="relative flex shrink-0 items-center justify-between border-b border-neutral-200 bg-white/80 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] backdrop-blur-xl dark:border-brand-300/[0.08] dark:bg-neutral-950/70">
         <div className="flex items-center gap-2">
           <button
             onClick={onOpenSidebar}
@@ -588,7 +625,7 @@ export function ChatWindow({
       )}
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-8">
-        {messages.length === 0 && (
+        {heroPhase !== "gone" && (
           // Voice-first when idle (large centered Orb), typing-first the
           // instant the keyboard opens: centering this content vertically
           // in a viewport the keyboard just shrank means it overflows its
@@ -598,9 +635,19 @@ export function ChatWindow({
           // on-screen and puts the composer where the user's attention
           // actually is. transition-all animates the swap smoothly in both
           // directions rather than popping.
+          //
+          // heroPhase === "collapsing" (see the state/effect above) instead
+          // fades+shrinks the WHOLE hero in place, in parallel with the
+          // first message already sending — never delays the send, and once
+          // the transition ends the hero unmounts entirely (heroPhase
+          // "gone") so its idle glow animation stops costing anything.
           <div
             className={`mx-auto flex h-full max-w-md flex-col items-center text-center transition-all duration-300 ${
-              keyboardOpen ? "justify-start gap-2 pt-1" : "justify-center gap-4"
+              heroPhase === "collapsing"
+                ? "scale-95 justify-center gap-4 opacity-0 duration-[420ms] ease-out"
+                : keyboardOpen
+                  ? "justify-start gap-2 pt-1"
+                  : "justify-center gap-4"
             }`}
           >
             <VoiceOrb state={orbState} size={keyboardOpen ? "sm" : "lg"} onInterrupt={handleInterrupt} />
@@ -609,13 +656,13 @@ export function ChatWindow({
                 keyboardOpen ? "max-h-0 opacity-0" : "max-h-40 opacity-100"
               }`}
             >
-              <h2 className="text-lg font-bold">Ask Jennysol anything</h2>
+              <h2 className="text-lg font-bold">Ask JennySol anything</h2>
               <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
                 Upload documents in the sidebar so answers are grounded in them, or just start chatting.
               </p>
             </div>
             <div
-              className={`flex flex-col gap-2 self-stretch overflow-hidden transition-all duration-300 ${
+              className={`flex flex-col gap-2.5 self-stretch overflow-hidden transition-all duration-300 ${
                 keyboardOpen ? "max-h-0 opacity-0" : "max-h-96 opacity-100"
               }`}
             >
@@ -623,12 +670,19 @@ export function ChatWindow({
                 <button
                   key={s}
                   onClick={() => handleSend(s)}
-                  className="rounded-xl border border-neutral-200 bg-white px-3.5 py-2.5 text-left text-sm text-neutral-600 shadow-sm transition hover:border-brand-300 hover:text-neutral-900 dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-300 dark:hover:border-brand-400/50 dark:hover:text-white"
+                  className="rounded-xl border border-neutral-200 bg-white px-3.5 py-3 text-left text-sm text-neutral-600 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:text-neutral-900 hover:shadow-md active:translate-y-0 active:duration-75 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-300 dark:backdrop-blur-sm dark:hover:border-brand-300/40 dark:hover:bg-white/[0.07] dark:hover:text-white dark:hover:shadow-[0_0_24px_-6px_rgba(139,107,255,0.45)]"
                 >
                   {s}
                 </button>
               ))}
             </div>
+            <p
+              className={`text-[10px] text-neutral-300 transition-opacity duration-300 dark:text-white/25 ${
+                keyboardOpen ? "opacity-0" : "opacity-100"
+              }`}
+            >
+              Made at Vikisol Labs
+            </p>
           </div>
         )}
 
@@ -701,7 +755,7 @@ export function ChatWindow({
             </button>
           </div>
 
-          <div className="flex min-w-0 flex-1 items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-sm focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 dark:border-white/10 dark:bg-white/[0.04]">
+          <div className="flex min-w-0 flex-1 items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-sm transition-shadow focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 dark:border-white/10 dark:bg-white/[0.04] dark:focus-within:border-brand-300/40 dark:focus-within:shadow-[0_0_24px_-6px_rgba(139,107,255,0.45)]">
             {speech.supported && (
               <button
                 onClick={() => (speech.listening ? speech.stop() : speech.start())}
@@ -766,7 +820,7 @@ export function ChatWindow({
           </div>
         </div>
         <p className="mt-2 text-center text-[10px] text-neutral-400">
-          Jennysol can make mistakes. Verify important information.
+          JennySol can make mistakes. Verify important information.
         </p>
       </div>
     </div>

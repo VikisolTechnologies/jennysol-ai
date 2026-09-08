@@ -129,7 +129,7 @@ export function Sidebar({
             <Sparkles size={18} />
           </div>
           <div>
-            <h1 className="text-sm font-bold leading-tight">Jennysol AI</h1>
+            <h1 className="text-sm font-bold leading-tight">JennySol AI</h1>
             <p className="text-[11px] text-neutral-500 dark:text-neutral-400">Grounded chat assistant</p>
           </div>
         </div>

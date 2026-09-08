@@ -42,7 +42,7 @@ export function Login() {
   return (
     <AuthLayout
       title="Welcome back"
-      subtitle="Log in to Jennysol AI"
+      subtitle="Log in to JennySol AI"
       footer={
         <>
           New here?{" "}

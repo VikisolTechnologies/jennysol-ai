@@ -45,7 +45,7 @@ export function Signup() {
   return (
     <AuthLayout
       title="Create your account"
-      subtitle="Get started with Jennysol AI"
+      subtitle="Get started with JennySol AI"
       footer={
         <>
           Already have an account?{" "}

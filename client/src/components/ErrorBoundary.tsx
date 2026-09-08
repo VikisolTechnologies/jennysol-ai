@@ -40,7 +40,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
         <div>
           <h1 className="text-base font-semibold text-neutral-800 dark:text-neutral-100">Something went wrong</h1>
           <p className="mt-1 max-w-sm text-sm text-neutral-500 dark:text-neutral-400">
-            Jennysol hit an unexpected error. It's been reported — reloading usually fixes it.
+            JennySol hit an unexpected error. It's been reported — reloading usually fixes it.
           </p>
         </div>
         <button

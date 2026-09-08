@@ -30,7 +30,7 @@ export function VoicePicker({
   async function preview(v: VoiceId) {
     setPreviewing(true);
     try {
-      await speak("Hi, I'm Jennysol. This is what I sound like.", v);
+      await speak("Hi, I'm JennySol. This is what I sound like.", v);
     } finally {
       setPreviewing(false);
     }

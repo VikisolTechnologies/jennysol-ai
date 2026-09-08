@@ -139,10 +139,16 @@ export default {
         // toward the camera, then dissolves — never a hard cut/white flash.
         // The parent unmounts this component once the matching JS timeout
         // fires (see JennySolIntro.tsx), revealing the real app underneath.
+        // Expand-and-brighten (the portal opening wide), THEN contract back
+        // down to a small bright point before fading — reads as "the
+        // portal collapsed into the core" rather than just dissolving
+        // outward, which is what actually sells the "this became the
+        // glowing orb now sitting in the chat screen" continuity.
         "intro-exit": {
           "0%": { transform: "scale(1)", opacity: 1, filter: "brightness(1) blur(0px)" },
-          "55%": { transform: "scale(1.15)", opacity: 1, filter: "brightness(1.6) blur(2px)" },
-          "100%": { transform: "scale(1.6)", opacity: 0, filter: "brightness(2.2) blur(18px)" },
+          "40%": { transform: "scale(1.2)", opacity: 1, filter: "brightness(1.7) blur(1px)" },
+          "72%": { transform: "scale(0.82)", opacity: 0.95, filter: "brightness(2.1) blur(0px)" },
+          "100%": { transform: "scale(0.62)", opacity: 0, filter: "brightness(1.3) blur(6px)" },
         },
         "intro-exit-reduced": {
           "0%": { opacity: 1 },

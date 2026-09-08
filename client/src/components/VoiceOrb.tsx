@@ -119,6 +119,14 @@ export function VoiceOrb({
       aria-label={state === "speaking" ? "Tap to interrupt" : undefined}
       title={state === "speaking" ? "Tap to interrupt" : undefined}
     >
+      {/* Faint outer energy ring — same visual family as the intro's portal
+          rings (JennySolIntro.tsx), so the idle chat hero and the intro's
+          final state read as the same object, not two different graphics.
+          Static (no spin) so it stays calm/premium rather than busy. */}
+      <div
+        className="absolute inset-[-18%] rounded-full border border-brand-300/20 dark:border-brand-300/25"
+        aria-hidden="true"
+      />
       {/* ambient glow */}
       <div
         className={`absolute inset-0 rounded-full bg-gradient-to-br blur-xl ${stateGradient[state]} ${
@@ -136,11 +144,15 @@ export function VoiceOrb({
       {/* core sphere */}
       <div
         ref={coreRef}
-        className={`relative rounded-full bg-gradient-to-br shadow-lg transition-transform ${dims.wrap} ${stateGradient[state]} ${
+        className={`relative overflow-hidden rounded-full bg-gradient-to-br shadow-lg transition-transform ${dims.wrap} ${stateGradient[state]} ${
           state !== "thinking" && state !== "tool" ? stateAnimation[state] : ""
         }`}
         style={{ width: "78%", height: "78%" }}
       >
+        {/* Slow-drifting inner light — depth/"energy" rather than a flat
+            fill, without adding a face or any new per-state logic. Uses the
+            same conic-spin language as the intro's core glow. */}
+        <div className="absolute inset-[-40%] motion-safe:animate-portal-spin-slow rounded-full bg-[conic-gradient(from_0deg,rgba(255,255,255,0.35),transparent_35%,transparent_65%,rgba(255,255,255,0.2))] opacity-60" />
         <div className="absolute inset-[18%] rounded-full bg-white/30 blur-sm" />
         {state === "tool" && (
           <Wrench size={size === "lg" ? 22 : 12} className="absolute inset-0 m-auto text-white/90" />

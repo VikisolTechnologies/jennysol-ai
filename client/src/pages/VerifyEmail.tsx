@@ -25,7 +25,7 @@ export function VerifyEmail() {
         <p className="text-sm text-neutral-600 dark:text-neutral-300">
           Your email is verified.{" "}
           <Link to="/" className="text-brand-500 hover:underline">
-            Continue to Jennysol AI
+            Continue to JennySol AI
           </Link>
           .
         </p>
