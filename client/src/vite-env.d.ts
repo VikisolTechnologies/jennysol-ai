@@ -8,3 +8,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// Injected at build time via vite.config.ts's `define` — see there for why.
+declare const __BUILD_VERSION__: string;

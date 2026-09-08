@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { db } from "../../db/index.js";
 
 const SESSION_TTL_DAYS = 30;
@@ -49,17 +49,29 @@ export function deleteOtherSessions(userId: string, keepToken: string) {
 }
 
 export interface SessionSummary {
-  id: string;
+  // A safe, non-reversible fingerprint — never the raw token. `sessions.id`
+  // in the schema IS the bearer token itself (see createSession above), so
+  // this previously returned a live, replayable credential to any client
+  // that called GET /api/auth/sessions. Not currently called from the
+  // frontend (verified — no "manage devices" UI exists yet), but fixed now
+  // rather than left as a live token-exposure endpoint waiting for someone
+  // to wire a UI to it later.
+  fingerprint: string;
   userAgent: string | null;
   createdAt: string;
   lastUsedAt: string;
 }
 
+function fingerprint(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 12);
+}
+
 export function listSessionsForUser(userId: string): SessionSummary[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT id, user_agent as userAgent, created_at as createdAt, last_used_at as lastUsedAt
        FROM sessions WHERE user_id = ? ORDER BY last_used_at DESC`
     )
-    .all(userId) as SessionSummary[];
+    .all(userId) as { id: string; userAgent: string | null; createdAt: string; lastUsedAt: string }[];
+  return rows.map(({ id, ...rest }) => ({ fingerprint: fingerprint(id), ...rest }));
 }

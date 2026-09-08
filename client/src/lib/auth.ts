@@ -158,6 +158,20 @@ export async function googleLogin(credential: string): Promise<User> {
   return data.user;
 }
 
+// Public, unauthenticated — /health deliberately has no requireAuth (see
+// server/src/index.ts) since its whole purpose is confirming which build a
+// running backend is, before any session/token exists to check with.
+export async function fetchServerVersion(): Promise<string | null> {
+  try {
+    const res = await doFetch(`${API_BASE}/health`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.version === "string" ? data.version : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function markWelcomeSeen(): Promise<void> {
   await authFetch("/api/auth/mark-welcome-seen", { method: "POST" }).catch(() => {});
 }

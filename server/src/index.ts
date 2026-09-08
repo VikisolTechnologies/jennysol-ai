@@ -17,6 +17,7 @@ import { requireAuth } from "./middleware/auth.js";
 import { noProviderConfigured } from "./services/llm.js";
 import { warmUpGemini } from "./services/providers/gemini.js";
 import { logError } from "./services/errorLog.js";
+import { BUILD_VERSION } from "./version.js";
 import "./db/index.js";
 
 if (noProviderConfigured()) {
@@ -75,7 +76,12 @@ app.use(express.json());
 // JENNY_IMPLEMENTATION_STATUS.md.
 app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }));
 
-app.get("/health", (_req, res) => res.json({ status: "ok" }));
+// `version` is the short git SHA this exact running process was built from
+// (see scripts/write-version.mjs) — safe to expose publicly (it's not a
+// secret, it's the same information `git log` gives anyone with repo
+// access), and it's what makes "is Device A talking to the same backend
+// build as Device B?" a value to read instead of a guess.
+app.get("/health", (_req, res) => res.json({ status: "ok", version: BUILD_VERSION }));
 app.use("/api/auth", authRouter);
 app.use("/api/chat", requireAuth, chatRouter);
 app.use("/api/agent/runs", requireAuth, agentRunsRouter);

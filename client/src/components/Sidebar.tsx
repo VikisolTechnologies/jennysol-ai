@@ -25,7 +25,7 @@ import {
   type DocumentInfo,
 } from "../lib/api";
 import { useAuth } from "../lib/AuthContext";
-import { resendVerification } from "../lib/auth";
+import { resendVerification, fetchServerVersion } from "../lib/auth";
 import { ROLES } from "../lib/auth";
 
 function iconFor(filename: string) {
@@ -63,6 +63,14 @@ export function Sidebar({
   onRequestAuthGate: () => void;
 }) {
   const { user, logout, startNewGuestSession } = useAuth();
+  // For the "is this the same identity/build on both devices?" diagnostic
+  // below — fetched once, not on any hot path. Never a secret: the backend
+  // build SHA is the same thing `git log` shows anyone with repo access,
+  // and user.id is already returned by /api/auth/me on every page load.
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
+  useEffect(() => {
+    void fetchServerVersion().then(setServerVersion);
+  }, []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [documentsExpanded, setDocumentsExpanded] = useState(false);
@@ -366,6 +374,25 @@ export function Sidebar({
       )}
 
       <p className="shrink-0 text-center text-[10px] text-neutral-400">Powered by Vikisol · runs locally on your data</p>
+
+      {/* Lets two devices be compared directly (e.g. "are these actually
+          two different identities, and the same app build?") instead of
+          guessing from symptoms — see docs/SECURITY_AUDIT.md. Nothing here
+          is secret: user.id is already returned by /api/auth/me, and both
+          build SHAs are the same information a repo commit log shows. */}
+      {user && (
+        <details className="shrink-0 text-[10px] text-neutral-400">
+          <summary className="cursor-pointer select-none text-center hover:text-neutral-600 dark:hover:text-neutral-300">
+            Diagnostics
+          </summary>
+          <div className="mt-1.5 space-y-0.5 rounded-lg bg-neutral-100 px-2 py-1.5 font-mono dark:bg-white/5">
+            <p>account: {user.isGuest ? "guest" : "full"}</p>
+            <p className="break-all">user id: {user.id}</p>
+            <p>app build: {__BUILD_VERSION__}</p>
+            <p>server build: {serverVersion ?? "…"}</p>
+          </div>
+        </details>
+      )}
     </aside>
   );
 }
