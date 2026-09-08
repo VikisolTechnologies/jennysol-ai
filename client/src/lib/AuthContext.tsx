@@ -103,6 +103,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // from this browser.
       await authApi.logout().catch(() => {});
       try {
+        // A guest's pointer lives in sessionStorage, a full account's in
+        // localStorage (see MainApp.tsx) — clear both defensively rather
+        // than assuming which one the outgoing session used.
+        sessionStorage.removeItem(ACTIVE_CONVERSATION_KEY);
         localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
       } catch {
         // storage unavailable — nothing to clear, the reload below still

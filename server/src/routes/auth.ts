@@ -8,6 +8,7 @@ import {
   deleteAllSessionsForUser,
   deleteOtherSessions,
   deleteSession,
+  extendSessionToFullTtl,
   listSessionsForUser,
 } from "../services/auth/sessions.js";
 import { isLockedOut, recordLoginAttempt } from "../services/auth/loginAttempts.js";
@@ -109,7 +110,7 @@ authRouter.post("/signup", sensitiveLimiter, async (req, res) => {
 // upgrade (see the guest_limit_reached check there).
 authRouter.post("/guest", sensitiveLimiter, async (req, res) => {
   const user = await createGuestUser();
-  const { token, expiresAt } = createSession(user.id, req.header("user-agent"));
+  const { token, expiresAt } = createSession(user.id, req.header("user-agent"), true);
   res.status(201).json({ token, expiresAt, user });
 });
 
@@ -153,6 +154,12 @@ authRouter.post("/upgrade", requireAuth, sensitiveLimiter, async (req, res) => {
 
   const passwordHash = await hashPassword(password);
   const user = upgradeGuestToFullAccount(req.userId!, email, passwordHash, name);
+
+  // The session that was just carrying a short, sliding guest expiry now
+  // belongs to a real account — extend it to the normal 30-day policy (see
+  // sessions.ts's extendSessionToFullTtl) so upgrading doesn't silently log
+  // the user out again within the next 24 hours.
+  extendSessionToFullTtl(req.header("authorization")!.slice("Bearer ".length).trim());
 
   const verifyToken = createEmailVerificationToken(user.id);
   await sendEmail(

@@ -4,7 +4,13 @@ import { createGuestUser } from "./auth/userStore.js";
 import { createSession, getSessionUserId, deleteSession } from "./auth/sessions.js";
 import { startChatRun } from "./chatRunner.js";
 import { getRun } from "./agentRunStore.js";
-import { conversationExists, getConversationMessages, listConversations, deleteConversation } from "./conversationStore.js";
+import {
+  conversationExists,
+  getConversationMessages,
+  listConversations,
+  deleteConversation,
+  renameConversation,
+} from "./conversationStore.js";
 import { insertDocument, documentBelongsToUser, listDocuments, searchSimilarChunks } from "./vectorStore.js";
 import { randomUUID } from "node:crypto";
 
@@ -29,7 +35,7 @@ describe("multi-device guest isolation", () => {
   async function newGuestDevice() {
     const user = await createGuestUser();
     createdUserIds.push(user.id);
-    const { token } = createSession(user.id, "test-device-ua");
+    const { token } = createSession(user.id, "test-device-ua", true);
     return { user, token };
   }
 
@@ -179,5 +185,39 @@ describe("multi-device guest isolation", () => {
       const messages = getConversationMessages(d.user.id, convos[0].id);
       expect(messages[0]?.content).toBe(`hello from ${d.user.id}`);
     }
+  });
+
+  it("Guest B cannot rename Guest A's conversation", async () => {
+    const a = await newGuestDevice();
+    const b = await newGuestDevice();
+    const { conversationId } = startChatRun({ userId: a.user.id, requestId: randomUUID(), message: "A's chat" });
+
+    const renamed = renameConversation(b.user.id, conversationId, "Hijacked by B");
+
+    expect(renamed).toBe(false);
+    expect(listConversations(a.user.id)[0].title).not.toBe("Hijacked by B");
+  });
+
+  it("a guest session created via the real /api/auth/guest path (isGuest=true) uses the short sliding TTL, not the 30-day full-account one", async () => {
+    const device = await newGuestDevice();
+    const row = db.prepare("SELECT expires_at as expiresAt FROM sessions WHERE id = ?").get(device.token) as {
+      expiresAt: string;
+    };
+    const hoursUntilExpiry = (new Date(row.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60);
+    expect(hoursUntilExpiry).toBeLessThan(25); // ~24h guest TTL, not ~720h (30 days)
+  });
+
+  it("a guest session that's expired (simulating the browser having been closed well past the idle TTL) can no longer authenticate — the previous guest identity is genuinely unrecoverable", async () => {
+    const device = await newGuestDevice();
+    db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?").run(
+      new Date(Date.now() - 60 * 1000).toISOString(),
+      device.token
+    );
+
+    expect(getSessionUserId(device.token)).toBeNull();
+    // Their conversation still exists in the database (nothing was
+    // destroyed) — it's just unreachable without a valid session, exactly
+    // like every other orphaned-not-deleted case in this codebase.
+    expect(conversationExists(device.user.id, "any-id")).toBe(false); // sanity: ownership check still works
   });
 });

@@ -4,32 +4,53 @@ import { Sidebar } from "./Sidebar";
 import { ChatWindow } from "./ChatWindow";
 import { GuestLimitModal } from "./GuestLimitModal";
 import { useAgentRunRecovery } from "../lib/useAgentRunRecovery";
+import { useAuth } from "../lib/AuthContext";
 import { ACTIVE_CONVERSATION_KEY } from "../lib/storageKeys";
 
-function readStoredConversationId(): string | null {
+// Guest-aware, same reasoning as the auth token itself (see lib/auth.ts):
+// a guest's "which conversation was open" pointer is part of that
+// temporary browser session, not something that should persist past it in
+// localStorage — a stale pointer surviving into a brand-new guest session
+// wouldn't leak anything (the new session's token has no access to the
+// old conversation id, the backend just 404s it), but it's not "nothing
+// persisted" either, which is the actual product requirement. A logged-in
+// account keeps using localStorage, unchanged.
+function conversationIdStorage(isGuest: boolean): Storage {
+  return isGuest ? sessionStorage : localStorage;
+}
+
+function readStoredConversationId(isGuest: boolean): string | null {
   try {
-    return localStorage.getItem(ACTIVE_CONVERSATION_KEY);
+    return conversationIdStorage(isGuest).getItem(ACTIVE_CONVERSATION_KEY);
   } catch {
     return null;
   }
 }
 
-function storeConversationId(id: string | null) {
+function storeConversationId(isGuest: boolean, id: string | null) {
   try {
-    if (id) localStorage.setItem(ACTIVE_CONVERSATION_KEY, id);
-    else localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
+    const storage = conversationIdStorage(isGuest);
+    if (id) storage.setItem(ACTIVE_CONVERSATION_KEY, id);
+    else storage.removeItem(ACTIVE_CONVERSATION_KEY);
   } catch {
     // storage unavailable (private browsing etc.) — just won't survive a reload
   }
 }
 
 export function MainApp() {
+  // Safe to read synchronously here: RequireAuth never mounts MainApp
+  // until `user` is already resolved, so there's no "isGuest flips after
+  // first render" race for the useState initializer below to worry about.
+  const { user } = useAuth();
+  const isGuest = user?.isGuest ?? false;
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  // Restored from localStorage on mount instead of always starting at a
-  // blank "New chat" screen — the audit's own confirmed finding was that a
+  // Restored from storage on mount instead of always starting at a blank
+  // "New chat" screen — the audit's own confirmed finding was that a
   // reload had no way to tell it should return to the conversation that was
   // open, even though the reply itself was safely persisted server-side.
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(readStoredConversationId);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(() =>
+    readStoredConversationId(isGuest)
+  );
   const [conversationsVersion, setConversationsVersion] = useState(0);
   const { unseenCompleted, dismiss } = useAgentRunRecovery(activeConversationId);
   // Shared between Sidebar (a proactive "save your chats" prompt) and
@@ -38,8 +59,8 @@ export function MainApp() {
   const [authGate, setAuthGate] = useState<"limit" | "manual" | null>(null);
 
   useEffect(() => {
-    storeConversationId(activeConversationId);
-  }, [activeConversationId]);
+    storeConversationId(isGuest, activeConversationId);
+  }, [isGuest, activeConversationId]);
 
   function selectConversation(id: string | null) {
     setActiveConversationId(id);

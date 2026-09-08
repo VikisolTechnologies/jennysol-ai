@@ -18,6 +18,7 @@ import { noProviderConfigured } from "./services/llm.js";
 import { warmUpGemini } from "./services/providers/gemini.js";
 import { logError } from "./services/errorLog.js";
 import { BUILD_VERSION } from "./version.js";
+import { deleteExpiredSessions } from "./services/auth/sessions.js";
 import "./db/index.js";
 
 // GIT_COMMIT_SHA (a Railway variable, set by the deploy step right before
@@ -41,6 +42,22 @@ if (noProviderConfigured()) {
 // ~15s grounding-availability probe (see warmUpGemini's own comment) never
 // runs concurrently with a real user's first request.
 warmUpGemini();
+
+// Sweeps sessions already past expires_at — safe by construction (see
+// deleteExpiredSessions' own comment), never touches anything still
+// reachable. Every hour is frequent enough that an abandoned guest session
+// (24h sliding TTL — see sessions.ts) doesn't linger in the table for long,
+// without being aggressive enough to matter for a process that could
+// restart at any time anyway (nothing here is time-critical).
+const SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+setInterval(() => {
+  try {
+    const removed = deleteExpiredSessions();
+    if (removed > 0) console.log(`[jennysol] cleaned up ${removed} expired session(s)`);
+  } catch (err) {
+    console.error("[jennysol] session cleanup failed (non-fatal):", err);
+  }
+}, SESSION_CLEANUP_INTERVAL_MS);
 
 // A single unhandled error anywhere (a promise nobody awaited, a callback
 // throwing outside a route handler) would otherwise kill the whole process
@@ -93,6 +110,21 @@ app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyH
 // access), and it's what makes "is Device A talking to the same backend
 // build as Device B?" a value to read instead of a guess.
 app.get("/health", (_req, res) => res.json({ status: "ok", version: RUNTIME_VERSION }));
+
+// Every /api response carries user-scoped data (conversations, messages,
+// documents, admin views) or an auth token — none of it is ever safe for a
+// shared/intermediary cache (a browser's back-forward cache, a corporate
+// proxy, a CDN) to store and later hand to a different session. Express
+// sets no Cache-Control by default, which leaves that to each cache's own
+// heuristics rather than an explicit rule; this makes it explicit instead.
+// Set before the route mounts so any route's own more specific header
+// (chat.ts's SSE stream already sets its own) simply overrides this
+// default rather than conflicting with it.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  next();
+});
+
 app.use("/api/auth", authRouter);
 app.use("/api/chat", requireAuth, chatRouter);
 app.use("/api/agent/runs", requireAuth, agentRunsRouter);

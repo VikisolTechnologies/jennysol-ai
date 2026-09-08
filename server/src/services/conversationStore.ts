@@ -9,6 +9,7 @@ export type Source =
 export interface ConversationSummary {
   id: string;
   title: string;
+  titleSource: "auto" | "manual";
   updatedAt: string;
 }
 
@@ -41,7 +42,7 @@ export function createConversation(userId: string, firstUserMessage: string): st
 export function listConversations(userId: string): ConversationSummary[] {
   return db
     .prepare(
-      "SELECT id, title, updated_at as updatedAt FROM conversations WHERE user_id = ? ORDER BY updated_at DESC"
+      "SELECT id, title, title_source as titleSource, updated_at as updatedAt FROM conversations WHERE user_id = ? ORDER BY updated_at DESC"
     )
     .all(userId) as ConversationSummary[];
 }
@@ -103,6 +104,21 @@ export function conversationExists(userId: string, conversationId: string): bool
 
 export function deleteConversation(userId: string, conversationId: string) {
   db.prepare("DELETE FROM conversations WHERE id = ? AND user_id = ?").run(conversationId, userId);
+}
+
+// Ownership-scoped exactly like every other write here — the WHERE clause,
+// not the caller's good behavior, is what stops User B from renaming User
+// A's conversation. Deliberately does NOT touch updated_at: the sidebar
+// sorts by actual chat activity, not by metadata edits, so renaming a chat
+// never jumps it to the top of the list. title_source flips to 'manual'
+// unconditionally — there's no auto-retitling today to compete with (see
+// db/index.ts's migration comment), but this is what a future one would
+// need to check before overwriting a user's own rename.
+export function renameConversation(userId: string, conversationId: string, title: string): boolean {
+  const result = db
+    .prepare("UPDATE conversations SET title = ?, title_source = 'manual' WHERE id = ? AND user_id = ?")
+    .run(title, conversationId, userId);
+  return result.changes > 0;
 }
 
 export interface ConversationSummaryRow {

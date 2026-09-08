@@ -161,7 +161,20 @@ db.exec(`
 function addColumnIfMissing(table: string, column: string, ddl: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!cols.some((c) => c.name === column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    } catch (err) {
+      // Confirmed real, not theoretical: the test suite runs each file in
+      // its own worker process against the same on-disk SQLite file (see
+      // vitest's isolate mode), so on the very first run after adding a
+      // brand-new column, every worker's PRAGMA check above sees it as
+      // missing and several race to ALTER TABLE at once — only the first
+      // actually succeeds, the rest hit exactly this SQLite error. That
+      // error message IS the proof the column now exists (by whichever
+      // process won the race), so it's safe to treat as success rather
+      // than crash startup; any other error still propagates.
+      if (!(err instanceof Error) || !/duplicate column name/i.test(err.message)) throw err;
+    }
   }
 }
 
@@ -192,9 +205,20 @@ addColumnIfMissing("users", "is_guest", "is_guest INTEGER NOT NULL DEFAULT 0");
 // resummarizes, never data loss or an error.
 addColumnIfMissing("conversation_summaries", "user_id", "user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
 
+// Lets a manual rename (routes/conversations.ts's PATCH) permanently win
+// over any future automatic re-titling — existing rows default to 'auto'
+// (correct: none of them have been manually renamed, since this column
+// didn't exist before). Not currently read by any auto-title logic (there
+// isn't any beyond the one-time title set at creation — see
+// conversationStore.ts's titleFrom), but recorded now so a future
+// auto-retitling feature has something to check against from day one
+// instead of needing its own migration later.
+addColumnIfMissing("conversations", "title_source", "title_source TEXT NOT NULL DEFAULT 'auto'");
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);
   CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
   CREATE INDEX IF NOT EXISTS idx_conversation_summaries_user_id ON conversation_summaries(user_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 `);

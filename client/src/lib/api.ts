@@ -188,6 +188,7 @@ export async function cancelChatRun(runId: string): Promise<boolean> {
 export interface ConversationSummary {
   id: string;
   title: string;
+  titleSource: "auto" | "manual";
   updatedAt: string;
 }
 
@@ -206,6 +207,18 @@ export async function fetchConversationMessages(id: string): Promise<(ChatTurn &
 
 export async function deleteConversation(id: string): Promise<void> {
   await authFetch(`/api/conversations/${id}`, { method: "DELETE" });
+}
+
+export async function renameConversation(id: string, title: string): Promise<void> {
+  const res = await authFetch(`/api/conversations/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error || `Failed to rename conversation (${res.status})`);
+  }
 }
 
 export interface DocumentInfo {

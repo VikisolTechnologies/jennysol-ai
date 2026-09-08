@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { db } from "../db/index.js";
-import { getConversationSummary, saveConversationSummary } from "./conversationStore.js";
+import { getConversationSummary, saveConversationSummary, renameConversation, listConversations } from "./conversationStore.js";
 
 function makeUser(): string {
   const userId = randomUUID();
@@ -66,5 +66,70 @@ describe("conversation_summaries — user_id scoping (defense-in-depth hardening
       .prepare("SELECT COUNT(*) as n FROM conversation_summaries WHERE conversation_id = ?")
       .get(conversationId) as { n: number };
     expect(count.n).toBe(1);
+  });
+});
+
+describe("renameConversation — ownership + title_source + sort stability", () => {
+  let userIds: string[] = [];
+
+  afterEach(() => {
+    for (const id of userIds) db.prepare("DELETE FROM users WHERE id = ?").run(id); // cascades
+    userIds = [];
+  });
+
+  it("the owner can rename their own conversation, and it's marked title_source='manual'", () => {
+    const userId = makeUser();
+    userIds.push(userId);
+    const conversationId = makeConversation(userId);
+
+    const ok = renameConversation(userId, conversationId, "China Trip Planning");
+
+    expect(ok).toBe(true);
+    const [conv] = listConversations(userId);
+    expect(conv.title).toBe("China Trip Planning");
+    expect(conv.titleSource).toBe("manual");
+  });
+
+  it("a non-owner cannot rename someone else's conversation (the WHERE clause is the real authorization, not the caller's ID alone)", () => {
+    const ownerId = makeUser();
+    const attackerId = makeUser();
+    userIds.push(ownerId, attackerId);
+    const conversationId = makeConversation(ownerId);
+
+    const result = renameConversation(attackerId, conversationId, "Hijacked title");
+
+    expect(result).toBe(false);
+    const [conv] = listConversations(ownerId);
+    expect(conv.title).toBe("Test"); // untouched — still the seeded default
+    expect(conv.titleSource).toBe("auto");
+  });
+
+  it("renaming does not bump updated_at — a rename never reorders the sidebar's most-recently-active sort", () => {
+    const userId = makeUser();
+    userIds.push(userId);
+    const conversationId = makeConversation(userId);
+    const before = (
+      db.prepare("SELECT updated_at as updatedAt FROM conversations WHERE id = ?").get(conversationId) as {
+        updatedAt: string;
+      }
+    ).updatedAt;
+
+    renameConversation(userId, conversationId, "Renamed");
+
+    const after = (
+      db.prepare("SELECT updated_at as updatedAt FROM conversations WHERE id = ?").get(conversationId) as {
+        updatedAt: string;
+      }
+    ).updatedAt;
+    expect(after).toBe(before);
+  });
+
+  it("a brand-new conversation defaults to title_source='auto' before any rename", () => {
+    const userId = makeUser();
+    userIds.push(userId);
+    makeConversation(userId);
+
+    const [conv] = listConversations(userId);
+    expect(conv.titleSource).toBe("auto");
   });
 });

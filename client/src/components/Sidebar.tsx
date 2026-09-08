@@ -9,6 +9,7 @@ import {
   LogOut,
   MailWarning,
   MessageSquare,
+  Pencil,
   SquarePen,
   Sparkles,
   Trash2,
@@ -20,6 +21,7 @@ import {
   deleteDocument,
   fetchConversations,
   fetchDocuments,
+  renameConversation,
   uploadDocument,
   type ConversationSummary,
   type DocumentInfo,
@@ -72,6 +74,9 @@ export function Sidebar({
     void fetchServerVersion().then(setServerVersion);
   }, []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [documentsExpanded, setDocumentsExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -103,6 +108,42 @@ export function Sidebar({
   useEffect(() => {
     refreshConversations();
   }, [conversationsVersion]);
+
+  useEffect(() => {
+    if (renamingId) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingId]);
+
+  function startRename(c: ConversationSummary) {
+    setRenamingId(c.id);
+    setRenameValue(c.title);
+  }
+
+  function cancelRename() {
+    setRenamingId(null);
+    setRenameValue("");
+  }
+
+  // Optimistic, reverted if the request fails — matches how delete already
+  // updates local state immediately below. Ownership is enforced
+  // server-side (PATCH /api/conversations/:id, see routes/conversations.ts);
+  // this is purely UI responsiveness, not the authorization boundary.
+  async function commitRename(c: ConversationSummary) {
+    const trimmed = renameValue.trim();
+    setRenamingId(null);
+    if (!trimmed || trimmed === c.title) return;
+
+    setConversations((prev) =>
+      prev.map((x) => (x.id === c.id ? { ...x, title: trimmed, titleSource: "manual" } : x))
+    );
+    try {
+      await renameConversation(c.id, trimmed);
+    } catch {
+      setConversations((prev) => prev.map((x) => (x.id === c.id ? { ...x, title: c.title } : x)));
+    }
+  }
 
   async function handleFile(file: File) {
     setUploading(true);
@@ -153,38 +194,75 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto">
         <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Chats</h3>
         <ul className="space-y-0.5">
-          {conversations.map((c) => (
-            <li key={c.id}>
-              <button
-                onClick={() => onSelectConversation(c.id)}
-                className={`group flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${
-                  c.id === activeConversationId
-                    ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200"
-                    : "text-neutral-700 hover:bg-neutral-200/60 dark:text-neutral-300 dark:hover:bg-white/5"
-                }`}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <MessageSquare size={14} className="shrink-0 opacity-60" />
-                  <span className="truncate">{c.title}</span>
-                </span>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    setConversations((prev) => prev.filter((x) => x.id !== c.id));
-                    await deleteConversation(c.id);
-                    if (c.id === activeConversationId) onNewChat();
+          {conversations.map((c) =>
+            renamingId === c.id ? (
+              <li key={c.id} className="px-2.5 py-1">
+                <input
+                  ref={renameInputRef}
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void commitRename(c);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelRename();
+                    }
                   }}
-                  className="shrink-0 rounded p-0.5 text-neutral-400 opacity-0 transition hover:text-rose-500 group-hover:opacity-100"
-                  aria-label={`Delete "${c.title}"`}
+                  onBlur={() => void commitRename(c)}
+                  maxLength={200}
+                  className="w-full rounded-lg border border-brand-300 bg-white px-2 py-1.5 text-sm outline-none ring-2 ring-brand-500/20 dark:border-brand-400/50 dark:bg-neutral-900 dark:text-white"
+                  aria-label="Conversation title"
+                />
+              </li>
+            ) : (
+              <li key={c.id}>
+                <button
+                  onClick={() => onSelectConversation(c.id)}
+                  className={`group flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${
+                    c.id === activeConversationId
+                      ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200"
+                      : "text-neutral-700 hover:bg-neutral-200/60 dark:text-neutral-300 dark:hover:bg-white/5"
+                  }`}
                 >
-                  <Trash2 size={13} />
-                </span>
-              </button>
-              <span className="ml-6 block px-0.5 text-[10px] text-neutral-400">{relativeTime(c.updatedAt)}</span>
-            </li>
-          ))}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <MessageSquare size={14} className="shrink-0 opacity-60" />
+                    <span className="truncate">{c.title}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-0.5">
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startRename(c);
+                      }}
+                      className="rounded p-0.5 text-neutral-400 opacity-0 transition hover:text-brand-500 group-hover:opacity-100"
+                      aria-label={`Rename "${c.title}"`}
+                    >
+                      <Pencil size={13} />
+                    </span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setConversations((prev) => prev.filter((x) => x.id !== c.id));
+                        await deleteConversation(c.id);
+                        if (c.id === activeConversationId) onNewChat();
+                      }}
+                      className="rounded p-0.5 text-neutral-400 opacity-0 transition hover:text-rose-500 group-hover:opacity-100"
+                      aria-label={`Delete "${c.title}"`}
+                    >
+                      <Trash2 size={13} />
+                    </span>
+                  </span>
+                </button>
+                <span className="ml-6 block px-0.5 text-[10px] text-neutral-400">{relativeTime(c.updatedAt)}</span>
+              </li>
+            )
+          )}
           {conversations.length === 0 && (
             <li className="px-2.5 py-3 text-xs text-neutral-400">No chats yet — say something!</li>
           )}
@@ -331,6 +409,14 @@ export function Sidebar({
               <span className="underline">Sign up to save your chats</span>
             </span>
           </button>
+          {/* Keeps the temporary-vs-permanent distinction subtle but
+              explicit — see the session/storage architecture doc. A guest's
+              history now really does live only for this browser session
+              (sessionStorage-backed identity, short server-side TTL), so
+              this is no longer just a sign-up pitch, it's accurate. */}
+          <p className="px-2.5 text-[10px] text-neutral-400">
+            Your chat history is temporary and will be cleared when this browser session ends.
+          </p>
           {/* Shared-device escape hatch — see docs/SECURITY_AUDIT.md. On a
               shared phone/computer, whoever opens Jennysol next would
               otherwise silently continue THIS guest's session (and see its

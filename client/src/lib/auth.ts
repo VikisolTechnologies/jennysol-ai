@@ -42,20 +42,60 @@ async function doFetch(url: string, init?: RequestInit): Promise<Response> {
   }
 }
 
+// Guest identity lives in sessionStorage, not localStorage — deliberately:
+// sessionStorage survives a refresh (same tab, same page-session) but is
+// gone the moment the browser/tab actually closes, and — critically — is
+// never shared with a different tab, a different profile, or an Incognito
+// window even on the exact same site. localStorage would persist a guest
+// identity indefinitely and share it across every tab, which is exactly
+// the "guest = a browser session" product requirement this violates. A
+// full/logged-in account is the opposite: that identity SHOULD survive
+// browser close and work the same everywhere the user signs in, so it
+// keeps using localStorage, unchanged from before. See setToken below for
+// which storage a given token lands in, decided by the server's own
+// user.isGuest flag on every auth response — never guessed client-side.
 export function getToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    return sessionStorage.getItem(TOKEN_KEY) ?? localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }
 }
 
-function setToken(token: string | null) {
+function setToken(token: string | null, isGuest = false) {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
+    if (token) {
+      if (isGuest) {
+        sessionStorage.setItem(TOKEN_KEY, token);
+        localStorage.removeItem(TOKEN_KEY);
+      } else {
+        localStorage.setItem(TOKEN_KEY, token);
+        sessionStorage.removeItem(TOKEN_KEY);
+      }
+    } else {
+      sessionStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(TOKEN_KEY);
+    }
   } catch {
     // storage unavailable (private browsing etc.) — auth just won't persist across reloads
+  }
+}
+
+// Guest -> full-account upgrade keeps the SAME session token (see
+// server's userStore.upgradeGuestToFullAccount and the /upgrade route's
+// extendSessionToFullTtl) — only where the token lives client-side needs
+// to change, from the temporary sessionStorage slot to the persistent
+// localStorage one, now that it represents an account meant to survive
+// browser close.
+function migrateGuestTokenToPersistent() {
+  try {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+    localStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // storage unavailable — the session still works via whichever storage
+    // (if any) actually succeeded; nothing to migrate if there's nothing there
   }
 }
 
@@ -106,7 +146,7 @@ export async function signup(input: {
     body: JSON.stringify(input),
   });
   const data = await parseOrThrow(res);
-  setToken(data.token);
+  setToken(data.token, data.user.isGuest);
   return data.user;
 }
 
@@ -117,7 +157,7 @@ export async function login(email: string, password: string): Promise<User> {
     body: JSON.stringify({ email, password }),
   });
   const data = await parseOrThrow(res);
-  setToken(data.token);
+  setToken(data.token, data.user.isGuest);
   return data.user;
 }
 
@@ -129,7 +169,7 @@ export async function login(email: string, password: string): Promise<User> {
 export async function guestLogin(): Promise<User> {
   const res = await doFetch(`${API_BASE}/api/auth/guest`, { method: "POST" });
   const data = await parseOrThrow(res);
-  setToken(data.token);
+  setToken(data.token, data.user.isGuest);
   return data.user;
 }
 
@@ -144,6 +184,7 @@ export async function upgradeGuestAccount(input: { email: string; password: stri
     body: JSON.stringify(input),
   });
   const data = await parseOrThrow(res);
+  migrateGuestTokenToPersistent();
   return data.user;
 }
 
@@ -154,7 +195,7 @@ export async function googleLogin(credential: string): Promise<User> {
     body: JSON.stringify({ credential }),
   });
   const data = await parseOrThrow(res);
-  setToken(data.token);
+  setToken(data.token, data.user.isGuest);
   return data.user;
 }
 
