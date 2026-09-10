@@ -17,13 +17,26 @@ service, or an architecture document is never sufficient evidence of DONE on its
 
 ## Current date
 
-2026-09-10
+2026-09-11 (checkpoint originally produced 2026-09-10; this HEAD section updated 2026-09-11 after
+confirming the push below actually landed on GitHub — see the note at the end of this section)
 
 ## JennySol HEAD
 
-`a86f873aaaa9b4387062cf4135b45670dd9edc79` — "Rearchitect guest identity as browser-session-scoped,
-add conversation rename" (2026-09-08 04:47:54 -0700). Branch `main`, working tree clean, 0 commits
-ahead/behind `origin/main`. Repository: `https://github.com/VikisolTechnologies/Jennysol-AI`.
+`8b086b63bc15b86a9da1ada9c922bf803ee2c842` — "docs: add architecture decision records for the
+Arena/ecosystem integration" (this checkpoint's own commit). Branch `main`, working tree clean, 0
+commits ahead/behind `origin/main`. Repository:
+`https://github.com/VikisolTechnologies/jennysol-ai` (canonical; GitHub redirects the old
+`Jennysol-AI` casing here — confirmed via `git push` output: "This repository moved. Please use the
+new location").
+
+**Push confirmation (2026-09-11):** `git ls-remote origin main` →
+`8b086b63bc15b86a9da1ada9c922bf803ee2c842`, matching local `HEAD` exactly. Both
+`56ced33` ("docs: add PROJECT-PROGRESS.md...") and `8b086b6` ("docs: add architecture decision
+records...") are present in `origin/main`'s history (`git log origin/main --oneline`), and both
+`PROJECT-PROGRESS.md` and all five `docs/architecture/ADR-*.md` files are present in
+`origin/main`'s tree (`git ls-tree -r origin/main`, `git show origin/main:PROJECT-PROGRESS.md`).
+Underlying application commit this HEAD points to remains `a86f873` (2026-09-08) — this checkpoint
+added only documentation on top of it; JennySol's own application code is unchanged.
 
 ## Arena FE HEAD
 
@@ -69,6 +82,12 @@ is inventoried in detail under [Arena Integration Audit](#arena-integration-audi
   Evidence: this document's own [Phase 1](#phase-1--current-git-state) and
   [Phase 2](#phase-2--jennysol-implementation-audit) sections, produced by direct command
   execution on 2026-09-10.
+- **This checkpoint itself, pushed to GitHub.** `PROJECT-PROGRESS.md` (commit `56ced33`) and the
+  five ADRs under `docs/architecture/` (commit `8b086b6`) are live on `origin/main` at
+  `https://github.com/VikisolTechnologies/jennysol-ai` — confirmed 2026-09-11 via
+  `git ls-remote origin main` (`8b086b6...` matches local `HEAD` exactly), `git log origin/main`
+  (both commits present), and `git ls-tree -r origin/main` / `git show origin/main:PROJECT-PROGRESS.md`
+  (all six files present with real content, not just locally committed).
 - **Arena-side agent persistence boundary** (supporting infrastructure, not a milestone itself —
   see note above). `AgentServiceClient`/`NoopAgentServiceClient`/`AgentContext`/`AgentReply`/
   `AgentHistoryEntry`/`AgentProviderConfig`, `AgentConversation`/`AgentMessage` entities +
