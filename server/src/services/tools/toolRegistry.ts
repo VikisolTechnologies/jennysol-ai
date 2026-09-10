@@ -25,8 +25,31 @@ export class CrossProductToolAccessError extends Error {
   }
 }
 
+// M4 (connector framework): what registeredConnectorStatus() reports per connector — the same
+// shape capabilityRegistry.ts's own CapabilityStatus uses for `configured` (report state, not
+// aspiration), reused here rather than reinvented. Deliberately not wired into
+// getCapabilityRegistry() itself yet — that function is real, production-facing, and would
+// otherwise have nothing but fake test connectors to report on until a real one (Arena, M5)
+// exists to register.
+export interface ConnectorStatus {
+  product: string;
+  configured: boolean;
+  toolCount: number;
+}
+
 export class ToolRegistry {
   private readonly connectors = new Map<string, ProductConnector>();
+
+  // Generic reporting mechanism any real registry instance can use, regardless of which
+  // connectors happen to be registered — proven in toolRegistry.test.ts against fake
+  // connectors, wired into a real admin view once a real connector (M5+) exists to report on.
+  getConnectorStatus(): ConnectorStatus[] {
+    return [...this.connectors.values()].map((c) => ({
+      product: c.product,
+      configured: c.configured(),
+      toolCount: c.getTools().length,
+    }));
+  }
 
   registerConnector(connector: ProductConnector): void {
     if (this.connectors.has(connector.product)) {

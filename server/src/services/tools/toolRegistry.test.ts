@@ -9,7 +9,7 @@ import { InsufficientScopeError } from "../productIdentity.js";
 import type { ProductConnector } from "./productConnector.js";
 import type { ProductIdentity } from "../productIdentity.js";
 
-function acmeConnector(): ProductConnector {
+function acmeConnector(opts?: { configured?: boolean }): ProductConnector {
   return {
     product: "acme",
     getTools: () => [
@@ -20,10 +20,11 @@ function acmeConnector(): ProductConnector {
         execute: async (_identity, args) => ({ widgetId: args.id, name: "Test Widget" }),
       },
     ],
+    configured: () => opts?.configured ?? true,
   };
 }
 
-function widgetcoConnector(): ProductConnector {
+function widgetcoConnector(opts?: { configured?: boolean }): ProductConnector {
   return {
     product: "widgetco",
     getTools: () => [
@@ -34,6 +35,7 @@ function widgetcoConnector(): ProductConnector {
         execute: async () => ({ gadget: "Test Gadget" }),
       },
     ],
+    configured: () => opts?.configured ?? true,
   };
 }
 
@@ -61,6 +63,7 @@ describe("ToolRegistry (M3)", () => {
       getTools: () => [
         { name: "notNamespaced", description: "bad", parameters: {}, execute: async () => null },
       ],
+      configured: () => true,
     };
     expect(() => registry.registerConnector(badConnector)).toThrow(/must be namespaced/);
   });
@@ -149,6 +152,7 @@ describe("ToolRegistry (M3)", () => {
           },
         },
       ],
+      configured: () => true,
     });
     registry.registerConnector(widgetcoConnector());
 
@@ -170,5 +174,44 @@ describe("ToolRegistry (M3)", () => {
     await expect(
       registry.dispatch(identity({ product: "acme", scope: ["acme.doesNotExist"] }), "acme.doesNotExist", {})
     ).rejects.toThrow(/not found/);
+  });
+
+  // M4 (connector framework) — reusable by more than one product without code changes to the
+  // core, proven by registering two independently-configured fake connectors and reading their
+  // status back generically.
+  describe("getConnectorStatus (M4)", () => {
+    it("reports each registered connector's product, configured state, and tool count independently", () => {
+      const registry = new ToolRegistry();
+      registry.registerConnector(acmeConnector({ configured: true }));
+      registry.registerConnector(widgetcoConnector({ configured: false }));
+
+      const status = registry.getConnectorStatus();
+
+      expect(status).toEqual(
+        expect.arrayContaining([
+          { product: "acme", configured: true, toolCount: 1 },
+          { product: "widgetco", configured: false, toolCount: 1 },
+        ])
+      );
+      expect(status).toHaveLength(2);
+    });
+
+    it("returns an empty list when no connectors are registered", () => {
+      expect(new ToolRegistry().getConnectorStatus()).toEqual([]);
+    });
+
+    it("reflects a connector's current configured() state each time it's called, not a cached value from registration", () => {
+      const registry = new ToolRegistry();
+      let isConfigured = false;
+      registry.registerConnector({
+        product: "acme",
+        getTools: () => [],
+        configured: () => isConfigured,
+      });
+
+      expect(registry.getConnectorStatus()[0].configured).toBe(false);
+      isConfigured = true;
+      expect(registry.getConnectorStatus()[0].configured).toBe(true);
+    });
   });
 });

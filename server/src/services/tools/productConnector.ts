@@ -28,4 +28,10 @@ export interface ProductConnector {
   // product's tools" and nothing else.
   readonly product: string;
   getTools(): RegisteredTool[];
+  // M4: has what it needs to even be reachable right now (e.g. its
+  // `SERVICE_TOKEN_SECRET_<PRODUCT>` is set) — mirrors the exact naming convention
+  // `LlmProvider`/`SearchProvider` already use (`configured()`, not "healthy" — a connector
+  // can be configured and still be failing; that finer distinction is what providerHealth.ts's
+  // pattern is for, not duplicated here until a real connector's failure modes are known).
+  configured(): boolean;
 }
