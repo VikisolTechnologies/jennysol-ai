@@ -13,7 +13,8 @@ service, or an architecture document is never sufficient evidence of DONE on its
 
 ## Current milestone
 
-**M4 — Connector framework.** Complete. M5 not started.
+**M5 — Arena connector.** Complete. M6 not started. **First milestone with real cross-repo
+evidence** — both `arena-api` and `jennysol-ai` changed and pushed.
 
 ## Current date
 
@@ -21,47 +22,50 @@ service, or an architecture document is never sufficient evidence of DONE on its
 
 ## JennySol HEAD
 
-`f6c97dc` — "feat(agent): add connector health/config reporting (M4)". Branch `main`, working tree
+`3ceca59` — "feat(agent): add the real Arena product connector (M5)". Branch `main`, working tree
 clean at commit time. Repository: `https://github.com/VikisolTechnologies/jennysol-ai` (canonical;
 GitHub redirects the old `Jennysol-AI` casing here).
 
-**Push confirmation:** see [M4 evidence](#completed) below for the exact `git ls-remote`
-verification performed after pushing this commit. Underlying application code prior to this
-checkpoint's own documentation/implementation commits was `a86f873` (2026-09-08, JennySol's own
-last feature commit before this integration project began).
+**Push confirmation:** `git ls-remote origin main` → `3ceca59285358f57c54f88d93119e45cf9388cc4`,
+matching local `HEAD` exactly. Underlying application code prior to this checkpoint's own
+documentation/implementation commits was `a86f873` (2026-09-08, JennySol's own last feature commit
+before this integration project began).
 
 ## Arena FE HEAD
 
 `6a4fe29` — "fix: remove fake Agent Chat keyword matcher, wire to real backend" (2026-09-10
 23:04:56 +0530). Branch `main`, working tree clean, 0 ahead/behind `origin/main`. Repository:
-`Vikisol-Arena-FE` (`arena-web`).
+`Vikisol-Arena-FE` (`arena-web`). Unchanged this milestone — M5 touched Arena's backend only.
 
 ## Arena BE HEAD
 
-`6d33023` — "feat: real agent backend boundary, replacing the removed fake keyword-matcher"
-(2026-09-10 23:04:53 +0530). Branch `main`, working tree clean, 0 ahead/behind `origin/main`.
-Repository: `Vikisol-Arena-BE` (`arena-api`).
+`6b060a4` — "feat(agent): add JennySol service-token issuer (M5, JennySol integration)"
+(2026-09-11). Branch `main`, working tree clean, 0 ahead/behind `origin/main`, deployed to
+Railway (`api-arena.vikisol.in`) and confirmed live (`GET /api/v1/public/landing-stats` → 200)
+after this deploy settled. Repository: `Vikisol-Arena-BE` (`arena-api`).
 
 ## Overall completion
 
-**5 of 13 milestones complete = 38.5% (≈38%).**
+**6 of 13 milestones complete = 46.2% (≈46%).**
 
 Calculation: milestones M0–M12 (13 total, defined in [Milestone Model](#milestone-model) below),
 equal weight, no partial credit for a milestone unless its own explicit acceptance criteria are
 met. M0 (Investigation), M1 (Tool-calling engine), M2 (Product identity/security), M3 (Tool
-registry), and M4 (Connector framework — per-connector `configured()`/health reporting, proven
-against two independently-configured fake connectors, 225/225 suite passing) now meet their
-acceptance criteria. M5–M12 all require CODE + TESTS + VERIFICATION and none has any of the three
-yet, so each remains 0%. This percentage will not move again until a milestone's full acceptance
-criteria are met — not when related code merely starts to exist.
+registry), M4 (Connector framework), and M5 (Arena connector — a real token minted by Arena's
+actual Java issuer verified by JennySol's actual TypeScript verifier, live, cross-repo) now meet
+their acceptance criteria. M6–M12 all require CODE + TESTS + VERIFICATION and none has any of the
+three yet, so each remains 0%. This percentage will not move again until a milestone's full
+acceptance criteria are met — not when related code merely starts to exist.
 
 **Pre-existing supporting infrastructure, not counted toward any milestone above:** Arena's
 `com.vikisol.arena.agent` package (interface → Noop → real client boundary, real server-side
 `AgentConversation`/`AgentMessage` persistence) was built in a prior session, before the real
 JennySol repository had been located. It is real, compiled, deployed, and live-verified — but it
-implements none of M1–M11's acceptance criteria (there is no tool loop to connect it to, no
-service-token issuer, no real client). It is relevant groundwork for M5/M11 once those start, and
-is inventoried in detail under [Arena Integration Audit](#arena-integration-audit).
+still implements none of M6–M11's acceptance criteria on its own: `AgentServiceClient` still binds
+to `NoopAgentServiceClient` in production (a `RealAgentServiceClient` calling JennySol through the
+M5 token/connector this checkpoint just built is real, buildable work, not yet done — see
+[Next Exact Tasks](#next-exact-tasks)). It is relevant groundwork for M6/M11 once those advance
+further, and is inventoried in detail under [Arena Integration Audit](#arena-integration-audit).
 
 ---
 
@@ -178,21 +182,53 @@ is inventoried in detail under [Arena Integration Audit](#arena-integration-audi
   an empty registry reports an empty list, and `configured()` is read live on each call rather
   than cached from registration. Full suite: **225/225 passing** (222 pre-existing + 3 new),
   `tsc --noEmit` clean, `npm run build` clean. **Commit:** `f6c97dc`.
+- **M5 — Arena connector.** The first milestone touching both repositories. **Arena side**
+  (`arena-api`, commit `6b060a4`): `AgentServiceTokenIssuer` — mints the HS256 service token per
+  ADR-003, a separate key/secret/audience from Arena's own session JWT
+  (`JwtTokenProvider`). Configured via `app.agent.service-token-secret`
+  (`SERVICE_TOKEN_SECRET_ARENA`), blank/not-configured by default. **This is arena-api's
+  first-ever automated test file** — 0 test files existed anywhere in that repository before this
+  commit (a gap flagged in the original architecture investigation); `AgentServiceTokenIssuerTest`
+  (4 tests) is a real start on closing it. **JennySol side** (commit `3ceca59`): `arenaConnector`,
+  the first real (non-fake) `ProductConnector` — `getTools()` intentionally empty (M6's job),
+  `configured()` checking the shared secret. **JennySol side tests:** 5 new
+  (`arena.test.ts`) — product identity, empty tool list, `configured()` reflecting the env var, a
+  full mint→verify→`getToolsFor()` round trip using JennySol's own signer with Arena's exact claim
+  shape, and tampered-token rejection.
+  **Real cross-repo, cross-language interoperability verified live**, not assumed: a token minted
+  by Arena's actual Java `AgentServiceTokenIssuer` was fed into JennySol's actual (unmocked)
+  `verifyServiceToken()` and resolved correctly to
+  `{product:"arena", externalUserId:"arena-user-42", role:"RECRUITER", tenantId:"tenant-1",
+  scope:["arena.searchJobs"]}`; a tampered copy of that same real token was rejected with an
+  invalid-signature error. **This caught a genuine interoperability bug**, not merely tested
+  around one: jjwt's bare `signWith(key)` silently upgrades the algorithm to HS384 for a
+  sufficiently long key, which would have made every Arena-issued token unverifiable by
+  JennySol's strict `algorithms: ["HS256"]` allowlist — found only by actually running both real
+  implementations against each other, fixed via explicit `signWith(key, Jwts.SIG.HS256)` on the
+  Arena side, re-verified after the fix. This specific cross-language run can't be repeated
+  automatically in JennySol's own `npm test` (no Maven invocation from a Node test suite) — it is
+  recorded here as verified-live-once evidence, the same pattern this project's own prior docs
+  already use for checks that can't be kept re-proving in CI.
+  **Full suites:** JennySol 230/230 passing (225 pre-existing + 5 new), `tsc --noEmit` clean,
+  `npm run build` clean. Arena `AgentServiceTokenIssuerTest` 4/4 passing (`mvn test`),
+  `mvn -o clean compile` clean. Arena deployed to Railway and confirmed live
+  (`GET /api/v1/public/landing-stats` → 200) after this change's deploy settled.
 
 ## In Progress
 
-Nothing. M5 has not started as of this checkpoint.
+Nothing. M6 has not started as of this checkpoint.
 
 ## Not Started
 
-M5 through M12 in full — see [Phase 3](#phase-3--arena-integration-audit) and
-[Phase 4](#phase-4--tool-matrix) below for the exact, item-by-item evidence behind this. M1's
-tool-calling engine, M2's product identity/service-token verifier, M3's tool registry, and M4's
-connector health/config reporting now exist (see Completed above), but nothing built on top of
-them yet: no Arena connector, no Arena-callable tools (read or write), no approval workflow wired
-to a real tool, no product-scoped memory isolation, no agent-specific audit logging, and no
-security tests beyond the token-primitive level (tests 7-17 below) — because none of the systems
-those tests would exercise exist yet.
+M6 through M12 in full — see [Phase 3](#phase-3--arena-integration-audit) and
+[Phase 4](#phase-4--tool-matrix) below for the exact, item-by-item evidence behind this. M1
+through M5 now exist (see Completed above) — a real, working Arena connector with verified
+cross-repo token trust — but it has zero tools registered and nothing calls it from Arena's own
+`AgentServiceClient` yet (still bound to `NoopAgentServiceClient` in production): no
+Arena-callable tools (read or write), no approval workflow wired to a real tool, no
+product-scoped memory isolation, no agent-specific audit logging, and no security tests beyond
+the token-primitive level (tests 7-17 below) — because none of the systems those tests would
+exercise exist yet.
 
 ## Blocked
 
@@ -236,14 +272,15 @@ would build on. Full per-item status: [Phase 6](#phase-6--security-verification)
 
 | Repository | Test files | Tests | Result | Command | Verified |
 |---|---|---|---|---|---|
-| Jennysol-AI (`server`) | 23 | 225 | 225 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M4 |
-| Arena BE (`arena-api`) | 0 | 0 | N/A — no test files exist | `find src/test -type f` → empty | 2026-09-10 |
+| Jennysol-AI (`server`) | 24 | 230 | 230 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M5 |
+| Arena BE (`arena-api`) | 1 | 4 | 4 passed, 0 failed | `mvn test -Dtest=AgentServiceTokenIssuerTest` | 2026-09-11, M5 — **first test file this repository has ever had** |
 | Arena FE (`arena-web`) | 0 (unit) | 0 | N/A — no unit test files exist (a separate Playwright E2E suite exists for Arena's own product features, unrelated to the agent/tool integration this document tracks) | `find src -iname "*.test.*"` → empty | 2026-09-10 |
 
-29 of JennySol's 225 passing tests are this integration's own (5 M1 tool-calling + 10 M2
-service-token/identity + 14 M3+M4 tool-registry/connector) — the other 196 cover JennySol's own
-pre-existing chat/auth/router/memory subsystems, audited in Phase 2 as separate from the M1–M12
-milestones.
+34 of JennySol's 230 passing tests are this integration's own (5 M1 tool-calling + 10 M2
+service-token/identity + 14 M3+M4 tool-registry/connector + 5 M5 arena connector) — the other 196
+cover JennySol's own pre-existing chat/auth/router/memory subsystems, audited in Phase 2 as
+separate from the M1–M12 milestones. All 4 of Arena BE's tests are also this integration's own —
+Arena had zero automated tests of any kind before M5.
 
 ## Deployment Status
 
@@ -283,24 +320,34 @@ GitHub API access to confirm this independently is blocked in this environment (
 
 ## Next Exact Tasks
 
-**M1 through M4 complete** (see Completed above). M5 is the first milestone that touches the Arena
-repositories at all — everything before it was built and proven entirely inside JennySol, per the
-architecture's own required sequencing.
+**M1 through M5 complete** (see Completed above). M6 is where the actual gateway a live Arena
+request travels through gets built — everything so far proved the pieces work; nothing yet accepts
+an incoming Arena-originated request end to end.
 
-1. **M5 — Arena connector.** Arena issues a real service token (`AgentServiceTokenIssuer.java`,
-   new, in `arena-api`, mirroring `serviceToken.ts`'s exact HS256/claims shape); JennySol's
-   `productConnectors/arena.ts` (new) implements `ProductConnector` and verifies it. Acceptance: a
-   real cross-repo, cross-language interoperability proof — a token minted by Arena's actual Java
-   issuer, verified by JennySol's actual TypeScript verifier against the same shared secret — not
-   just each side unit-tested in isolation. **Next up.**
-2. **M6 — First Arena read tool.** Wrap `GET /jobs` as `arena.searchJobs`, registered in the Arena
-   connector, and — for the first time — actually offered to a real `chatRunner.ts` conversation
-   via `ToolRegistry.getToolsFor()`/`dispatch()`. Acceptance: a real chat message ("find me React
-   jobs") that triggers the tool and returns real Arena data, verified live end-to-end — the first
-   real instance of the Phase 5 flow this checkpoint currently reports as BLOCKED.
-3. **Revisit M1's live-API gap** once a `GEMINI_API_KEY` becomes available in whatever environment
-   runs this next — does not block M5/M6, which need no live model call, but should not be left
-   open indefinitely either.
+1. **M6 — First Arena read tool, wired end-to-end.** Concretely:
+   - JennySol: a new HTTP entry point (e.g. `POST /api/agent/gateway/chat`) distinct from the
+     existing `/api/chat` (which is for JennySol's own logged-in users, not product-federated
+     identities) — a new `requireProductIdentity` middleware (parallel to `requireAuth`) that
+     extracts and verifies the `Authorization` bearer as a service token via
+     `verifyServiceToken()`, resolves `ToolRegistry.getToolsFor(identity)`, and runs M1's
+     `attemptWithTools` loop with `ToolRegistry.dispatch(identity, ...)` as `onToolCall`.
+   - JennySol: `arena.ts`'s first real tool, `arena.searchJobs`, backed by an actual HTTP call to
+     Arena's own public `GET /jobs` endpoint (already public/unauthenticated per Arena's
+     `SecurityConfig` — confirmed during the original investigation — so this first tool needs no
+     Arena-side auth beyond the request simply happening; later write tools will need Arena-side
+     tool-authorization middleware this one doesn't).
+   - Arena: a `RealAgentServiceClient` implementing the existing `AgentServiceClient` interface,
+     calling the new JennySol gateway with a token from `AgentServiceTokenIssuer`, and
+     `AgentProviderConfig` wired to use it instead of `NoopAgentServiceClient` — likely
+     feature-flagged/env-gated rather than switched on for every account immediately.
+   - Acceptance: a real chat message ("find me React jobs") sent through Arena's own `/agent`
+     page, reaching JennySol's real gateway, triggering `arena.searchJobs`, returning real Arena
+     job data, verified live end-to-end — the first real instance of the Phase 5 flow this
+     checkpoint currently reports as BLOCKED. **Next up.**
+2. **Revisit M1's live-API gap** once a `GEMINI_API_KEY` becomes available in whatever environment
+   runs this next — does not block M6's gateway/tool-plumbing work, but the actual live chat
+   message in M6's acceptance test above does need a working model call, so this may need
+   resolving before M6's own acceptance test can be fully run.
 
 ## Known Risks
 
@@ -373,17 +420,19 @@ e6ebcd6 2026-09-02 01:34:32 +0530 docs: record Resend/Google activation and the 
 ### Repository: `Vikisol-Arena-BE` (`arena-api`)
 
 - Current branch: `main`
-- HEAD commit: `6d33023` — "feat: real agent backend boundary, replacing the removed fake
-  keyword-matcher" (2026-09-10 23:04:53 +0530)
+- HEAD commit: `6b060a4` — "feat(agent): add JennySol service-token issuer (M5, JennySol
+  integration)" (2026-09-11)
 - Working tree: clean
 - Uncommitted files: none
 - Ahead/behind `origin/main`: 0 / 0
 - Open/merged PRs: 0 merge commits in full history — direct-to-`main` only
 - Pushed: yes, confirmed matching `origin/main`
+- Deployed: yes, Railway settled to "● Online" after this commit, `GET /api/v1/public/landing-stats` → 200
 
-Latest 10 commits:
+Latest 11 commits (10 from the original checkpoint plus M5's):
 
 ```
+6b060a4 2026-09-11 feat(agent): add JennySol service-token issuer (M5, JennySol integration)
 6d33023 2026-09-10 23:04:53 +0530 feat: real agent backend boundary, replacing the removed fake keyword-matcher
 e35cf83 2026-09-10 22:29:59 +0530 fix: expose real unlock status, close credit race condition
 a88f690 2026-09-04 14:44:17 +0530 feat: add public landing-page endpoints for real stats and a featured open project
@@ -537,7 +586,7 @@ end-to-end test, a production observation) — not code review alone.
 | **M2 — Product identity/security** | A `ProductIdentity` concept and service-token verifier exist; forged/expired/wrong-audience/wrong-scope tokens are rejected; proven against a fake product connector before any real one exists; covered by passing automated tests. | **DONE** — commit `0486d22`, 10/10 new tests passing (the 6 named attack scenarios plus edge cases), 211/211 full suite, real HS256 JWT verification via `jsonwebtoken`, proven end-to-end against a fake "acme" product's mint→verify→scope-check→execute flow. |
 | **M3 — Tool registry** | A `ToolRegistry` and `ProductConnector` interface exist; a second (fake) product can register tools scoped correctly to its own identity, proven by a test showing product A's tools are invisible under product B's identity. | **DONE** — commit `d4da94d`, 11/11 new tests passing, 222/222 full suite, proven against two independent fake products ("acme"/"widgetco"). |
 | **M4 — Connector framework** | The general connector plumbing (registration, tool namespacing, per-connector health/config) is real and reusable by more than one product without code changes to the core. | **DONE** — commit `f6c97dc`, 3/3 new tests passing, 225/225 full suite, proven against two independently-configured/unconfigured fake connectors with no core code changes. |
-| **M5 — Arena connector** | Arena mints a real, scoped service token; JennySol's Arena connector verifies it; a live round trip succeeds with a real Arena test account and fails correctly when tampered with. | NOT STARTED |
+| **M5 — Arena connector** | Arena mints a real, scoped service token; JennySol's Arena connector verifies it; a live round trip succeeds with a real Arena test account and fails correctly when tampered with. | **DONE** — Arena `6b060a4` / JennySol `3ceca59`. A real Java-minted token verified correctly by the real TypeScript verifier; a tampered copy correctly rejected. Caught and fixed a genuine HS256-vs-HS384 interop bug in the process. 5 new JennySol tests + 4 new Arena tests (Arena's first ever). |
 | **M6 — Arena read tools** | At least one real Arena read tool (e.g. `arena.searchJobs`) is implemented, registered, connected, and triggered by a real chat message end-to-end in a live test, returning real Arena data. | NOT STARTED |
 | **M7 — Approval/write tools** | At least one write tool (e.g. `arena.applyToJob`) is gated behind a real approval step the user must explicitly confirm before the tool executes; verified live that a rejected approval never calls the tool and an approved one does, exactly once. | NOT STARTED |
 | **M8 — Memory isolation** | Product-scoped memory tagging exists; a test proves Arena tool-call data never appears in JennySol's own cross-product/long-term memory without an explicit, separate "remember this" action. | NOT STARTED |
