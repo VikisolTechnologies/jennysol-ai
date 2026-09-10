@@ -13,6 +13,32 @@ export interface WebSource {
   freshness?: string;
 }
 
+// M1 (tool-calling engine, PROJECT-PROGRESS.md milestone model): a provider-agnostic
+// description of a callable tool. `parameters` is plain JSON Schema, not a provider-specific
+// schema format — each provider implementation translates it to whatever its own SDK expects
+// (e.g. Gemini's `parametersJsonSchema`), so nothing above this interface needs to know which
+// provider is actually answering. Deliberately generic: this file has no knowledge of Arena,
+// or of any other product — see ADR-002 in docs/architecture/ for why that separation matters.
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+// What a provider hands back when the model decides to call a tool mid-generation.
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+// The caller executes the actual tool (whatever that means — a test fixture today, a real
+// Arena API call once ADR-002/ADR-003's connector and identity layers exist) and returns a
+// JSON-serializable result, which the provider feeds back to the model for a final answer.
+// A thrown error is caught by the provider and reported to the model as a tool error rather
+// than crashing the turn — the model can then explain the failure to the user.
+export type ToolCallHandler = (call: ToolCall) => Promise<unknown>;
+
 export interface StreamOptions {
   // Lets the router give up on a provider that isn't producing a first token
   // fast enough (aggressive failover) or that lost a hedge race, without
@@ -25,6 +51,15 @@ export interface StreamOptions {
   // rather than Ollama always using one fixed OLLAMA_MODEL env var. Cloud
   // providers ignore it; each already has its own fixed configured model.
   model?: string;
+  // M1: when both `tools` and `onToolCall` are set, a provider that supports real
+  // model-directed function calling (Gemini today — see providers/gemini.ts) may invoke one
+  // instead of only answering from its own knowledge or the existing search/RAG context
+  // injection. Not passed on any real production chat request yet — this is deliberately
+  // opt-in machinery, proven against a fake/test tool before any product (Arena or otherwise)
+  // registers a real one (M2-M6). A provider that doesn't implement tool calling simply
+  // ignores these fields and answers normally, same pattern already used for `onWebSources`.
+  tools?: ToolDefinition[];
+  onToolCall?: ToolCallHandler;
 }
 
 export interface LlmProvider {
