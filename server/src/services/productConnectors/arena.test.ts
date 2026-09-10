@@ -1,10 +1,12 @@
-// M5 (Arena connector) — the first test in this repository that touches a real, named product
-// instead of a fake one ("acme"/"widgetco" in M2/M3/M4's tests). Proves the full pipeline (a
-// token shaped exactly like Arena's real issuer produces → verifyServiceToken → ToolRegistry)
-// works for the real `arenaConnector`, using JennySol's own signServiceToken() to mint the test
-// token — the same mechanism M2 already tests, now with issuer "arena".
+// M5/M6 (Arena connector) — the first test in this repository that touches a real, named
+// product instead of a fake one ("acme"/"widgetco" in M2/M3/M4's tests). Proves the full
+// pipeline (a token shaped exactly like Arena's real issuer produces → verifyServiceToken →
+// ToolRegistry) works for the real `arenaConnector`, using JennySol's own signServiceToken() to
+// mint the test token — the same mechanism M2 already tests, now with issuer "arena" — and (M6)
+// that `arena.searchJobs` correctly calls Arena's real API contract (mocked at the `fetch` layer
+// only, not re-implementing Arena's own logic).
 //
-// This does NOT re-run the cross-language proof against Arena's actual Java
+// This does NOT re-run the M5 cross-language proof against Arena's actual Java
 // AgentServiceTokenIssuer — that requires invoking Maven from outside this Node test suite, out
 // of scope for an automated `npm test` run. That proof was performed live, once, during M5's own
 // implementation (a real token minted by arena-api's AgentServiceTokenIssuer was accepted here,
@@ -12,16 +14,16 @@
 // PROJECT-PROGRESS.md's M5 entry — the same "verified live, at the time" pattern this project's
 // own docs already use for checks that can't be kept re-proving in CI. What this file proves
 // permanently is that JennySol's own side of that contract (the connector, the verifier, the
-// registry) keeps behaving correctly on every future change.
+// registry, and now the real tool) keeps behaving correctly on every future change.
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { arenaConnector } from "./arena.js";
 import { signServiceToken, verifyServiceToken } from "../serviceToken.js";
 import { ToolRegistry } from "../tools/toolRegistry.js";
 
 const ARENA_SECRET = "arena-test-secret-do-not-use-in-production";
 
-describe("arenaConnector (M5)", () => {
+describe("arenaConnector (M5/M6)", () => {
   beforeEach(() => {
     delete process.env.SERVICE_TOKEN_SECRET_ARENA;
   });
@@ -30,8 +32,14 @@ describe("arenaConnector (M5)", () => {
     expect(arenaConnector.product).toBe("arena");
   });
 
-  it("has no tools yet — that's M6's job, not M5's", () => {
-    expect(arenaConnector.getTools()).toEqual([]);
+  it("exposes exactly the arena.searchJobs tool, correctly namespaced", () => {
+    const tools = arenaConnector.getTools();
+    expect(tools.map((t) => t.name)).toEqual(["arena.searchJobs"]);
+  });
+
+  it("arena.searchJobs's own description is honest that Arena has no keyword search yet", () => {
+    const [tool] = arenaConnector.getTools();
+    expect(tool.description.toLowerCase()).toContain("does not currently support keyword");
   });
 
   it("configured() reflects whether SERVICE_TOKEN_SECRET_ARENA is actually set", () => {
@@ -67,9 +75,7 @@ describe("arenaConnector (M5)", () => {
       scope: ["arena.searchJobs"],
     });
 
-    // No tools exist yet (M6), so this must return empty rather than throw — a real Arena
-    // identity querying the registry today gets an honest "nothing available," not an error.
-    expect(registry.getToolsFor(identity)).toEqual([]);
+    expect(registry.getToolsFor(identity).map((t) => t.name)).toEqual(["arena.searchJobs"]);
   });
 
   it("a tampered arena-shaped token is rejected by the real verifier, not silently accepted", () => {
@@ -87,5 +93,79 @@ describe("arenaConnector (M5)", () => {
     const tampered = `${header}.${tamperedPayload}.${signature}`;
 
     expect(() => verifyServiceToken(tampered)).toThrow();
+  });
+});
+
+// M6: arena.searchJobs's real execution — mocked only at the global `fetch` boundary, exercising
+// this file's actual request-building/response-parsing logic against Arena's real API contract
+// (JobController.java's GET /jobs: page/size only, ApiResponse<PagedResponse<JobResponse>>
+// envelope) rather than re-implementing Arena's own logic in the mock.
+describe("arena.searchJobs execution (M6)", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  function tool() {
+    return arenaConnector.getTools().find((t) => t.name === "arena.searchJobs")!;
+  }
+
+  it("calls Arena's real GET /jobs with page/size and returns the unwrapped data", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { content: [{ id: "job-1", title: "Senior React Engineer" }], page: 0, size: 20 },
+      }),
+    });
+
+    const result = await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { page: 0, size: 20 });
+
+    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/jobs?page=0&size=20");
+    expect(result).toEqual({ content: [{ id: "job-1", title: "Senior React Engineer" }], page: 0, size: 20 });
+  });
+
+  it("defaults page/size and clamps an oversized page size to Arena's real limit", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { content: [] } }) });
+
+    await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { size: 9999 });
+
+    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/jobs?page=0&size=50");
+  });
+
+  it("throws (never silently returns empty) on a non-OK HTTP response from Arena", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) });
+
+    await expect(tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, {})).rejects.toThrow(
+      /503/
+    );
+  });
+
+  it("throws on Arena's own envelope reporting success:false, surfacing Arena's real message", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: false, message: "Something went wrong on Arena's side" }),
+    });
+
+    await expect(tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, {})).rejects.toThrow(
+      "Something went wrong on Arena's side"
+    );
+  });
+
+  it("respects ARENA_API_BASE_URL for a non-production Arena deployment", async () => {
+    process.env.ARENA_API_BASE_URL = "http://localhost:8080";
+    vi.resetModules();
+    const { arenaConnector: freshConnector } = await import("./arena.js");
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: {} }) });
+
+    await freshConnector
+      .getTools()
+      .find((t) => t.name === "arena.searchJobs")!
+      .execute({ product: "arena", externalUserId: "u1", scope: [] }, {});
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8080/jobs?page=0&size=20");
+    delete process.env.ARENA_API_BASE_URL;
   });
 });

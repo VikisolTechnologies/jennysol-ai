@@ -1,4 +1,4 @@
-import type { ChatTurn, LlmProvider, WebSource } from "./llmProvider.js";
+import type { ChatTurn, LlmProvider, ToolCallHandler, ToolDefinition, WebSource } from "./llmProvider.js";
 import { geminiProvider } from "./providers/gemini.js";
 import { deepseekProvider } from "./providers/deepseek.js";
 import { ollamaProvider, isOllamaAvailable } from "./providers/ollama.js";
@@ -170,7 +170,15 @@ function attemptWithTimeout(
   onWebSources: ((s: WebSource[]) => void) | undefined,
   timeoutMs: number,
   model?: string,
-  outerSignal?: AbortSignal
+  outerSignal?: AbortSignal,
+  // M6 (Arena connector gateway, PROJECT-PROGRESS.md milestone model): threads M1's tool-calling
+  // capability through the router — every real caller (chatRunner.ts, the new agent gateway)
+  // goes through routeChatCompletion/attemptWithTimeout, not gemini.ts's streamChatCompletion
+  // directly, so M1's own tests (which called the provider directly) never actually proved a
+  // real request could reach this capability until this parameter existed. Only Gemini currently
+  // implements tool calling (see gemini.ts); other providers simply ignore these fields.
+  tools?: ToolDefinition[],
+  onToolCall?: ToolCallHandler
 ): Promise<AttemptOutcome> {
   const controller = new AbortController();
   const startedAt = Date.now();
@@ -232,7 +240,12 @@ function attemptWithTimeout(
     };
 
     entry.provider
-      .streamChatCompletion(systemPrompt, history, wrappedOnDelta, onWebSources, { signal: controller.signal, model })
+      .streamChatCompletion(systemPrompt, history, wrappedOnDelta, onWebSources, {
+        signal: controller.signal,
+        model,
+        tools,
+        onToolCall,
+      })
       .then(() => {
         if (!settled) {
           settled = true;
@@ -378,7 +391,15 @@ export async function routeChatCompletion(
   // own first-token deadline. Not currently wired into the hedging path
   // (runHedgedPair) — hedging is off by default, and this is a documented
   // gap rather than a silent one.
-  outerSignal?: AbortSignal
+  outerSignal?: AbortSignal,
+  // M6: same tools/onToolCall threading as attemptWithTimeout above — deliberately not wired
+  // into runHedgedPair (hedging is off by default and inert with today's single-configured-
+  // provider deployments, so adding tool support to a disabled code path has no real benefit
+  // yet). A tool-bearing request explicitly skips the hedge branch below and always takes the
+  // sequential attemptWithTimeout path instead, so tool-calling is never silently dropped if
+  // hedging happens to be enabled.
+  tools?: ToolDefinition[],
+  onToolCall?: ToolCallHandler
 ): Promise<RouteResult> {
   const chain = resolveChain();
   const attempts: { name: string; reason: string }[] = [];
@@ -398,7 +419,11 @@ export async function routeChatCompletion(
       continue;
     }
 
-    if (hedgeEnabled() && i === 0) {
+    // M6: runHedgedPair never learned to carry tools/onToolCall (see this function's own doc
+    // comment above) — rather than silently dropping tool-calling capability whenever hedging
+    // happens to be enabled, a tool-bearing request skips the hedge branch entirely and always
+    // takes the sequential path below, which does thread tools through correctly.
+    if (hedgeEnabled() && i === 0 && !tools?.length) {
       const hedgeTarget = chain.slice(1).find(usable);
       if (hedgeTarget) {
         const { result, attempts: hedgeAttempts } = await runHedgedPair(
@@ -432,7 +457,9 @@ export async function routeChatCompletion(
         onWebSources,
         firstTokenTimeoutMs(i === 0),
         model,
-        outerSignal
+        outerSignal,
+        tools,
+        onToolCall
       );
       recordSuccess(entry.name);
       console.log(

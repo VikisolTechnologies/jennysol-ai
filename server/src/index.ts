@@ -13,6 +13,7 @@ import { speechRouter } from "./routes/speech.js";
 import { errorsRouter } from "./routes/errors.js";
 import { adminRouter } from "./routes/admin.js";
 import { agentRunsRouter } from "./routes/agentRuns.js";
+import { agentGatewayRouter } from "./routes/agentGateway.js";
 import { requireAuth } from "./middleware/auth.js";
 import { noProviderConfigured } from "./services/llm.js";
 import { warmUpGemini } from "./services/providers/gemini.js";
@@ -128,6 +129,11 @@ app.use("/api", (_req, res, next) => {
 app.use("/api/auth", authRouter);
 app.use("/api/chat", requireAuth, chatRouter);
 app.use("/api/agent/runs", requireAuth, agentRunsRouter);
+// M6: requireProductIdentity is applied inside agentGatewayRouter itself, not at the mount
+// level — same pattern already used by adminRouter (requireAuth + requireAdmin applied
+// internally) — since this router's auth is a completely different mechanism (a service token,
+// never a JennySol session) from every other route mounted here.
+app.use("/api/agent/gateway", agentGatewayRouter);
 app.use("/api/conversations", requireAuth, conversationsRouter);
 app.use("/api/documents", requireAuth, documentsRouter);
 app.use("/api/image", requireAuth, imageRouter);

@@ -447,6 +447,67 @@ describe("hedging (LLM_HEDGE_ENABLED)", () => {
   });
 });
 
+// M6 (Arena connector gateway): proves routeChatCompletion — the function every real caller
+// (chatRunner.ts, the new agent gateway) actually uses — threads tools/onToolCall through to the
+// provider, closing the gap M1's own tests didn't cover (they called geminiProvider directly).
+describe("routeChatCompletion — tool calling (M6)", () => {
+  beforeEach(() => {
+    __resetHealthForTests();
+    vi.clearAllMocks();
+    process.env = { ...originalEnv };
+    delete process.env.LLM_PROVIDER_CHAIN;
+    delete process.env.LLM_PROVIDER;
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.LLM_HEDGE_ENABLED;
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it("passes tools and onToolCall through to the provider's streamChatCompletion call", async () => {
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(streamsText("ok"));
+    const tools = [{ name: "test.tool", description: "d", parameters: {} }];
+    const onToolCall = vi.fn();
+
+    await routeChatCompletion("sys", [], vi.fn(), undefined, "general", undefined, tools, onToolCall);
+
+    const optsArg = (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mock.calls[0][4];
+    expect(optsArg.tools).toBe(tools);
+    expect(optsArg.onToolCall).toBe(onToolCall);
+  });
+
+  it("skips the hedge path entirely for a tool-bearing request, even when hedging is enabled", async () => {
+    process.env.LLM_HEDGE_ENABLED = "true";
+    process.env.DEEPSEEK_API_KEY = "test-deepseek-key";
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(streamsText("primary answer"));
+
+    const result = await routeChatCompletion(
+      "sys",
+      [],
+      vi.fn(),
+      undefined,
+      "general",
+      undefined,
+      [{ name: "test.tool", description: "d", parameters: {} }],
+      vi.fn()
+    );
+
+    // hedged:false and no interaction with deepseek at all proves the sequential
+    // attemptWithTimeout path ran, not runHedgedPair (which never learned to carry tools).
+    expect(result).toMatchObject({ providerUsed: "gemini", hedged: false });
+    expect(deepseekProvider.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("a request with no tools still hedges normally — the skip is tool-specific, not a regression", async () => {
+    process.env.LLM_HEDGE_ENABLED = "true";
+    process.env.DEEPSEEK_API_KEY = "test-deepseek-key";
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(streamsText("primary answer"));
+
+    const result = await routeChatCompletion("sys", [], vi.fn());
+
+    expect(result).toMatchObject({ providerUsed: "gemini" });
+  });
+});
+
 describe("hasAnyConfiguredProvider", () => {
   beforeEach(() => {
     __resetHealthForTests();
