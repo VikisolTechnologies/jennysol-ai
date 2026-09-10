@@ -4,7 +4,10 @@ import type { RouteResult } from "./llm.js";
 import { buildContext, summarizeIfNeeded, type BuiltContext } from "./contextManager.js";
 import { classifyTask } from "./models/modelRegistry.js";
 import { isIdentityQuestion, CANONICAL_IDENTITY_RESPONSE } from "./identity.js";
-import { isDateTimeQuestion, getCurrentDateTimeResponse } from "./dateTime.js";
+import { detectDateTimeIntent, getCurrentDateTimeResponse } from "./dateTime.js";
+import { needsCurrentInfo, CURRENT_INFO_UNAVAILABLE_RESPONSE } from "./currentInfo.js";
+import { hasAnySearchProviderConfigured } from "./search/searchRouter.js";
+import { isGeminiGroundingAvailable } from "./providers/gemini.js";
 import {
   addMessage,
   conversationExists,
@@ -176,8 +179,9 @@ export async function executeChatRun(
     // and confirmed in production, some models flatly denied having any
     // clock access at all rather than using the date already in their
     // system prompt.
-    if (isDateTimeQuestion(message)) {
-      const response = getCurrentDateTimeResponse(timezone);
+    const dateTimeIntent = detectDateTimeIntent(message);
+    if (dateTimeIntent.matched) {
+      const response = getCurrentDateTimeResponse(dateTimeIntent, timezone);
       timings.firstTokenAt = Date.now();
       runStore.markFirstToken(runId);
       emit(runId, "agent.status", { status: "streaming" });
@@ -207,6 +211,43 @@ export async function executeChatRun(
     const fullHistory: ChatTurn[] = getConversationMessages(userId, conversationId);
     const context = await buildContext(userId, conversationId, message, fullHistory.slice(0, -1));
     timings.contextBuiltAt = Date.now();
+
+    // Deterministic current-info safety gate — same philosophy as identity/
+    // datetime above, extended to a case where the model IS still allowed to
+    // run (this isn't a single fixed-fact question), but only once we know
+    // it will actually have live evidence to work with. Confirmed live in
+    // production (2026-09-10 audit) that leaving "don't guess" to a persona
+    // instruction alone isn't reliable: "Who is the current Queen of
+    // Thailand?" got a confident, unhedged, ungrounded answer despite that
+    // instruction already existing. Weather is deliberately excluded — it
+    // has its own honest, working "ask for a city" flow (see
+    // contextManager.ts's weatherIntent) that this must not override.
+    const liveEvidenceObtained = context.webChunks.length > 0 || context.weatherChunk !== null;
+    const nativeGroundingMayFire = !hasAnySearchProviderConfigured() && isGeminiGroundingAvailable();
+    if (needsCurrentInfo(message) && !context.weatherIntent && !liveEvidenceObtained && !nativeGroundingMayFire) {
+      timings.firstTokenAt = Date.now();
+      runStore.markFirstToken(runId);
+      emit(runId, "agent.status", { status: "streaming" });
+      runStore.appendResponseText(runId, CURRENT_INFO_UNAVAILABLE_RESPONSE);
+      emit(runId, "message.delta", { delta: CURRENT_INFO_UNAVAILABLE_RESPONSE });
+
+      addMessage(userId, conversationId, "assistant", CURRENT_INFO_UNAVAILABLE_RESPONSE, []);
+      runStore.markCompleted(runId, "current_info_unavailable", []);
+      timings.completedAt = Date.now();
+      emit(runId, "done", { sources: [] });
+      console.log(
+        JSON.stringify({
+          event: "chat_timing",
+          requestId,
+          runId,
+          userId,
+          provider: "current_info_unavailable",
+          fellBack: false,
+          totalMs: timings.completedAt - timings.startedAt,
+        })
+      );
+      return;
+    }
 
     const systemPrompt = buildSystemPrompt({
       documentChunks: context.documentMatches.map((m) => m.text),
@@ -275,7 +316,16 @@ export async function executeChatRun(
         documentId: m.documentId,
         text: m.text.slice(0, 160),
       })),
-      ...webSources.map((s) => ({ type: "web" as const, title: s.title, url: s.url, domain: s.domain })),
+      ...webSources.map((s) => ({
+        type: "web" as const,
+        title: s.title,
+        url: s.url,
+        domain: s.domain,
+        publishedAt: s.publishedAt,
+        provider: s.provider,
+        sourceType: s.sourceType,
+        freshness: s.freshness,
+      })),
     ];
 
     // Persist before announcing completion, never the other way around — a

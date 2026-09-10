@@ -50,6 +50,13 @@ export interface BuiltContext {
   // Free/no-key (Open-Meteo — see weather/weatherProvider.ts), so this never
   // gates on any configured() check the way search/image do.
   weatherChunk: string | null;
+  // True whenever this turn (or the pending-question turn before it) was
+  // recognized as a weather question at all, regardless of whether a
+  // location/weatherChunk was resolved. chatRunner.ts's current-info safety
+  // gate (see currentInfo.ts) needs this to avoid overriding weather's own
+  // existing "ask the user for their city" behavior with a generic
+  // "can't verify live" fallback when no location was given yet.
+  weatherIntent: boolean;
 }
 
 function boundedHistory(userId: string, conversationId: string, fullHistory: ChatTurn[]): ChatTurn[] {
@@ -104,8 +111,26 @@ async function retrieveWebContext(message: string): Promise<{ chunks: string[]; 
   if (!outcome || outcome.results.length === 0) return { chunks: [], sources: [] };
 
   return {
-    chunks: outcome.results.map((r) => `${r.title} (${r.url}): ${r.snippet}`),
-    sources: outcome.results.map((r) => ({ title: r.title, url: r.url, domain: r.domain })),
+    // Date/freshness/sourceType are surfaced right in the injected text —
+    // not just carried as metadata — because the actual judgment call
+    // ("these two sources disagree, the dated one is more recent") is a
+    // real reasoning task the model needs the signal for; see llm.ts's
+    // search-results persona instruction for what it's told to do with it.
+    chunks: outcome.results.map((r) => {
+      const meta = [r.sourceType, r.publishedAt ? `published ${r.publishedAt}` : null, r.freshness]
+        .filter(Boolean)
+        .join(", ");
+      return `${r.title} (${r.url})${meta ? ` [${meta}]` : ""}: ${r.snippet}`;
+    }),
+    sources: outcome.results.map((r) => ({
+      title: r.title,
+      url: r.url,
+      domain: r.domain,
+      publishedAt: r.publishedAt,
+      provider: r.provider,
+      sourceType: r.sourceType,
+      freshness: r.freshness,
+    })),
   };
 }
 
@@ -119,25 +144,27 @@ async function retrieveWebContext(message: string): Promise<{ chunks: string[]; 
 async function retrieveWeatherContext(
   message: string,
   fullHistory: ChatTurn[]
-): Promise<{ weatherChunk: string | null }> {
+): Promise<{ weatherChunk: string | null; weatherIntent: boolean }> {
   const weatherIntentNow = isWeatherQuestion(message);
   const lastUserMessage = weatherIntentNow
     ? undefined
     : [...fullHistory].reverse().find((t) => t.role === "user")?.content;
   const isLocationReplyToPendingWeatherQuestion =
     !weatherIntentNow && !!lastUserMessage && isWeatherQuestion(lastUserMessage);
+  const weatherIntent = weatherIntentNow || isLocationReplyToPendingWeatherQuestion;
 
-  if (!weatherIntentNow && !isLocationReplyToPendingWeatherQuestion) return { weatherChunk: null };
+  if (!weatherIntent) return { weatherChunk: null, weatherIntent: false };
 
   const location = extractLocationFromMessage(message);
   // No location found — leave it to the model/persona to ask for one, same
   // honest behavior as before this capability existed. Never guess a city.
-  if (!location) return { weatherChunk: null };
+  if (!location) return { weatherChunk: null, weatherIntent: true };
 
   const result = await getWeather(location);
   if (!result) {
     return {
       weatherChunk: `[Live weather lookup for "${location}" failed — tell the user plainly that live weather is temporarily unavailable right now. Never guess or invent a temperature/condition.]`,
+      weatherIntent: true,
     };
   }
 
@@ -151,6 +178,7 @@ async function retrieveWeatherContext(
       `- Precipitation: ${result.precipitationMm} mm`,
       "State these exact figures as the current weather — never invent or adjust them.",
     ].join("\n"),
+    weatherIntent: true,
   };
 }
 
@@ -174,6 +202,7 @@ export async function buildContext(
     webChunks: webContext.chunks,
     webSources: webContext.sources,
     weatherChunk: weather.weatherChunk,
+    weatherIntent: weather.weatherIntent,
   };
 }
 

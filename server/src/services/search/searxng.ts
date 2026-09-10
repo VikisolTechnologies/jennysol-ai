@@ -69,9 +69,15 @@ export const searxngProvider: SearchProvider = {
           }
           // publishedDate is genuinely inconsistent across SearXNG's
           // underlying engines (some scraped result pages expose it, most
-          // don't) — appended only when present rather than faked.
+          // don't) — set only when present rather than faked.
           const snippet = r.publishedDate ? `[${r.publishedDate}] ${r.content ?? ""}` : r.content ?? "";
-          return { title: r.title || r.url!, url: r.url!, snippet: snippet.slice(0, 500), domain };
+          return {
+            title: r.title || r.url!,
+            url: r.url!,
+            snippet: snippet.slice(0, 500),
+            domain,
+            publishedAt: r.publishedDate || undefined,
+          };
         });
     } finally {
       clearTimeout(timeout);

@@ -89,6 +89,16 @@ export function warmUpGemini(): void {
   })();
 }
 
+// Read-only visibility into the boot-time probe's result, for
+// chatRunner.ts's current-info safety gate (see currentInfo.ts) — it needs
+// to know, before ever calling a model, whether Gemini's native grounding
+// tool is realistically going to be attempted for this turn. Deliberately
+// a plain function over the module-level flag rather than exporting the
+// mutable binding itself.
+export function isGeminiGroundingAvailable(): boolean {
+  return groundingAvailable;
+}
+
 // Declaring the googleSearch tool at all — even on a turn the model ends up
 // answering from its own knowledge — measurably slows generation (~1s vs
 // ~5s, confirmed by direct timing). So it's not enough to gate on whether

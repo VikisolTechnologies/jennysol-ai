@@ -7,6 +7,10 @@ export interface WebSource {
   title: string;
   url: string;
   domain?: string;
+  publishedAt?: string;
+  provider?: string;
+  sourceType?: string;
+  freshness?: string;
 }
 
 // M1 (tool-calling engine, PROJECT-PROGRESS.md milestone model): a provider-agnostic

@@ -51,8 +51,49 @@ describe("searchRouter", () => {
     const result = await search("today's gold rate");
     expect(result).toEqual({
       providerUsed: "tavily",
-      results: [{ title: "Gold rate today", url: "https://example.com/gold", snippet: "₹7,200/gram", domain: "example.com" }],
+      results: [
+        {
+          title: "Gold rate today",
+          url: "https://example.com/gold",
+          snippet: "₹7,200/gram",
+          domain: "example.com",
+          provider: "tavily",
+          sourceType: "web",
+          freshness: "unknown",
+        },
+      ],
     });
+  });
+
+  it("normalizes results: stamps the answering provider, classifies a known news domain, and buckets freshness from a real publishedAt", async () => {
+    (tavilyProvider.configured as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (tavilyProvider.search as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        title: "Breaking news",
+        url: "https://reuters.com/a",
+        snippet: "s",
+        domain: "reuters.com",
+        publishedAt: new Date().toISOString(),
+      },
+    ]);
+
+    const result = await search("latest news");
+    expect(result?.results[0]).toMatchObject({
+      provider: "tavily",
+      sourceType: "news",
+      freshness: "today",
+    });
+  });
+
+  it("never invents a publish date or freshness when the provider didn't supply one", async () => {
+    (tavilyProvider.configured as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (tavilyProvider.search as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { title: "No date", url: "https://example.com/z", snippet: "s", domain: "example.com" },
+    ]);
+
+    const result = await search("something");
+    expect(result?.results[0].publishedAt).toBeUndefined();
+    expect(result?.results[0].freshness).toBe("unknown");
   });
 
   it("returns null and records failure, without throwing, when the only configured provider errors", async () => {

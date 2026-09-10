@@ -1,6 +1,7 @@
 import { tavilyProvider } from "./tavily.js";
 import { searxngProvider } from "./searxng.js";
 import type { SearchProvider, SearchResultItem } from "./searchProvider.js";
+import { normalizeResults } from "./normalize.js";
 import { isHealthy, recordSuccess, recordFailure } from "../providerHealth.js";
 import { classifyError, affectsProviderHealth } from "../retryClassifier.js";
 
@@ -63,7 +64,8 @@ export async function search(query: string, opts?: { signal?: AbortSignal }): Pr
     if (!isHealthy(healthKey(provider.name))) continue;
 
     try {
-      const results = await provider.search(query, { signal: opts?.signal });
+      const rawResults = await provider.search(query, { signal: opts?.signal });
+      const results = normalizeResults(rawResults, provider.name);
       recordSuccess(healthKey(provider.name));
       return { providerUsed: provider.name, results };
     } catch (err) {
