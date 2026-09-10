@@ -20,6 +20,16 @@ describe("identity detection", () => {
     "Who created me?",
     "Who's my creator?",
     "who made me",
+    // Added for the normalized-intent rewrite (2026-09-10): natural
+    // variations built from the same subject/verb/role building blocks,
+    // plus the two explicitly-required phrasings that previously fell
+    // through to the model entirely (confirmed live in the audit).
+    "Who built JennySol?",
+    "Who is JennySol's creator?",
+    "Who's the maker of Vikisol Labs?",
+    "Who founded Vikisol Labs?",
+    "Who is Syam Prabhakar Seeli?",
+    "who is syam seeli",
   ];
 
   for (const message of shouldDetect) {
@@ -33,6 +43,9 @@ describe("identity detection", () => {
     "Who created the internet?",
     "What's the capital of France",
     "Who is the current Queen of Thailand?",
+    "Who is the CEO of Microsoft?",
+    "Who is the Prime Minister of India?",
+    "Who founded Microsoft?",
   ];
 
   for (const message of shouldNotDetect) {

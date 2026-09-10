@@ -1,5 +1,7 @@
 import { authFetch } from "./auth";
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
@@ -275,4 +277,20 @@ export async function generateSpeech(text: string, voice: string): Promise<Gener
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error || `Speech generation failed (${res.status})`);
   return data;
+}
+
+// Unauthenticated on purpose — used by the intro screen, which can render
+// before any guest/account session exists, to decide which capability
+// chips to actually advertise (see JennySolIntro.tsx). Never a raw
+// `authFetch` call: this must work with no token present at all.
+export interface LiveCapability {
+  id: string;
+  available: boolean;
+}
+
+export async function fetchLiveCapabilities(): Promise<LiveCapability[]> {
+  const res = await fetch(`${API_BASE}/api/capabilities`);
+  if (!res.ok) throw new Error(`Failed to fetch capabilities (${res.status})`);
+  const data = await res.json();
+  return data.capabilities ?? [];
 }

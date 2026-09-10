@@ -23,20 +23,50 @@ export const CANONICAL_IDENTITY_RESPONSE =
 
 // Deliberately several explicit patterns rather than one dense regex —
 // easier to verify each phrasing independently, and to extend later
-// without fighting alternation precedence bugs.
+// without fighting alternation precedence bugs. The subject/verb/role
+// alternations below are the "normalized intent" part: any combination of
+// them matches, so a new phrasing built from the same building blocks
+// (e.g. "Who's the maker of Vikisol Labs?") doesn't need its own entry.
+const IDENTITY_SUBJECT = "(?:you|me|jennysol|vikisol\\s+labs|vikisol)";
+const IDENTITY_VERB = "(?:created|creates|made|founded|developed|develops|built|builds|building)";
+const IDENTITY_ROLE = "(?:founder|founders|creator|maker)";
+
 const IDENTITY_PATTERNS: RegExp[] = [
-  // "you/me/jennysol" — first-person phrasing ("who created me?") is a real,
-  // confirmed production miss: a user asking about themselves in third
-  // person still means "who created this assistant," not literally "who
-  // created the human typing this."
-  /\bwho\s+(created|creates|made|founded|developed|built)\s+(you|me|jennysol)\b/i,
-  /\bwho\s+is\s+(your|my|jennysol'?s)\s+(founder|creator|maker)\b/i,
-  /\bwho'?s\s+(your|my|jennysol'?s)\s+(founder|creator|maker)\b/i,
-  /\bwho\s+is\s+behind\s+(you|jennysol|this)\b/i,
-  /\bwho'?s\s+behind\s+(you|jennysol|this)\b/i,
-  /\bwhere\s+(was|were)\s+(you|jennysol)\s+(created|made|built|developed|founded)\b/i,
+  // "you/me/jennysol/vikisol(\slabs)?" — first-person phrasing ("who
+  // created me?") is a real, confirmed production miss: a user asking
+  // about themselves in third person still means "who created this
+  // assistant," not literally "who created the human typing this."
+  new RegExp(`\\bwho\\s+${IDENTITY_VERB}\\s+${IDENTITY_SUBJECT}\\b`, "i"),
+  new RegExp(`\\bwho\\s+is\\s+(?:your|my|jennysol'?s|vikisol\\s+labs'?|vikisol'?s)\\s+${IDENTITY_ROLE}\\b`, "i"),
+  new RegExp(`\\bwho'?s\\s+(?:your|my|jennysol'?s|vikisol\\s+labs'?|vikisol'?s)\\s+${IDENTITY_ROLE}\\b`, "i"),
+  // The "of"-form: "who's the maker of Vikisol Labs" / "who is the founder
+  // of JennySol" — a different grammar from the possessive form above, not
+  // covered by it.
+  new RegExp(`\\bwho\\s+is\\s+the\\s+${IDENTITY_ROLE}\\s+of\\s+${IDENTITY_SUBJECT}\\b`, "i"),
+  new RegExp(`\\bwho'?s\\s+the\\s+${IDENTITY_ROLE}\\s+of\\s+${IDENTITY_SUBJECT}\\b`, "i"),
+  new RegExp(`\\bwho\\s+is\\s+behind\\s+(?:you|jennysol|vikisol(?:\\s+labs)?|this)\\b`, "i"),
+  new RegExp(`\\bwho'?s\\s+behind\\s+(?:you|jennysol|vikisol(?:\\s+labs)?|this)\\b`, "i"),
+  new RegExp(`\\bwhere\\s+(?:was|were)\\s+(?:you|jennysol)\\s+${IDENTITY_VERB}\\b`, "i"),
 ];
 
+// "Who is <name>?" for a name that's actually a known part of JennySol's
+// own canonical identity (the founder) — distinct from "who created you"
+// above: this is a direct lookup against a known entity, the same idiom
+// dateTime.ts uses for city names, not an open-ended person-recognition
+// system. A name not in this list (e.g. "Who is the current Queen of
+// Thailand?") correctly falls through to the model, unaffected.
+const KNOWN_IDENTITY_ENTITIES = new Set([
+  "syam prabhakar seeli",
+  "syam seeli",
+  "syam prabhakar",
+  "kishore seeli",
+]);
+const NAME_LOOKUP_PATTERN = /\bwho\s+is\s+([a-z][a-z\s.'-]*?)\s*[?!.]*\s*$/i;
+
 export function isIdentityQuestion(message: string): boolean {
-  return IDENTITY_PATTERNS.some((pattern) => pattern.test(message));
+  if (IDENTITY_PATTERNS.some((pattern) => pattern.test(message))) return true;
+  const nameMatch = message.match(NAME_LOOKUP_PATTERN);
+  if (!nameMatch) return false;
+  const name = nameMatch[1].toLowerCase().trim().replace(/\s+/g, " ");
+  return KNOWN_IDENTITY_ENTITIES.has(name);
 }

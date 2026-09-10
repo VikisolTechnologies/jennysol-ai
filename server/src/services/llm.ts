@@ -85,6 +85,11 @@ export function buildSystemPrompt(ctx: {
       "real-world information. Treat them as ground truth for this answer — weave them into a",
       "normal answer naturally, as if you already knew it. Don't say \"according to my search\",",
       "don't list the raw results, and don't second-guess them against your own training data.",
+      "Each result may show its source type and publish date/freshness in brackets — use that:",
+      "prefer a more recent, more authoritative (\"news\"/\"reference\" over an unlabeled \"web\") source",
+      "when results disagree. If two results genuinely conflict on the actual fact (not just",
+      "wording) and you can't tell which is current, say so plainly — name the disagreement — rather",
+      "than silently picking one and presenting it as settled.",
       "",
       "LIVE WEB RESULTS:",
       ctx.webChunks.map((c, i) => `[W${i + 1}] ${c}`).join("\n\n")

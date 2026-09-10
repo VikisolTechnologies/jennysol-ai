@@ -12,6 +12,8 @@ interface TavilyResult {
   title?: string;
   url?: string;
   content?: string;
+  published_date?: string;
+  score?: number;
 }
 
 interface TavilyResponse {
@@ -70,6 +72,9 @@ export const tavilyProvider: SearchProvider = {
             url: r.url!,
             snippet: (r.content || "").slice(0, 500),
             domain,
+            // Only set when Tavily actually returned one — never invented.
+            publishedAt: r.published_date || undefined,
+            relevance: typeof r.score === "number" ? r.score : undefined,
           };
         });
       return results;

@@ -10,7 +10,7 @@
 // positives cost a few seconds on a message that didn't need it — both
 // cheaper than taxing every message with a search call.
 const CURRENT_INFO_PATTERN =
-  /\b(today|tonight|this week|this month|this year|current|currently|latest|recent(ly)?|breaking|news|weather|forecast|score|stock|exchange rate|gold rate|price of|release date|who won|election|schedule|upcoming|right now|open now|alive|deceased|passed away|still (in office|married|operating|available)|202[4-9])\b/i;
+  /\b(today|tonight|this week|this month|this year|current|currently|latest|recent(ly)?|breaking|news|weather|forecast|score|stock|price|exchange rate|gold rate|status|release date|who won|election|schedule|upcoming|right now|open now|alive|deceased|passed away|still (in office|married|operating|available)|202[4-9])\b/i;
 
 // A distinct pattern from CURRENT_INFO_PATTERN above, deliberately: this one
 // catches an EXPLICIT request to search/look something up ("can you search
@@ -27,3 +27,14 @@ const EXPLICIT_SEARCH_REQUEST_PATTERN =
 export function needsCurrentInfo(message: string): boolean {
   return CURRENT_INFO_PATTERN.test(message) || EXPLICIT_SEARCH_REQUEST_PATTERN.test(message);
 }
+
+// The deterministic, model-free fallback for a current-info question when
+// no live evidence (search results, Gemini's native grounding, or — for a
+// weather question — the weather provider) was actually obtained this turn
+// — see chatRunner.ts's gate. Confirmed live in production (2026-09-10
+// audit) that leaving this to a persona instruction alone is not reliable
+// enough: "Who is the current Queen of Thailand?" got a confident, unhedged
+// answer despite the same instruction existing. This message is returned
+// directly, without ever invoking a model, so it can't be gotten wrong.
+export const CURRENT_INFO_UNAVAILABLE_RESPONSE =
+  "I can't verify that with live sources right now — I don't have a working live search connection in this environment at the moment, so I'd rather tell you that plainly than guess from older training data that could be outdated.";

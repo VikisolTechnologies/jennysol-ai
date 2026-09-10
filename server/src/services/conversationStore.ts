@@ -4,7 +4,16 @@ import type { ChatTurn } from "./llm.js";
 
 export type Source =
   | { type: "document"; documentId: string; text: string }
-  | { type: "web"; title: string; url: string; domain?: string };
+  | {
+      type: "web";
+      title: string;
+      url: string;
+      domain?: string;
+      publishedAt?: string;
+      provider?: string;
+      sourceType?: string;
+      freshness?: string;
+    };
 
 export interface ConversationSummary {
   id: string;

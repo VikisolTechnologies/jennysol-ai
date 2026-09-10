@@ -11,6 +11,7 @@ import {
   Clock,
   type LucideIcon,
 } from "lucide-react";
+import { fetchLiveCapabilities } from "../../lib/api";
 
 // The cinematic ~5s first-run intro (see docs reference: a futuristic glass
 // terrace at sunset, a glowing central orb/portal, capability chips popping
@@ -45,6 +46,49 @@ const CAPABILITIES: Capability[] = [
   { Icon: Mic, label: "Voice Enabled", side: "right", delay: 3.1, mobileOrder: 4 },
   { Icon: Cpu, label: "Powered by Advanced AI", side: "right", delay: 3.2 },
 ];
+
+// A capability chip listed here only renders once the backend positively
+// confirms it's actually available right now (GET /api/capabilities) — the
+// 2026-09-10 audit found this screen advertising "Search the Web" to every
+// new visitor while production search was completely unconfigured, a real
+// capability-honesty gap distinct from (and not caught by) the chat itself
+// being honest when asked directly. Any chip NOT in this map (chat, files,
+// weather, voice — all genuinely free/working today) always renders,
+// unaffected. Search/image restore themselves automatically the moment
+// they're actually configured — no code change needed then.
+const CAPABILITY_GATE: Partial<Record<string, string>> = {
+  "Search the Web": "WEB_SEARCH",
+  "Generate Images": "IMAGE_GENERATION",
+};
+
+// Defaults to "not yet confirmed" (gated chips hidden) rather than
+// "assume available" — the safe direction to be wrong in for a first
+// impression, and exactly matches what a slow/failed capability check
+// should fall back to. A same-region JSON GET typically resolves in well
+// under a second, comfortably before the 2.2-2.6s these specific chips are
+// scheduled to appear, so there's no visible pop-in flicker in the common
+// case — and if it IS slow, the chip simply doesn't appear this run rather
+// than showing something that might be false.
+function useLiveCapabilities(): Record<string, boolean> {
+  const [available, setAvailable] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetchLiveCapabilities()
+      .then((capabilities) => {
+        if (cancelled) return;
+        const map: Record<string, boolean> = {};
+        for (const c of capabilities) map[c.id] = c.available;
+        setAvailable(map);
+      })
+      .catch(() => {
+        // Network hiccup — stay with the safe "not confirmed" default above.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return available;
+}
 
 const FULL_AUTO_DISMISS_MS = 4300;
 const FULL_EXIT_MS = 850;
@@ -98,8 +142,13 @@ export function JennySolIntro({ name, onDone }: { name: string; onDone: () => vo
   }
 
   const firstName = name.trim().split(/\s+/)[0] || name;
-  const leftCaps = CAPABILITIES.filter((c) => c.side === "left");
-  const rightCaps = CAPABILITIES.filter((c) => c.side === "right");
+  const liveCapabilities = useLiveCapabilities();
+  const visibleCapabilities = CAPABILITIES.filter((c) => {
+    const gate = CAPABILITY_GATE[c.label];
+    return gate === undefined || liveCapabilities[gate] === true;
+  });
+  const leftCaps = visibleCapabilities.filter((c) => c.side === "left");
+  const rightCaps = visibleCapabilities.filter((c) => c.side === "right");
 
   return (
     <div
@@ -217,7 +266,8 @@ export function JennySolIntro({ name, onDone }: { name: string; onDone: () => vo
         </div>
         {/* Mobile: a compact single row of the highest-priority capabilities */}
         <div className="flex flex-wrap items-center justify-center gap-2 px-2 sm:hidden">
-          {CAPABILITIES.filter((c) => c.mobileOrder !== undefined)
+          {visibleCapabilities
+            .filter((c) => c.mobileOrder !== undefined)
             .sort((a, b) => (a.mobileOrder ?? 0) - (b.mobileOrder ?? 0))
             .map((c) => (
               <CapabilityChip key={c.label} cap={c} />
