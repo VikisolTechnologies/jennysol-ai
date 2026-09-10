@@ -13,7 +13,7 @@ service, or an architecture document is never sufficient evidence of DONE on its
 
 ## Current milestone
 
-**M1 — Tool-calling engine.** Complete. M2 not started.
+**M2 — Product identity/security.** Complete. M3 not started.
 
 ## Current date
 
@@ -21,12 +21,12 @@ service, or an architecture document is never sufficient evidence of DONE on its
 
 ## JennySol HEAD
 
-`107159c` — "feat(agent): implement model-directed tool-calling engine (M1)". Branch `main`,
-working tree clean at commit time. Repository: `https://github.com/VikisolTechnologies/jennysol-ai`
-(canonical; GitHub redirects the old `Jennysol-AI` casing here — confirmed via `git push` output:
-"This repository moved. Please use the new location").
+`0486d22` — "feat(agent): add product identity federation and service-token verification (M2)".
+Branch `main`, working tree clean at commit time. Repository:
+`https://github.com/VikisolTechnologies/jennysol-ai` (canonical; GitHub redirects the old
+`Jennysol-AI` casing here).
 
-**Push confirmation:** see [M1 evidence](#completed) below for the exact `git ls-remote`/`git log
+**Push confirmation:** see [M2 evidence](#completed) below for the exact `git ls-remote`/`git log
 origin/main` verification performed after pushing this commit. Underlying application code prior
 to this checkpoint's own documentation/implementation commits was `a86f873` (2026-09-08, JennySol's
 own last feature commit before this integration project began).
@@ -45,16 +45,15 @@ Repository: `Vikisol-Arena-BE` (`arena-api`).
 
 ## Overall completion
 
-**2 of 13 milestones complete = 15.4% (≈15%).**
+**3 of 13 milestones complete = 23.1% (≈23%).**
 
 Calculation: milestones M0–M12 (13 total, defined in [Milestone Model](#milestone-model) below),
 equal weight, no partial credit for a milestone unless its own explicit acceptance criteria are
-met. M0 (Investigation, documentation/design-only) and M1 (Tool-calling engine — real code, real
-mocked-provider tests, 201/201 suite passing, live-API verification honestly flagged as blocked on
-a missing credential) now meet their acceptance criteria. M2–M12 all require CODE + TESTS +
-VERIFICATION and none has any of the three yet, so each remains 0%. This percentage will not move
-again until a milestone's full acceptance criteria are met — not when related code merely starts to
-exist.
+met. M0 (Investigation), M1 (Tool-calling engine), and M2 (Product identity/security — real HS256
+service-token verifier, tested against a fake "acme" product, 211/211 suite passing) now meet
+their acceptance criteria. M3–M12 all require CODE + TESTS + VERIFICATION and none has any of the
+three yet, so each remains 0%. This percentage will not move again until a milestone's full
+acceptance criteria are met — not when related code merely starts to exist.
 
 **Pre-existing supporting infrastructure, not counted toward any milestone above:** Arena's
 `com.vikisol.arena.agent` package (interface → Noop → real client boundary, real server-side
@@ -119,35 +118,64 @@ is inventoried in detail under [Arena Integration Audit](#arena-integration-audi
   this project's own pre-existing DeepSeek/Ollama entries already use, not a lower standard
   invented for this milestone. Real-API verification is the natural first task once a key is
   available (does not block M2, which needs no live model call).
+- **M2 — Product identity/security.** `ProductIdentity` type and `hasScope`/`requireScope`
+  (`server/src/services/productIdentity.ts`); a service-token verifier/issuer
+  (`server/src/services/serviceToken.ts`) using real HS256 JWT signing/verification via the new
+  `jsonwebtoken` dependency (a security-critical primitive, deliberately not hand-rolled crypto).
+  Per ADR-003: short-lived (max 300s), one shared secret per issuing product
+  (`SERVICE_TOKEN_SECRET_<PRODUCT>`), explicit tool-name scope allow-list, never a shared
+  password, never JennySol's own session mechanism reused. Built and tested entirely against a
+  fake "acme" product — zero Arena code, secrets, or awareness anywhere in this milestone, per
+  the architecture's required M2-before-M5 sequencing.
+  **Files:** `server/src/services/productIdentity.ts`, `server/src/services/serviceToken.ts`,
+  `server/src/services/serviceToken.test.ts` (new), `server/.env.example` (documents the new
+  env var pattern).
+  **Tests:** 10 new, covering exactly the 6 attack scenarios Phase 6's security table names —
+  valid token accepted, expired rejected, forged rejected (both a wrong-signing-key variant and
+  a tampered-payload variant), wrong audience rejected, wrong/unconfigured issuer rejected,
+  out-of-scope tool call rejected — plus malformed-token and missing-subject edge cases, and a
+  full mint→verify→scope-check→execute round trip against a fake tool registry. Full suite:
+  **211/211 passing** (201 pre-existing + 10 new), `tsc --noEmit` clean, `npm run build` clean.
+  **New dependency `jsonwebtoken` verified to introduce zero new npm-audit findings** — all 7
+  advisories both before and after are the same pre-existing, already-documented
+  adm-zip/sharp/qs risks in JennySol's own README. **Commit:** `0486d22`.
+  **Design note, revising an earlier guess:** the previous checkpoint's "Next Exact Tasks" entry
+  for M2 speculated a new `product_identities` database table would be needed. Real design work
+  (ADR-003) settled on a stateless, self-verifying signed token instead — no DB table, no
+  server-side session state for a product identity at all. Recorded here so a future session
+  doesn't go looking for a table that was a forward-looking guess, not a requirement.
 
 ## In Progress
 
-Nothing. M2 has not started as of this checkpoint.
+Nothing. M3 has not started as of this checkpoint.
 
 ## Not Started
 
-M2 through M12 in full — see [Phase 3](#phase-3--arena-integration-audit) and
+M3 through M12 in full — see [Phase 3](#phase-3--arena-integration-audit) and
 [Phase 4](#phase-4--tool-matrix) below for the exact, item-by-item evidence behind this. M1's
-tool-calling engine now exists (see Completed above), but nothing built on top of it yet: no
-product identity model, no tool registry, no connector framework, no Arena connector, no
-Arena-callable tools (read or write), no approval workflow wired to a real tool, no product-scoped
-memory isolation, no service-token issuer, no agent-specific audit logging, and no security tests
-for any of the above — because none of the systems those tests would exercise exist yet.
+tool-calling engine and M2's product identity/service-token verifier now exist (see Completed
+above), but nothing built on top of them yet: no tool registry, no connector framework, no Arena
+connector, no Arena-callable tools (read or write), no approval workflow wired to a real tool, no
+product-scoped memory isolation, no agent-specific audit logging, and no security tests beyond the
+token-primitive level (tests 7-17 below) — because none of the systems those tests would exercise
+exist yet.
 
 ## Blocked
 
-- **Real end-to-end verification (Phase 5)** is blocked, not failing — M1's tool-calling engine
-  works against a fake test tool, but there is still no connector (M4/M5) or Arena tool (M6) to
-  route a real request through, so the flow "User → JennySol → Model → Tool call → Connector →
-  Arena → Authorization → Business service → Database → Result" cannot be executed today past
-  "Tool call." This is the correct, honest state to report — not a test failure.
+- **Real end-to-end verification (Phase 5)** is blocked, not failing — M1/M2 give the engine a
+  tool-calling loop and a way to verify who's calling, but there is still no connector (M4/M5) or
+  Arena tool (M6) to route a real request through, so the flow "User → JennySol → Model → Tool
+  call → Connector → Arena → Authorization → Business service → Database → Result" cannot be
+  executed today past "Tool call." This is the correct, honest state to report — not a test
+  failure.
 - **M1's live-API verification** is blocked on a missing `GEMINI_API_KEY` in this environment —
   see M1's own entry under Completed for the full honest statement of what is and isn't verified.
   This does not block M2 (identity/tokens need no live model call) and will be revisited once a
   key is available.
-- **Security verification (Phase 6)** is blocked for the same reason: there is no service token,
-  no scope, no audience/issuer, and no cross-product call path yet to attack-test. See
-  [Phase 6](#phase-6--security-verification) for the full per-test BLOCKED table.
+- **Security verification (Phase 6), tests 7-17** remain blocked — they require a real connector,
+  tool, or product to attack-test cross-user/cross-tenant/leakage/injection scenarios against.
+  Tests 1-6 (token forgery/expiry/audience/issuer/scope) are no longer blocked — see
+  [Phase 6](#phase-6--security-verification) for the updated table with real PASS evidence.
 - **GitHub PR history** is blocked from independent verification: no `gh` CLI is available in this
   environment, and the unauthenticated GitHub REST API returns `404` for this private
   organization repository (`api.github.com/repos/VikisolTechnologies/Jennysol-AI/pulls` → 404,
@@ -174,12 +202,12 @@ would build on. Full per-item status: [Phase 6](#phase-6--security-verification)
 
 | Repository | Test files | Tests | Result | Command | Verified |
 |---|---|---|---|---|---|
-| Jennysol-AI (`server`) | 21 | 201 | 201 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M1 |
+| Jennysol-AI (`server`) | 22 | 211 | 211 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M2 |
 | Arena BE (`arena-api`) | 0 | 0 | N/A — no test files exist | `find src/test -type f` → empty | 2026-09-10 |
 | Arena FE (`arena-web`) | 0 (unit) | 0 | N/A — no unit test files exist (a separate Playwright E2E suite exists for Arena's own product features, unrelated to the agent/tool integration this document tracks) | `find src -iname "*.test.*"` → empty | 2026-09-10 |
 
-5 of JennySol's 201 passing tests are M1's new tool-calling tests
-(`gemini.toolCalling.test.ts`) — the other 196 cover JennySol's own pre-existing chat/auth/router/
+15 of JennySol's 211 passing tests are this integration's own (5 M1 tool-calling +
+10 M2 service-token/identity) — the other 196 cover JennySol's own pre-existing chat/auth/router/
 memory subsystems, audited in Phase 2 as separate from the M1–M12 milestones.
 
 ## Deployment Status
@@ -220,34 +248,30 @@ GitHub API access to confirm this independently is blocked in this environment (
 
 ## Next Exact Tasks
 
-**M1 complete** (see Completed above) — implemented at the `LlmProvider`/`gemini.ts` layer, the
-same layer every real production chat message already flows through, rather than also wiring a
-hardcoded test tool into `chatRunner.ts`'s live production path. Deliberate scoping decision: doing
-the latter would mean the production chat path either always offers a fake tool (wrong) or needs an
-if-this-is-a-test flag threaded through it (the "skip the architectural foundations to fake a demo"
-anti-pattern the instructions explicitly warned against). `chatRunner.ts` genuinely gaining tools to
-offer is M3 (registry) and M6 (first real tool)'s job, not M1's.
+**M1 and M2 complete** (see Completed above). M1: implemented at the `LlmProvider`/`gemini.ts`
+layer, the same layer every real production chat message already flows through, rather than
+wiring a hardcoded test tool into `chatRunner.ts`'s live production path — that's M3/M6's job.
+M2: a stateless signed service token, not the DB-table-backed design a prior checkpoint guessed
+at before the real design work happened (see M2's own Completed entry for that correction).
 
-1. **M2 — Product identity model in JennySol.** New `services/productIdentity.ts`,
-   `services/serviceToken.ts` (verify externally-issued, short-lived, scoped tokens), new
-   `product_identities` table (additive migration, JennySol's existing `addColumnIfMissing`
-   idiom). Acceptance: forged/expired/wrong-audience tokens are rejected, covered by tests, with
-   no real product connected yet — test against a fake product first, per the original design's
-   own instruction. **Next up.**
-2. **M3 — Tool registry.** `services/toolRegistry.ts`, a `ProductConnector` interface. Acceptance:
+1. **M3 — Tool registry.** `services/toolRegistry.ts`, a `ProductConnector` interface. Acceptance:
    a second, fake product can register a tool and have it appear correctly scoped in a chat
    session's available tools, with a real test proving product A's tools are invisible to
-   product B's identity.
-3. **M4 — Connector framework.** The general registration/health/config plumbing multiple products
+   product B's identity. **Next up.**
+2. **M4 — Connector framework.** The general registration/health/config plumbing multiple products
    share, proven reusable by registering two independent fake connectors, not just one.
-4. **M5 — Arena connector.** Arena issues a real service token (`AgentServiceTokenIssuer.java`,
-   new); JennySol's `productConnectors/arena.ts` (new) verifies it. Acceptance: a live round trip
-   with a real Arena test account's token, accepted by JennySol, rejected when tampered with.
-5. **M6 — First Arena read tool.** Wrap `GET /jobs` as `arena.searchJobs`, registered in the Arena
+3. **M5 — Arena connector.** Arena issues a real service token (`AgentServiceTokenIssuer.java`,
+   new, mirroring `serviceToken.ts`'s exact HS256/claims shape); JennySol's
+   `productConnectors/arena.ts` (new) verifies it. Acceptance: a live round trip with a real Arena
+   test account's token, accepted by JennySol, rejected when tampered with.
+4. **M6 — First Arena read tool.** Wrap `GET /jobs` as `arena.searchJobs`, registered in the Arena
    connector, and — for the first time — actually offered to a real `chatRunner.ts` conversation.
    Acceptance: a real chat message ("find me React jobs") that triggers the tool and returns real
    Arena data, verified live end-to-end — the first real instance of the Phase 5 flow this
    checkpoint currently reports as BLOCKED.
+5. **Revisit M1's live-API gap** once a `GEMINI_API_KEY` becomes available in whatever environment
+   runs this next — does not block M3-M6, which need no live model call, but should not be left
+   open indefinitely either.
 
 ## Known Risks
 
@@ -447,19 +471,19 @@ path for any of them to exercise. This will be re-run and populated with real ev
 
 ## Phase 6 — Security Verification
 
-All 17 required tests: **BLOCKED**, not PASS/FAIL — there is no service token, connector, or
-cross-product call path in existence yet to run any of these tests against. Listed individually
-per the instruction not to summarize this away:
+Tests 1-6 (the service-token primitive itself) now have real PASS evidence as of M2. Tests 7-17
+remain **BLOCKED** — they require a real connector, tool, or product to attack-test cross-user/
+cross-tenant/leakage/injection scenarios against, none of which exist yet:
 
 | # | Test | Result |
 |---|---|---|
-| 1 | Valid service token | BLOCKED — no service token system exists |
-| 2 | Expired token | BLOCKED |
-| 3 | Forged token | BLOCKED |
-| 4 | Wrong audience | BLOCKED |
-| 5 | Wrong issuer | BLOCKED |
-| 6 | Invalid scope | BLOCKED |
-| 7 | Wrong tenant | BLOCKED |
+| 1 | Valid service token | **PASS** — `serviceToken.test.ts` test 1, `signServiceToken`→`verifyServiceToken` round trip resolves to the exact expected `ProductIdentity`. Commit `0486d22`. |
+| 2 | Expired token | **PASS** — test 2, a token minted with `ttlSeconds: -1` is rejected with a `ServiceTokenError` matching `/expired/i`. |
+| 3 | Forged token | **PASS** — tests 3 and 3b: (a) a token claiming issuer "acme" but signed with a different product's secret is rejected, (b) a validly-signed token whose payload is tampered with post-signing is rejected. Both real signature-verification failures, not string-matching. |
+| 4 | Wrong audience | **PASS** — test 4, a token signed with `audience: "some-other-service"` is rejected. |
+| 5 | Wrong issuer | **PASS** — test 5, a token claiming an issuer with no configured `SERVICE_TOKEN_SECRET_*` is rejected before any signature check even runs. |
+| 6 | Invalid scope | **PASS** — test 6, a validly-issued token with `scope: ["acme.getWidget"]` correctly fails `requireScope()` for `"acme.deleteEverything"` and succeeds for its own granted tool. |
+| 7 | Wrong tenant | BLOCKED — `tenantId` is carried and verifiable in the token today, but no real tool checks it against a resource's actual owner yet (that check belongs to each tool's own implementation, first exercised at M6) |
 | 8 | Wrong user | BLOCKED |
 | 9 | Cross-user access (via agent tool) | BLOCKED — no agent tool exists to attempt this through |
 | 10 | Cross-tenant access (via agent tool) | BLOCKED |
@@ -481,7 +505,7 @@ end-to-end test, a production observation) — not code review alone.
 |---|---|---|
 | **M0 — Investigation** | Real JennySol repo located and distinguished from the unrelated local folder; architecture audited via direct source inspection; target architecture documented and published. *Documentation/design-only — no code required.* | **DONE** |
 | **M1 — Tool-calling engine** | `LlmProvider` gains a tool-definitions-in/tool-calls-out capability, implemented for at least one real provider (Gemini); a real chat turn triggers a locally-defined test tool and incorporates its result; covered by a passing automated test. | **DONE** — commit `107159c`, 5/5 new tests passing, 201/201 full suite, real Gemini SDK function-calling API used (mocked network layer only). Live-API call unverified (no `GEMINI_API_KEY` available) — tracked as an open item, not blocking M2. |
-| **M2 — Product identity/security** | A `ProductIdentity` concept and service-token verifier exist; forged/expired/wrong-audience/wrong-scope tokens are rejected; proven against a fake product connector before any real one exists; covered by passing automated tests. | NOT STARTED |
+| **M2 — Product identity/security** | A `ProductIdentity` concept and service-token verifier exist; forged/expired/wrong-audience/wrong-scope tokens are rejected; proven against a fake product connector before any real one exists; covered by passing automated tests. | **DONE** — commit `0486d22`, 10/10 new tests passing (the 6 named attack scenarios plus edge cases), 211/211 full suite, real HS256 JWT verification via `jsonwebtoken`, proven end-to-end against a fake "acme" product's mint→verify→scope-check→execute flow. |
 | **M3 — Tool registry** | A `ToolRegistry` and `ProductConnector` interface exist; a second (fake) product can register tools scoped correctly to its own identity, proven by a test showing product A's tools are invisible under product B's identity. | NOT STARTED |
 | **M4 — Connector framework** | The general connector plumbing (registration, tool namespacing, per-connector health/config) is real and reusable by more than one product without code changes to the core. | NOT STARTED |
 | **M5 — Arena connector** | Arena mints a real, scoped service token; JennySol's Arena connector verifies it; a live round trip succeeds with a real Arena test account and fails correctly when tampered with. | NOT STARTED |
