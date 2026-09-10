@@ -1,5 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
-import type { ChatTurn, LlmProvider, WebSource } from "../llmProvider.js";
+import { GoogleGenAI, createPartFromFunctionResponse } from "@google/genai";
+import type { Content, FunctionCall, Part } from "@google/genai";
+import type { ChatTurn, LlmProvider, ToolCall, ToolCallHandler, ToolDefinition, WebSource } from "../llmProvider.js";
 import { needsCurrentInfo } from "../currentInfo.js";
 import { hasAnySearchProviderConfigured } from "../search/searchRouter.js";
 
@@ -111,8 +112,105 @@ export function warmUpGemini(): void {
 // deployment's own measured search-latency tail looks like.
 const SEARCH_SOFT_TIMEOUT_MS = Number(process.env.GEMINI_SEARCH_SOFT_TIMEOUT_MS) || 6000;
 
+// M1 (tool-calling engine) — bounded so a model that keeps calling tools forever (a real
+// possibility with a badly-specified tool, or a model bug) can't wedge a turn indefinitely.
+// Four rounds is generous for the fake/test tools this is verified against today; revisit once
+// a real multi-tool Arena workflow (M6+) gives real data on how many rounds a genuine task needs.
+const MAX_TOOL_ROUNDS = 4;
+
+function toFunctionDeclarations(tools: ToolDefinition[]) {
+  return tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    // Plain JSON Schema, not Gemini's own typed `Schema` object — `parametersJsonSchema` is
+    // exactly the escape hatch the SDK provides for this (mutually exclusive with `parameters`,
+    // confirmed via the SDK's own type definitions). Keeps ToolDefinition provider-agnostic.
+    parametersJsonSchema: t.parameters,
+  }));
+}
+
+// Separate code path from the plain/search-grounded `attempt()` below, not a branch inside it —
+// deliberately isolated so this genuinely new capability can never regress the already-tested
+// search/retry/empty-response-recovery logic that real production traffic depends on today. A
+// real chat request only reaches this function when the caller explicitly passes both `tools`
+// and `onToolCall` (see llmProvider.ts's StreamOptions doc) — true for a controlled test/fake
+// tool today (M1), true for a real product's tools once M2-M6 exist, never true for today's
+// actual production chat path.
+async function attemptWithTools(
+  systemPrompt: string,
+  history: ChatTurn[],
+  onDelta: (text: string) => void,
+  tools: ToolDefinition[],
+  onToolCall: ToolCallHandler,
+  signal?: AbortSignal
+): Promise<void> {
+  const contents: Content[] = history.map((h) => ({
+    role: h.role === "assistant" ? "model" : "user",
+    parts: [{ text: h.content }],
+  }));
+  const functionDeclarations = toFunctionDeclarations(tools);
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const stream = await getClient().models.generateContentStream({
+      model: MODEL,
+      contents,
+      config: {
+        systemInstruction: systemPrompt,
+        tools: [{ functionDeclarations }],
+        ...(signal ? { abortSignal: signal } : {}),
+      },
+    });
+
+    // Each streamed chunk carries only the parts *new* in that chunk (the same convention the
+    // existing groundingMetadata handling above already relies on — "only populated on later
+    // chunks, keep the latest value seen") — accumulate every part across the whole round so the
+    // model-turn content echoed back into `contents` for the next round is complete, not just
+    // whatever happened to be in the last chunk.
+    const accumulatedParts: Part[] = [];
+    let calls: FunctionCall[] | undefined;
+    for await (const chunk of stream) {
+      const text = chunk.text;
+      if (text) onDelta(text);
+      const chunkParts = chunk.candidates?.[0]?.content?.parts;
+      if (chunkParts?.length) accumulatedParts.push(...chunkParts);
+      if (chunk.functionCalls?.length) calls = chunk.functionCalls;
+    }
+
+    if (!calls || calls.length === 0) return; // model answered in plain text — this round is the final one
+
+    if (accumulatedParts.length) contents.push({ role: "model", parts: accumulatedParts });
+
+    const responseParts: Part[] = [];
+    for (const call of calls) {
+      const id = call.id ?? call.name ?? `call-${round}`;
+      const name = call.name ?? "unknown_tool";
+      let output: unknown;
+      try {
+        output = await onToolCall({ id, name, args: call.args ?? {} });
+      } catch (err) {
+        // A tool failure is reported to the model as data, not thrown up through this
+        // function — the model can then explain the failure honestly in its final answer
+        // instead of the whole turn erroring out over one bad tool call.
+        output = { error: err instanceof Error ? err.message : String(err) };
+      }
+      responseParts.push(createPartFromFunctionResponse(id, name, { output }));
+    }
+    contents.push({ role: "user", parts: responseParts });
+  }
+
+  // Bounded-loop exhausted without the model ever settling on a plain-text final answer. This
+  // path is intentionally self-sufficient (unlike the main chat path, which leans on
+  // chatRunner.ts's own guaranteed-non-empty fallback) since attemptWithTools can be exercised
+  // outside that runner entirely (e.g. in tests) — never leave a turn silently empty.
+  onDelta("I tried a few tool calls but couldn't reach a final answer — mind rephrasing your question?");
+}
+
 export const geminiProvider: LlmProvider = {
   async streamChatCompletion(systemPrompt, history, onDelta, onWebSources, opts) {
+    if (opts?.tools?.length && opts.onToolCall) {
+      return attemptWithTools(systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal);
+    }
+
     const lastUserMessage = [...history].reverse().find((h) => h.role === "user")?.content ?? "";
     // Skipped entirely once an external search provider is configured — in
     // that mode contextManager.ts already ran the search upstream and
