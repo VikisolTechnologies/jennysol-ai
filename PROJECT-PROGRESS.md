@@ -13,8 +13,9 @@ service, or an architecture document is never sufficient evidence of DONE on its
 
 ## Current milestone
 
-**M5 — Arena connector.** Complete. M6 not started. **First milestone with real cross-repo
-evidence** — both `arena-api` and `jennysol-ai` changed and pushed.
+**M6 — First Arena read tool, wired end-to-end.** PARTIAL — substantially built, tested, and
+live-verified up to the one boundary requiring a `GEMINI_API_KEY` this environment doesn't have.
+Not counted as DONE (see Overall completion below). M7 not started.
 
 ## Current date
 
@@ -22,50 +23,67 @@ evidence** — both `arena-api` and `jennysol-ai` changed and pushed.
 
 ## JennySol HEAD
 
-`3ceca59` — "feat(agent): add the real Arena product connector (M5)". Branch `main`, working tree
-clean at commit time. Repository: `https://github.com/VikisolTechnologies/jennysol-ai` (canonical;
-GitHub redirects the old `Jennysol-AI` casing here).
+`512d6c8` — a merge commit combining this integration's own M6 work (`cd81da2`) with **unrelated,
+concurrent work from another session** that landed on `origin/main` while M6 was in progress
+(`0452b84` "Fix time/date honesty, current-info safety, and identity gaps from audit", plus a
+merge/lockfile-fix pair). Branch `main`, working tree clean at commit time. Repository:
+`https://github.com/VikisolTechnologies/jennysol-ai`.
 
-**Push confirmation:** `git ls-remote origin main` → `3ceca59285358f57c54f88d93119e45cf9388cc4`,
-matching local `HEAD` exactly. Underlying application code prior to this checkpoint's own
-documentation/implementation commits was `a86f873` (2026-09-08, JennySol's own last feature commit
-before this integration project began).
+**Important note for any future session reading this file:** JennySol is being actively developed
+by more than one session/contributor concurrently. The other session's work in this merge is
+real, tested, unrelated to the Arena integration (date/time honesty fixes, a real supertest-based
+HTTP test layer, a new `/api/capabilities` endpoint, `index.ts` split into `app.ts` +
+boot-time `index.ts`) — it is **not** part of the M0–M12 milestone tracking this file owns, and is
+noted here only because it changed files this integration also touches (`index.ts`,
+`llmProvider.ts`, `gemini.ts`) and had to be merged carefully rather than force-pushed over.
+**Before starting M7, re-fetch `origin/main` and check for further concurrent changes** — do not
+assume this file's last-known HEAD is still current without checking.
+
+**Push confirmation:** `git ls-remote origin main` → `512d6c8df38397631dd5525e042242302808cb41`,
+matching local `HEAD` exactly, confirmed via a real `git merge` (not a force-push) that resolved
+one real conflict (`index.ts`, since the other session split it into `app.ts` — my
+`agentGatewayRouter` mount was moved into the new `app.ts` accordingly) and auto-merged everything
+else cleanly, re-verified with a full `tsc --noEmit`/`npm test`/`npm run build` pass afterward.
 
 ## Arena FE HEAD
 
 `6a4fe29` — "fix: remove fake Agent Chat keyword matcher, wire to real backend" (2026-09-10
 23:04:56 +0530). Branch `main`, working tree clean, 0 ahead/behind `origin/main`. Repository:
-`Vikisol-Arena-FE` (`arena-web`). Unchanged this milestone — M5 touched Arena's backend only.
+`Vikisol-Arena-FE` (`arena-web`). Unchanged this milestone — M6 touched Arena's backend only.
 
 ## Arena BE HEAD
 
-`6b060a4` — "feat(agent): add JennySol service-token issuer (M5, JennySol integration)"
+`72f3df4` — "feat(agent): add RealAgentServiceClient calling JennySol's real gateway (M6)"
 (2026-09-11). Branch `main`, working tree clean, 0 ahead/behind `origin/main`, deployed to
 Railway (`api-arena.vikisol.in`) and confirmed live (`GET /api/v1/public/landing-stats` → 200)
 after this deploy settled. Repository: `Vikisol-Arena-BE` (`arena-api`).
 
 ## Overall completion
 
-**6 of 13 milestones complete = 46.2% (≈46%).**
+**6 of 13 milestones complete = 46.2% (≈46%), plus M6 substantially built but held at PARTIAL.**
 
 Calculation: milestones M0–M12 (13 total, defined in [Milestone Model](#milestone-model) below),
 equal weight, no partial credit for a milestone unless its own explicit acceptance criteria are
-met. M0 (Investigation), M1 (Tool-calling engine), M2 (Product identity/security), M3 (Tool
-registry), M4 (Connector framework), and M5 (Arena connector — a real token minted by Arena's
-actual Java issuer verified by JennySol's actual TypeScript verifier, live, cross-repo) now meet
-their acceptance criteria. M6–M12 all require CODE + TESTS + VERIFICATION and none has any of the
-three yet, so each remains 0%. This percentage will not move again until a milestone's full
-acceptance criteria are met — not when related code merely starts to exist.
+*fully* met. M0 through M5 meet their acceptance criteria in full. M6 (First Arena read tool)
+has real code, real tests, and real live verification of everything except the literal
+model-triggers-the-tool step (blocked on a missing `GEMINI_API_KEY`) — per this document's own
+no-partial-credit rule, that is correctly PARTIAL, not DONE, and is **not** counted in the 6/13
+above even though the underlying engineering work is substantially complete. M7–M12 all require
+CODE + TESTS + VERIFICATION and none has any of the three yet, so each remains 0%. This
+percentage will not move again until a milestone's full acceptance criteria are met — not when
+related code merely starts to exist, and not by rounding a mostly-done milestone up early.
 
-**Pre-existing supporting infrastructure, not counted toward any milestone above:** Arena's
+**Pre-existing supporting infrastructure, now partially superseded by M6:** Arena's
 `com.vikisol.arena.agent` package (interface → Noop → real client boundary, real server-side
 `AgentConversation`/`AgentMessage` persistence) was built in a prior session, before the real
-JennySol repository had been located. It is real, compiled, deployed, and live-verified — but it
-still implements none of M6–M11's acceptance criteria on its own: `AgentServiceClient` still binds
-to `NoopAgentServiceClient` in production (a `RealAgentServiceClient` calling JennySol through the
-M5 token/connector this checkpoint just built is real, buildable work, not yet done — see
-[Next Exact Tasks](#next-exact-tasks)). It is relevant groundwork for M6/M11 once those advance
-further, and is inventoried in detail under [Arena Integration Audit](#arena-integration-audit).
+JennySol repository had been located. `RealAgentServiceClient` (M6) now implements that same
+`AgentServiceClient` interface for real, calling JennySol's real gateway — but it stays dormant in
+production (`AgentProviderConfig` still resolves to `NoopAgentServiceClient`) until an operator
+deliberately configures both `JENNYSOL_GATEWAY_URL` and `SERVICE_TOKEN_SECRET_ARENA` in both
+services' real deployments, a genuine production-rollout decision this checkpoint has not made.
+M7–M11's own acceptance criteria (approval workflow, memory isolation, audit/observability,
+security testing, and the fully-activated real end-to-end flow, respectively) are still not met
+by this alone — see [Arena Integration Audit](#arena-integration-audit) for the full inventory.
 
 ---
 
@@ -216,32 +234,88 @@ further, and is inventoried in detail under [Arena Integration Audit](#arena-int
 
 ## In Progress
 
-Nothing. M6 has not started as of this checkpoint.
+- **M6 — First Arena read tool, wired end-to-end.** PARTIAL — see [Milestone Model](#milestone-model)
+  for exactly why this isn't counted as DONE. What's real and finished: closed a genuine gap
+  found while building this — M1's tool-calling engine was implemented/tested only at the
+  `LlmProvider`/`gemini.ts` level, never threaded through `routeChatCompletion`
+  (`modelRouter.ts`), the function every real caller actually uses. Fixed:
+  `routeChatCompletion`/`attemptWithTimeout` now accept `tools`/`onToolCall`; `runHedgedPair` was
+  never updated to carry them (hedging is off by default and inert), so a tool-bearing request
+  explicitly skips the hedge branch rather than silently losing tool-calling if hedging happens
+  to be on.
+  **New real HTTP entry point:** `POST /api/agent/gateway/chat` (`routes/agentGateway.ts`),
+  distinct from `/api/chat` (JennySol's own users, not product-federated ones). Gated by a new
+  `requireProductIdentity` middleware; resolves `ToolRegistry.getToolsFor(identity)`; dispatches
+  any tool call through `ToolRegistry.dispatch` (independently re-checks product/scope). A real,
+  shared `ToolRegistry` singleton (`tools/registryInstance.ts`) registers `arenaConnector` for
+  actual server traffic — separate from every test's own isolated `new ToolRegistry()`.
+  **Arena's first real tool:** `arena.searchJobs`, calling Arena's actual `GET /jobs`
+  (`JobController.java`). Honestly scoped: that endpoint only accepts `page`/`size` — no keyword
+  search parameter exists there today — so the tool's own description states this real
+  limitation explicitly rather than inventing a `query` param Arena can't support.
+  **Arena side:** `RealAgentServiceClient` implements the existing `AgentServiceClient`
+  interface, calling the new gateway, minting a fresh token per call via
+  `AgentServiceTokenIssuer`. Wired into `AgentProviderConfig` behind the same
+  "isAvailable() ? real : noop" pattern — stays dormant in production until an operator
+  deliberately sets both `JENNYSOL_GATEWAY_URL` and `SERVICE_TOKEN_SECRET_ARENA` in both
+  services' real deployments (a deliberate rollout decision, not made by this checkpoint).
+  **Live-verified against a real locally-running JennySol server** (not mocked): no
+  Authorization header → 401; a malformed token → 401 with "Service token missing issuer"; a
+  real token minted via this repo's own `signServiceToken()` → accepted, identity resolved, tool
+  registry consulted, request correctly reaches `routeChatCompletion` and fails there with "All
+  configured AI providers are currently unavailable" (502) — the honest, correct boundary in an
+  environment with no `GEMINI_API_KEY`.
+  **What's genuinely NOT yet proven, and why this stays PARTIAL:** a real chat message actually
+  causing a real model to decide to call `arena.searchJobs` and get back real Arena data. A
+  supertest HTTP test simulates this (a mocked model calls the tool, which really dispatches
+  through the real `ToolRegistry` against a mocked `fetch`) — real code, real wiring, but not a
+  live model decision. This needs a real `GEMINI_API_KEY`, the same class of gap M1 already
+  carries, and is the exact next thing to close before M6 can honestly move to DONE.
+  **Files:** JennySol — `services/modelRouter.ts`, `routes/agentGateway.ts` (new),
+  `middleware/productIdentity.ts` (new), `services/tools/registryInstance.ts` (new),
+  `services/productConnectors/arena.ts` (extended with the real tool), plus test files below.
+  Arena — `agent/client/RealAgentServiceClient.java` (new), `agent/config/AgentProviderConfig.java`,
+  `application.yml`.
+  **Tests:** JennySol — `modelRouter.test.ts` (+3, tool threading + hedge-skip),
+  `middleware/productIdentity.test.ts` (4 new), `agentGateway.http.test.ts` (7 new, real
+  supertest HTTP-layer coverage including an actual tool dispatch through the real
+  `ToolRegistry`), `arena.test.ts` (extended: tool namespacing, honest description, real
+  `searchJobs` execution against a mocked `fetch`). Arena — `RealAgentServiceClientTest.java`
+  (5 new, deterministic non-network parts).
+  **Full suites (post-merge, see the concurrent-work note under JennySol HEAD above):** JennySol
+  **306/306 passing**, `tsc --noEmit` clean, `npm run build` clean. Arena **9/9 passing**
+  (`mvn test`, no filter), `mvn -o clean compile` clean. Arena deployed to Railway and confirmed
+  live (`GET /api/v1/public/landing-stats` → 200; `RealAgentServiceClient.isAvailable()` correctly
+  reports `false` in production, confirming the deploy is inert as designed).
+  **Commits:** JennySol `cd81da2` (feature) + `512d6c8` (merge with concurrent work) + this
+  checkpoint's own doc commit. Arena `72f3df4`.
 
 ## Not Started
 
-M6 through M12 in full — see [Phase 3](#phase-3--arena-integration-audit) and
-[Phase 4](#phase-4--tool-matrix) below for the exact, item-by-item evidence behind this. M1
-through M5 now exist (see Completed above) — a real, working Arena connector with verified
-cross-repo token trust — but it has zero tools registered and nothing calls it from Arena's own
-`AgentServiceClient` yet (still bound to `NoopAgentServiceClient` in production): no
-Arena-callable tools (read or write), no approval workflow wired to a real tool, no
-product-scoped memory isolation, no agent-specific audit logging, and no security tests beyond
-the token-primitive level (tests 7-17 below) — because none of the systems those tests would
-exercise exist yet.
+M7 through M12 in full — see [Phase 3](#phase-3--arena-integration-audit) and
+[Phase 4](#phase-4--tool-matrix) below for the exact, item-by-item evidence behind this. M0
+through M5 are DONE; M6 is real and substantially built (see [In Progress](#in-progress) above) —
+a real, working Arena connector, a real tool, and a real gateway wired end-to-end, verified live
+up to the point requiring a Gemini key — but not yet DONE by this document's own standard, and
+`RealAgentServiceClient` still resolves to `NoopAgentServiceClient` in production (deliberately
+dormant until an operator configures real shared secrets in both deployments). Genuinely not
+started at all: no approval workflow wired to a real *write* tool (only a read tool exists so
+far), no product-scoped memory isolation, no agent-specific audit logging, and no security tests
+beyond the token-primitive level (tests 7-17 below) — because most of the systems those tests
+would exercise still don't exist.
 
 ## Blocked
 
-- **Real end-to-end verification (Phase 5)** is blocked, not failing — M1/M2 give the engine a
-  tool-calling loop and a way to verify who's calling, but there is still no connector (M4/M5) or
-  Arena tool (M6) to route a real request through, so the flow "User → JennySol → Model → Tool
-  call → Connector → Arena → Authorization → Business service → Database → Result" cannot be
-  executed today past "Tool call." This is the correct, honest state to report — not a test
-  failure.
+- **Real end-to-end verification (Phase 5)** has moved from fully BLOCKED to **partially proven**:
+  the flow "User → JennySol → Model → Tool call → Connector → Arena → Authorization → Business
+  service → Database → Result" is now real and live-verified from "User" through "Tool call"
+  (identity resolution, tool-registry lookup, `routeChatCompletion` reached correctly) — what
+  remains genuinely blocked is the "Model" step itself deciding to call the tool, which needs a
+  real `GEMINI_API_KEY` this environment doesn't have. This is a real, meaningful narrowing of the
+  gap, not a resolved item — see M6's own Completed entry for the exact evidence.
 - **M1's live-API verification** is blocked on a missing `GEMINI_API_KEY` in this environment —
   see M1's own entry under Completed for the full honest statement of what is and isn't verified.
-  This does not block M2 (identity/tokens need no live model call) and will be revisited once a
-  key is available.
+  M6's own end-to-end acceptance test shares this exact same blocker.
 - **Security verification (Phase 6), tests 7-17** remain blocked — they require a real connector,
   tool, or product to attack-test cross-user/cross-tenant/leakage/injection scenarios against.
   Tests 1-6 (token forgery/expiry/audience/issuer/scope) are no longer blocked — see
@@ -249,10 +323,11 @@ exercise exist yet.
 - **GitHub PR history** is blocked from independent verification: no `gh` CLI is available in this
   environment, and the unauthenticated GitHub REST API returns `404` for this private
   organization repository (`api.github.com/repos/VikisolTechnologies/Jennysol-AI/pulls` → 404,
-  which is indistinguishable from "no access" vs. "no PRs" without a token). Git-level evidence
-  (zero merge commits across all three repositories' full history) strongly suggests no PR-based
-  workflow has ever been used on this project — direct-to-`main` pushes only — but this is
-  inferred from git history, not confirmed via the GitHub API itself.
+  which is indistinguishable from "no access" vs. "no PRs" without a token). Two real merge
+  commits now exist in JennySol's history (`d4d9c26`, `512d6c8`) — both from direct `git merge`
+  operations resolving concurrent-session conflicts, not GitHub PR merges (no PR UI was used for
+  either) — so the underlying conclusion (this project doesn't use a PR-based review workflow)
+  still holds, but "zero merge commits" is no longer literally true as of M6.
 
 ## Regressions
 
@@ -272,15 +347,16 @@ would build on. Full per-item status: [Phase 6](#phase-6--security-verification)
 
 | Repository | Test files | Tests | Result | Command | Verified |
 |---|---|---|---|---|---|
-| Jennysol-AI (`server`) | 24 | 230 | 230 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M5 |
-| Arena BE (`arena-api`) | 1 | 4 | 4 passed, 0 failed | `mvn test -Dtest=AgentServiceTokenIssuerTest` | 2026-09-11, M5 — **first test file this repository has ever had** |
+| Jennysol-AI (`server`) | 29 | 306 | 306 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M6 (post-merge with concurrent work) |
+| Arena BE (`arena-api`) | 2 | 9 | 9 passed, 0 failed | `mvn test` (no filter) | 2026-09-11, M6 |
 | Arena FE (`arena-web`) | 0 (unit) | 0 | N/A — no unit test files exist (a separate Playwright E2E suite exists for Arena's own product features, unrelated to the agent/tool integration this document tracks) | `find src -iname "*.test.*"` → empty | 2026-09-10 |
 
-34 of JennySol's 230 passing tests are this integration's own (5 M1 tool-calling + 10 M2
-service-token/identity + 14 M3+M4 tool-registry/connector + 5 M5 arena connector) — the other 196
-cover JennySol's own pre-existing chat/auth/router/memory subsystems, audited in Phase 2 as
-separate from the M1–M12 milestones. All 4 of Arena BE's tests are also this integration's own —
-Arena had zero automated tests of any kind before M5.
+Of JennySol's 306 passing tests, roughly 60 are this integration's own (5 M1 + 10 M2 + 14 M3/M4 +
+5 M5 + ~26 M6: 3 modelRouter tool-threading, 4 middleware, 7 gateway HTTP, and `arena.test.ts`'s
+tool-execution extensions) — the concurrent session's own ~50 new tests (time/date honesty,
+current-info safety, identity, supertest HTTP infra) and the pre-existing ~196 cover unrelated
+JennySol subsystems, audited in Phase 2 as separate from the M1–M12 milestones. All 9 of Arena
+BE's tests are this integration's own — Arena had zero automated tests of any kind before M5.
 
 ## Deployment Status
 
@@ -302,52 +378,54 @@ re-verified against source as part of this checkpoint (Phases 1–4 below).
 
 ## Tool Matrix
 
-See [Phase 4](#phase-4--tool-matrix) for the full table. Summary: 0 of 14 proposed Arena tools are
-implemented, registered, connected, tested, or production-verified as agent-callable tools. All 14
-map to Arena REST endpoints that already exist and work for normal (non-agent) product use — that
-existing endpoint is not the same claim as an agent tool wrapping it existing.
+See [Phase 4](#phase-4--tool-matrix) for the full table, updated for M6. Summary: **1 of 14**
+proposed Arena tools (`arena.searchJobs`) is now implemented, registered, and connected — tested
+via mocked-`fetch` unit tests and a real supertest HTTP-layer dispatch test, but not yet
+"production-verified" in the sense of a real user's real chat message actually triggering it
+against live Arena data (blocked on the same `GEMINI_API_KEY` gap noted throughout this
+checkpoint). The other 13 remain unimplemented as agent tools. All 14 map to Arena REST endpoints
+that already exist and work for normal (non-agent) product use — that existing endpoint is not
+the same claim as an agent tool wrapping it existing.
 
 ## Commit History
 
-See [Phase 1](#phase-1--current-git-state) for the last 10 commits of all three repositories,
-captured verbatim from `git log`.
+See [Phase 1](#phase-1--current-git-state) for the last 10-11 commits of all three repositories,
+captured verbatim from `git log`. JennySol's history additionally now includes two real merge
+commits (`d4d9c26`, `512d6c8`) from concurrent-session work — see the note under
+[JennySol HEAD](#jennysol-head) above.
 
 ## PR History
 
-None found in any of the three repositories (zero merge commits in full history, all branches).
-GitHub API access to confirm this independently is blocked in this environment (see
-[Blocked](#blocked) above).
+None found via GitHub's PR API in any of the three repositories — GitHub API access is blocked in
+this environment (see [Blocked](#blocked) above) for independent confirmation either way. Two real
+merge commits now exist in JennySol's history (`d4d9c26`, `512d6c8`), both from direct `git merge`
+resolving concurrent-session conflicts, not GitHub PR merges — this project's actual workflow
+remains direct-to-`main` pushes (occasionally requiring a local merge when two sessions overlap),
+not PR-based review.
 
 ## Next Exact Tasks
 
-**M1 through M5 complete** (see Completed above). M6 is where the actual gateway a live Arena
-request travels through gets built — everything so far proved the pieces work; nothing yet accepts
-an incoming Arena-originated request end to end.
+**M1 through M5 are DONE. M6 is real, tested, and live-verified up to one exact remaining gap** —
+everything below M6 in this list stays blocked behind it, since M7+ generally need a real tool
+call to have actually happened at least once to build/test against.
 
-1. **M6 — First Arena read tool, wired end-to-end.** Concretely:
-   - JennySol: a new HTTP entry point (e.g. `POST /api/agent/gateway/chat`) distinct from the
-     existing `/api/chat` (which is for JennySol's own logged-in users, not product-federated
-     identities) — a new `requireProductIdentity` middleware (parallel to `requireAuth`) that
-     extracts and verifies the `Authorization` bearer as a service token via
-     `verifyServiceToken()`, resolves `ToolRegistry.getToolsFor(identity)`, and runs M1's
-     `attemptWithTools` loop with `ToolRegistry.dispatch(identity, ...)` as `onToolCall`.
-   - JennySol: `arena.ts`'s first real tool, `arena.searchJobs`, backed by an actual HTTP call to
-     Arena's own public `GET /jobs` endpoint (already public/unauthenticated per Arena's
-     `SecurityConfig` — confirmed during the original investigation — so this first tool needs no
-     Arena-side auth beyond the request simply happening; later write tools will need Arena-side
-     tool-authorization middleware this one doesn't).
-   - Arena: a `RealAgentServiceClient` implementing the existing `AgentServiceClient` interface,
-     calling the new JennySol gateway with a token from `AgentServiceTokenIssuer`, and
-     `AgentProviderConfig` wired to use it instead of `NoopAgentServiceClient` — likely
-     feature-flagged/env-gated rather than switched on for every account immediately.
-   - Acceptance: a real chat message ("find me React jobs") sent through Arena's own `/agent`
-     page, reaching JennySol's real gateway, triggering `arena.searchJobs`, returning real Arena
-     job data, verified live end-to-end — the first real instance of the Phase 5 flow this
-     checkpoint currently reports as BLOCKED. **Next up.**
-2. **Revisit M1's live-API gap** once a `GEMINI_API_KEY` becomes available in whatever environment
-   runs this next — does not block M6's gateway/tool-plumbing work, but the actual live chat
-   message in M6's acceptance test above does need a working model call, so this may need
-   resolving before M6's own acceptance test can be fully run.
+1. **Close M6's own last gap: get a real `GEMINI_API_KEY`.** This is the single blocking item —
+   not new engineering, a credential. Once available (in this environment, or by testing directly
+   against JennySol's production deployment where a real key already exists): send a real chat
+   message with `arena.searchJobs` in scope, confirm the model actually decides to call it,
+   confirm `ToolRegistry.dispatch` runs a real (not mocked) call to Arena's live `/jobs`, confirm
+   the final answer reflects real Arena data. Only then does M6 move from PARTIAL to DONE. **Next
+   up** — genuinely blocked pending this credential, not something to build around.
+2. **M7 — Approval/write tools.** Once M6 is fully closed: a first write tool (e.g.
+   `arena.applyToJob` or `arena.unlockCandidateContact`) gated behind a real approval step — the
+   model proposes, the user must explicitly confirm before `ToolRegistry.dispatch` actually runs
+   it. Reuses Arena's existing (currently dormant) `IntentCardView.tsx` per ADR-004. Acceptance:
+   verified live that a rejected approval never calls the tool and an approved one does, exactly
+   once.
+3. **Production rollout decision (separate from milestone progress, needs the user's go-ahead):**
+   whether/when to actually set `JENNYSOL_GATEWAY_URL` and `SERVICE_TOKEN_SECRET_ARENA` to real
+   values in both Railway deployments, switching `RealAgentServiceClient` live for real Arena
+   users. Not done by this checkpoint on purpose — see `RealAgentServiceClient`'s own class doc.
 
 ## Known Risks
 
@@ -420,18 +498,22 @@ e6ebcd6 2026-09-02 01:34:32 +0530 docs: record Resend/Google activation and the 
 ### Repository: `Vikisol-Arena-BE` (`arena-api`)
 
 - Current branch: `main`
-- HEAD commit: `6b060a4` — "feat(agent): add JennySol service-token issuer (M5, JennySol
-  integration)" (2026-09-11)
+- HEAD commit: `72f3df4` — "feat(agent): add RealAgentServiceClient calling JennySol's real
+  gateway (M6)" (2026-09-11)
 - Working tree: clean
 - Uncommitted files: none
 - Ahead/behind `origin/main`: 0 / 0
-- Open/merged PRs: 0 merge commits in full history — direct-to-`main` only
+- Open/merged PRs: 0 merge commits in full history — direct-to-`main` only (Arena BE, unlike
+  JennySol, has had no concurrent-session conflicts to merge)
 - Pushed: yes, confirmed matching `origin/main`
-- Deployed: yes, Railway settled to "● Online" after this commit, `GET /api/v1/public/landing-stats` → 200
+- Deployed: yes, Railway settled to "● Online" after this commit, `GET /api/v1/public/landing-stats` → 200;
+  `RealAgentServiceClient.isAvailable()` confirmed reporting `false` in production (no real
+  `JENNYSOL_GATEWAY_URL`/`SERVICE_TOKEN_SECRET_ARENA` set there), so this deploy is inert as designed
 
-Latest 11 commits (10 from the original checkpoint plus M5's):
+Latest 12 commits (10 from the original checkpoint plus M5's and M6's):
 
 ```
+72f3df4 2026-09-11 feat(agent): add RealAgentServiceClient calling JennySol's real gateway (M6)
 6b060a4 2026-09-11 feat(agent): add JennySol service-token issuer (M5, JennySol integration)
 6d33023 2026-09-10 23:04:53 +0530 feat: real agent backend boundary, replacing the removed fake keyword-matcher
 e35cf83 2026-09-10 22:29:59 +0530 fix: expose real unlock status, close credit race condition
@@ -521,7 +603,7 @@ wrapper vs. new business logic) — it is not a claim that the tool itself exist
 
 | Tool | Product | R/W | Implemented? | Registered? | Connected? | Authorized? | Tested? | Approval required? | Prod verified? | Underlying Arena endpoint |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `arena.searchJobs` | Arena | Read | No | No | No | N/A | No | No | No | `GET /jobs` — exists, public |
+| `arena.searchJobs` | Arena | Read | **Yes** (M6) | **Yes** (M6) | **Yes** (M6) | N/A (read) | **Yes** (mocked-fetch + real supertest HTTP dispatch test) | No (reads need none) | **Partial** — live-verified up to `routeChatCompletion`; the model actually calling it needs a `GEMINI_API_KEY` this environment doesn't have, and production stays on `NoopAgentServiceClient` until an operator activates real shared secrets | `GET /jobs` — exists, public, page/size only (no keyword search — tool description states this honestly) |
 | `arena.getJob` | Arena | Read | No | No | No | N/A | No | No | No | `GET /jobs/{id}` — exists |
 | `arena.getMyProfile` | Arena | Read | No | No | No | N/A | No | No | No | `GET /profile/me` — exists |
 | `arena.getMyApplications` | Arena | Read | No | No | No | N/A | No | No | No | Applications module — exists |
@@ -538,14 +620,27 @@ wrapper vs. new business logic) — it is not a claim that the tool itself exist
 
 ## Phase 5 — Real End-to-End Verification
 
-**BLOCKED.** The flow `USER → JennySol → MODEL → TOOL CALL → CONNECTOR → ARENA → AUTHORIZATION →
-BUSINESS SERVICE → DATABASE → RESULT → JennySol → USER` cannot be executed at any point past
-"MODEL" — there is no tool-calling capability (Phase 2, item 1), no connector (Phase 2, item 6),
-and no agent-tool controller on the Arena side (Phase 3) for a request to reach. This is not a
-failed test; it correctly reflects that the prerequisite systems for this flow do not exist yet.
-No read flow, safe write flow, or test-environment substitute was run, because there is no code
-path for any of them to exercise. This will be re-run and populated with real evidence once M6
-("First Arena read tool," see [Next Exact Tasks](#next-exact-tasks)) is complete.
+**PARTIALLY VERIFIED, as of M6 — not BLOCKED anymore, but not fully proven either.** The flow
+`USER → JennySol → MODEL → TOOL CALL → CONNECTOR → ARENA → AUTHORIZATION → BUSINESS SERVICE →
+DATABASE → RESULT → JennySol → USER` was executed live, for real, from `USER` through the
+gateway's own request handling:
+
+- A real HTTP request with no Authorization header → 401 (live, against a real running server).
+- A real malformed token → 401 with the real, specific error ("Service token missing issuer").
+- A real, validly-signed Arena-shaped token (minted via this repo's own `signServiceToken()`) →
+  accepted; identity resolved to the correct `ProductIdentity`; `ToolRegistry.getToolsFor()`
+  correctly offered `arena.searchJobs`; the request reached `routeChatCompletion` for real.
+- At that exact point, the flow fails honestly with "All configured AI providers are currently
+  unavailable" (502) — because no `GEMINI_API_KEY` is configured in this environment. This is the
+  correct, expected failure, not a bug in anything built.
+
+**What remains genuinely unverified**: the `MODEL` step itself — a real Gemini call actually
+deciding to invoke `arena.searchJobs` — and everything downstream of it (`CONNECTOR` really
+calling Arena's live `/jobs`, `RESULT` reflecting real Arena data). A supertest HTTP test
+(`agentGateway.http.test.ts`) exercises this exact downstream path with a *mocked* model decision
+and a *mocked* `fetch` response, proving the code is wired correctly — but a mocked model decision
+is not the same claim as a live one. Closing this needs a real `GEMINI_API_KEY`, tracked as M6's
+own last blocking item in [Next Exact Tasks](#next-exact-tasks).
 
 ## Phase 6 — Security Verification
 
@@ -587,7 +682,7 @@ end-to-end test, a production observation) — not code review alone.
 | **M3 — Tool registry** | A `ToolRegistry` and `ProductConnector` interface exist; a second (fake) product can register tools scoped correctly to its own identity, proven by a test showing product A's tools are invisible under product B's identity. | **DONE** — commit `d4da94d`, 11/11 new tests passing, 222/222 full suite, proven against two independent fake products ("acme"/"widgetco"). |
 | **M4 — Connector framework** | The general connector plumbing (registration, tool namespacing, per-connector health/config) is real and reusable by more than one product without code changes to the core. | **DONE** — commit `f6c97dc`, 3/3 new tests passing, 225/225 full suite, proven against two independently-configured/unconfigured fake connectors with no core code changes. |
 | **M5 — Arena connector** | Arena mints a real, scoped service token; JennySol's Arena connector verifies it; a live round trip succeeds with a real Arena test account and fails correctly when tampered with. | **DONE** — Arena `6b060a4` / JennySol `3ceca59`. A real Java-minted token verified correctly by the real TypeScript verifier; a tampered copy correctly rejected. Caught and fixed a genuine HS256-vs-HS384 interop bug in the process. 5 new JennySol tests + 4 new Arena tests (Arena's first ever). |
-| **M6 — Arena read tools** | At least one real Arena read tool (e.g. `arena.searchJobs`) is implemented, registered, connected, and triggered by a real chat message end-to-end in a live test, returning real Arena data. | NOT STARTED |
+| **M6 — Arena read tools** | At least one real Arena read tool (e.g. `arena.searchJobs`) is implemented, registered, connected, and triggered by a real chat message end-to-end in a live test, returning real Arena data. | **PARTIAL, not DONE by this document's own no-partial-credit rule** — commits JennySol `cd81da2`/`512d6c8`, Arena `72f3df4`. Implemented/registered/connected: yes. Tested: yes (unit tests + a real supertest HTTP-layer test that dispatches the tool through the actual `ToolRegistry` against a mocked `fetch`). "Triggered by a real chat message end-to-end in a live test, returning real Arena data" as literally written: **not fully met** — a real chat message reached the real live gateway and the real `routeChatCompletion`, but the model itself never got to decide to call the tool (blocked on a missing `GEMINI_API_KEY`), so no live model-triggered call against live Arena data has actually happened yet. Kept explicitly PARTIAL rather than rounded up to DONE — see [Overall completion](#overall-completion)'s percentage, which does not count this milestone. |
 | **M7 — Approval/write tools** | At least one write tool (e.g. `arena.applyToJob`) is gated behind a real approval step the user must explicitly confirm before the tool executes; verified live that a rejected approval never calls the tool and an approved one does, exactly once. | NOT STARTED |
 | **M8 — Memory isolation** | Product-scoped memory tagging exists; a test proves Arena tool-call data never appears in JennySol's own cross-product/long-term memory without an explicit, separate "remember this" action. | NOT STARTED |
 | **M9 — Audit/observability** | Every agent-originated Arena action is written to Arena's existing `AuditService` (distinguishable from a human-originated action) and to a JennySol-side tool-call log; verified by triggering a real tool call and finding it in both logs. | NOT STARTED |
