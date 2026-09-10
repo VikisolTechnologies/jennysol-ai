@@ -13,30 +13,23 @@ service, or an architecture document is never sufficient evidence of DONE on its
 
 ## Current milestone
 
-**M0 — Investigation.** Complete. M1 has not started.
+**M1 — Tool-calling engine.** Complete. M2 not started.
 
 ## Current date
 
-2026-09-11 (checkpoint originally produced 2026-09-10; this HEAD section updated 2026-09-11 after
-confirming the push below actually landed on GitHub — see the note at the end of this section)
+2026-09-11
 
 ## JennySol HEAD
 
-`8b086b63bc15b86a9da1ada9c922bf803ee2c842` — "docs: add architecture decision records for the
-Arena/ecosystem integration" (this checkpoint's own commit). Branch `main`, working tree clean, 0
-commits ahead/behind `origin/main`. Repository:
-`https://github.com/VikisolTechnologies/jennysol-ai` (canonical; GitHub redirects the old
-`Jennysol-AI` casing here — confirmed via `git push` output: "This repository moved. Please use the
-new location").
+`107159c` — "feat(agent): implement model-directed tool-calling engine (M1)". Branch `main`,
+working tree clean at commit time. Repository: `https://github.com/VikisolTechnologies/jennysol-ai`
+(canonical; GitHub redirects the old `Jennysol-AI` casing here — confirmed via `git push` output:
+"This repository moved. Please use the new location").
 
-**Push confirmation (2026-09-11):** `git ls-remote origin main` →
-`8b086b63bc15b86a9da1ada9c922bf803ee2c842`, matching local `HEAD` exactly. Both
-`56ced33` ("docs: add PROJECT-PROGRESS.md...") and `8b086b6` ("docs: add architecture decision
-records...") are present in `origin/main`'s history (`git log origin/main --oneline`), and both
-`PROJECT-PROGRESS.md` and all five `docs/architecture/ADR-*.md` files are present in
-`origin/main`'s tree (`git ls-tree -r origin/main`, `git show origin/main:PROJECT-PROGRESS.md`).
-Underlying application commit this HEAD points to remains `a86f873` (2026-09-08) — this checkpoint
-added only documentation on top of it; JennySol's own application code is unchanged.
+**Push confirmation:** see [M1 evidence](#completed) below for the exact `git ls-remote`/`git log
+origin/main` verification performed after pushing this commit. Underlying application code prior
+to this checkpoint's own documentation/implementation commits was `a86f873` (2026-09-08, JennySol's
+own last feature commit before this integration project began).
 
 ## Arena FE HEAD
 
@@ -52,14 +45,16 @@ Repository: `Vikisol-Arena-BE` (`arena-api`).
 
 ## Overall completion
 
-**1 of 13 milestones complete = 7.7% (≈8%).**
+**2 of 13 milestones complete = 15.4% (≈15%).**
 
 Calculation: milestones M0–M12 (13 total, defined in [Milestone Model](#milestone-model) below),
 equal weight, no partial credit for a milestone unless its own explicit acceptance criteria are
-met. Only M0 (Investigation — a documentation/design-only milestone by definition) currently meets
-its acceptance criteria. M1–M12 all require CODE + TESTS + VERIFICATION and none has any of the
-three yet, so each is 0%. This percentage will not move again until a milestone's full acceptance
-criteria are met — not when related code merely starts to exist.
+met. M0 (Investigation, documentation/design-only) and M1 (Tool-calling engine — real code, real
+mocked-provider tests, 201/201 suite passing, live-API verification honestly flagged as blocked on
+a missing credential) now meet their acceptance criteria. M2–M12 all require CODE + TESTS +
+VERIFICATION and none has any of the three yet, so each remains 0%. This percentage will not move
+again until a milestone's full acceptance criteria are met — not when related code merely starts to
+exist.
 
 **Pre-existing supporting infrastructure, not counted toward any milestone above:** Arena's
 `com.vikisol.arena.agent` package (interface → Noop → real client boundary, real server-side
@@ -100,28 +95,56 @@ is inventoried in detail under [Arena Integration Audit](#arena-integration-audi
   `arena-web/src/app/agent/page.tsx` was removed and replaced with a real call to the boundary
   above, which honestly reports "temporarily unavailable" since no real client exists yet. Commit:
   Arena FE `6a4fe29`.
+- **M1 — Tool-calling engine.** `LlmProvider` extended with a provider-agnostic
+  `ToolDefinition`/`ToolCall`/`ToolCallHandler` contract (`server/src/services/llmProvider.ts`);
+  implemented for Gemini using its native function calling
+  (`server/src/services/providers/gemini.ts`'s new `attemptWithTools`) — real SDK usage
+  (`functionDeclarations`, `parametersJsonSchema`, the SDK's own `createPartFromFunctionResponse`
+  helper, kept unmocked in tests), not a hand-rolled reimplementation. Deliberately isolated: only
+  reached when a caller explicitly passes both `tools` and `onToolCall`, so today's real
+  production chat path (which never does) is provably unaffected — verified by the full suite
+  passing with zero regressions. Bounded to `MAX_TOOL_ROUNDS=4`. No Arena/product awareness
+  anywhere in this code, tested only against a local, fake `get_secret_number` tool defined in the
+  test file itself, per the architecture's own required sequencing (M1 before any product
+  connects).
+  **Files:** `server/src/services/llmProvider.ts`,
+  `server/src/services/providers/gemini.ts`,
+  `server/src/services/providers/gemini.toolCalling.test.ts` (new).
+  **Tests:** 5 new — tool-call-then-final-answer, direct-answer-without-a-tool,
+  tool-failure-reported-as-data, bounded-rounds-termination, correct-JSON-Schema-declaration.
+  Full suite: **201/201 passing** (196 pre-existing + 5 new), `npx tsc -p tsconfig.json --noEmit`
+  clean, `npm run build` clean. **Commit:** `107159c`.
+  **Honest gap:** no `GEMINI_API_KEY` exists in this environment, so this has been verified
+  against a mocked `GoogleGenAI` client only, not the real Gemini API — the same evidence tier
+  this project's own pre-existing DeepSeek/Ollama entries already use, not a lower standard
+  invented for this milestone. Real-API verification is the natural first task once a key is
+  available (does not block M2, which needs no live model call).
 
 ## In Progress
 
-Nothing. No M1–M12 work has started as of this checkpoint.
+Nothing. M2 has not started as of this checkpoint.
 
 ## Not Started
 
-M1 through M12 in full — see [Phase 2](#phase-2--jennysol-implementation-audit),
-[Phase 3](#phase-3--arena-integration-audit), and [Phase 4](#phase-4--tool-matrix) below for the
-exact, item-by-item evidence behind this. In summary: no tool-calling loop, no product identity
-model, no tool registry, no connector framework, no Arena connector, no Arena-callable tools (read
-or write), no approval workflow wired to a real tool, no product-scoped memory isolation, no
-service-token issuer, no agent-specific audit logging, and no security tests for any of the above
-— because none of the systems those tests would exercise exist yet.
+M2 through M12 in full — see [Phase 3](#phase-3--arena-integration-audit) and
+[Phase 4](#phase-4--tool-matrix) below for the exact, item-by-item evidence behind this. M1's
+tool-calling engine now exists (see Completed above), but nothing built on top of it yet: no
+product identity model, no tool registry, no connector framework, no Arena connector, no
+Arena-callable tools (read or write), no approval workflow wired to a real tool, no product-scoped
+memory isolation, no service-token issuer, no agent-specific audit logging, and no security tests
+for any of the above — because none of the systems those tests would exercise exist yet.
 
 ## Blocked
 
-- **Real end-to-end verification (Phase 5)** is blocked, not failing — there is no tool-calling
-  loop (M1) or connector (M4/M5) to route a request through, so the flow "User → JennySol → Model
-  → Tool call → Connector → Arena → Authorization → Business service → Database → Result" cannot
-  be executed today at any point past "Model." This is the correct, honest state to report — not
-  a test failure.
+- **Real end-to-end verification (Phase 5)** is blocked, not failing — M1's tool-calling engine
+  works against a fake test tool, but there is still no connector (M4/M5) or Arena tool (M6) to
+  route a real request through, so the flow "User → JennySol → Model → Tool call → Connector →
+  Arena → Authorization → Business service → Database → Result" cannot be executed today past
+  "Tool call." This is the correct, honest state to report — not a test failure.
+- **M1's live-API verification** is blocked on a missing `GEMINI_API_KEY` in this environment —
+  see M1's own entry under Completed for the full honest statement of what is and isn't verified.
+  This does not block M2 (identity/tokens need no live model call) and will be revisited once a
+  key is available.
 - **Security verification (Phase 6)** is blocked for the same reason: there is no service token,
   no scope, no audience/issuer, and no cross-product call path yet to attack-test. See
   [Phase 6](#phase-6--security-verification) for the full per-test BLOCKED table.
@@ -151,12 +174,12 @@ would build on. Full per-item status: [Phase 6](#phase-6--security-verification)
 
 | Repository | Test files | Tests | Result | Command | Verified |
 |---|---|---|---|---|---|
-| Jennysol-AI (`server`) | 20 | 196 | 196 passed, 0 failed | `npm test` (vitest) | 2026-09-10, this checkpoint |
-| Arena BE (`arena-api`) | 0 | 0 | N/A — no test files exist | `find src/test -type f` → empty | 2026-09-10, this checkpoint |
-| Arena FE (`arena-web`) | 0 (unit) | 0 | N/A — no unit test files exist (a separate Playwright E2E suite exists for Arena's own product features, unrelated to the agent/tool integration this document tracks) | `find src -iname "*.test.*"` → empty | 2026-09-10, this checkpoint |
+| Jennysol-AI (`server`) | 21 | 201 | 201 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M1 |
+| Arena BE (`arena-api`) | 0 | 0 | N/A — no test files exist | `find src/test -type f` → empty | 2026-09-10 |
+| Arena FE (`arena-web`) | 0 (unit) | 0 | N/A — no unit test files exist (a separate Playwright E2E suite exists for Arena's own product features, unrelated to the agent/tool integration this document tracks) | `find src -iname "*.test.*"` → empty | 2026-09-10 |
 
-None of JennySol's 196 passing tests exercise anything in scope for this integration (tool
-calling, product identity, connectors) — they cover JennySol's own pre-existing chat/auth/router/
+5 of JennySol's 201 passing tests are M1's new tool-calling tests
+(`gemini.toolCalling.test.ts`) — the other 196 cover JennySol's own pre-existing chat/auth/router/
 memory subsystems, audited in Phase 2 as separate from the M1–M12 milestones.
 
 ## Deployment Status
@@ -197,29 +220,34 @@ GitHub API access to confirm this independently is blocked in this environment (
 
 ## Next Exact Tasks
 
-1. **M1 — Tool-calling engine in JennySol.** Add a `toolDefinitions`-in/`toolCalls`-out capability
-   to `LlmProvider` (`server/src/services/llmProvider.ts`), implement it first for
-   `providers/gemini.ts` (native function-calling support), wire a dispatch loop in
-   `chatRunner.ts`. Acceptance: a real chat turn where the model calls a locally-defined test tool
-   (no Arena involvement yet) and the result is incorporated into the final answer, covered by a
-   new `chatRunner.toolLoop.test.ts`.
-2. **M2 — Product identity model in JennySol.** New `services/productIdentity.ts`,
+**M1 complete** (see Completed above) — implemented at the `LlmProvider`/`gemini.ts` layer, the
+same layer every real production chat message already flows through, rather than also wiring a
+hardcoded test tool into `chatRunner.ts`'s live production path. Deliberate scoping decision: doing
+the latter would mean the production chat path either always offers a fake tool (wrong) or needs an
+if-this-is-a-test flag threaded through it (the "skip the architectural foundations to fake a demo"
+anti-pattern the instructions explicitly warned against). `chatRunner.ts` genuinely gaining tools to
+offer is M3 (registry) and M6 (first real tool)'s job, not M1's.
+
+1. **M2 — Product identity model in JennySol.** New `services/productIdentity.ts`,
    `services/serviceToken.ts` (verify externally-issued, short-lived, scoped tokens), new
    `product_identities` table (additive migration, JennySol's existing `addColumnIfMissing`
    idiom). Acceptance: forged/expired/wrong-audience tokens are rejected, covered by tests, with
    no real product connected yet — test against a fake product first, per the original design's
-   own instruction.
-3. **M3 — Tool registry.** `services/toolRegistry.ts`, a `ProductConnector` interface. Acceptance:
+   own instruction. **Next up.**
+2. **M3 — Tool registry.** `services/toolRegistry.ts`, a `ProductConnector` interface. Acceptance:
    a second, fake product can register a tool and have it appear correctly scoped in a chat
    session's available tools, with a real test proving product A's tools are invisible to
    product B's identity.
+3. **M4 — Connector framework.** The general registration/health/config plumbing multiple products
+   share, proven reusable by registering two independent fake connectors, not just one.
 4. **M5 — Arena connector.** Arena issues a real service token (`AgentServiceTokenIssuer.java`,
    new); JennySol's `productConnectors/arena.ts` (new) verifies it. Acceptance: a live round trip
    with a real Arena test account's token, accepted by JennySol, rejected when tampered with.
 5. **M6 — First Arena read tool.** Wrap `GET /jobs` as `arena.searchJobs`, registered in the Arena
-   connector. Acceptance: a real chat message ("find me React jobs") that triggers the tool and
-   returns real Arena data, verified live end-to-end — the first real instance of the Phase 5 flow
-   this checkpoint currently reports as BLOCKED.
+   connector, and — for the first time — actually offered to a real `chatRunner.ts` conversation.
+   Acceptance: a real chat message ("find me React jobs") that triggers the tool and returns real
+   Arena data, verified live end-to-end — the first real instance of the Phase 5 flow this
+   checkpoint currently reports as BLOCKED.
 
 ## Known Risks
 
@@ -328,8 +356,8 @@ arenaconnector` and for `functionDeclarations|tool_calls|toolCalls` (outside Gem
 
 | # | Area | Status | Evidence | Files | Tests | Commit |
 |---|---|---|---|---|---|---|
-| 1 | Model-directed tool calling | **NOT STARTED** | `grep` for `functionDeclarations\|tool_calls` in provider files: no matches. Only tool-shaped declaration anywhere is Gemini's native `googleSearch` grounding tool, which is a fixed capability the model can only turn on/off per turn, not an arbitrary function-call loop. | — | — | — |
-| 2 | Multi-step tool loop | **NOT STARTED** | Same evidence as #1 — there is no loop, single fixed pipeline (RAG retrieval + optional search, both pre-decided by application code, not the model) | `contextManager.ts` | — | — |
+| 1 | Model-directed tool calling | **DONE (as of M1, 2026-09-11)** — was NOT STARTED at original 2026-09-10 audit | `LlmProvider.StreamOptions.tools`/`onToolCall`, implemented for Gemini via real `functionDeclarations`/`parametersJsonSchema` | `llmProvider.ts`, `providers/gemini.ts` | `gemini.toolCalling.test.ts` (5/5) | `107159c` |
+| 2 | Multi-step tool loop | **DONE (as of M1)** — bounded to `MAX_TOOL_ROUNDS=4`, not unbounded | `attemptWithTools()` loop: call model → execute tool → feed result back → repeat until plain text or round limit | `providers/gemini.ts` | `gemini.toolCalling.test.ts` (bounded-rounds test) | `107159c` |
 | 3 | Tool Registry | **NOT STARTED** | `grep -rli "toolregistry"` → no matches | — | — | — |
 | 4 | ProductIdentity | **NOT STARTED** | `grep -rli "productidentity"` → no matches. Only identity concept is a JennySol `User` row (`is_guest` flag) | — | — | — |
 | 5 | Service-token verification | **NOT STARTED** | `grep -rli "servicetoken"` → no matches. Auth is opaque session tokens for JennySol accounts only (`services/auth/sessions.ts`) | — | — | — |
@@ -350,7 +378,7 @@ arenaconnector` and for `functionDeclarations|tool_calls|toolCalls` (outside Gem
 | 20 | Prompt-injection protection | **NOT STARTED** | `grep -rli "prompt.?injection\|sanitiz"` → no matches. Uploaded document content is passed to the model with no sanitization — an acknowledged, undesigned-around risk in JennySol's own `SECURITY_AUDIT.md`/`JENNY_IMPLEMENTATION_STATUS.md` | — | — | — |
 | 21 | Auditability (agent actions) | **NOT STARTED (agent-specific)** | `error_logs` table exists for crash/error visibility (unrelated purpose). No `agent_events`-style audit trail exists for "which tool was called, on whose behalf, with what result" — because no tool exists to audit | `server/src/services/errorLog.ts` (different purpose) | — | — |
 | 22 | Security logging | **PARTIAL (general), NOT STARTED (agent-specific)** | Real for auth (`login_attempts` table, lockout). No agent/tool-specific security logging exists | `server/src/services/auth/loginAttempts.ts` | — | — |
-| 23 | Gemini tool calling | **NOT STARTED (function calling)**, **DONE (search grounding only)** | The only `tools:` array declared to Gemini is `[{ googleSearch: {} }]` — a fixed, single native capability, not arbitrary function declarations the model can invoke | `server/src/services/providers/gemini.ts:27` | — | pre-dates this checkpoint |
+| 23 | Gemini tool calling | **DONE (function calling, as of M1)**, DONE (search grounding, pre-existing) | Real function calling now implemented (`attemptWithTools`) alongside the pre-existing `googleSearch` grounding tool (the two are mutually exclusive per call — see M1's commit message for why) | `providers/gemini.ts` | `gemini.toolCalling.test.ts` | `107159c` |
 | 24 | DeepSeek compatibility | **PARTIAL — coded, never run against real API** | Implemented, unit-tested with mocked HTTP, but per the project's own docs "has still never made one real network call to api.deepseek.com" — no `DEEPSEEK_API_KEY` ever configured | `server/src/services/providers/deepseek.ts` | `modelRouter.test.ts` (mocked) | pre-dates this checkpoint |
 | 25 | Ollama compatibility | **PARTIAL — coded, model-serving step unexercised** | Reachability probe, model registry, hardware profiles all real and verified on the actual target Mac; Ollama itself not installed there, so no real local inference has run yet | `server/src/services/providers/ollama.ts`, `models/*` | `models/hardwareProfile.test.ts`, `models/modelRegistry.test.ts` | pre-dates this checkpoint |
 | 26 | Test coverage (JennySol overall) | **DONE (for what exists), N/A for what doesn't** | 196/196 tests passing, 20 files, `npm test` re-run live for this checkpoint (see [Test Status](#test-status)) | — | 196 tests | this checkpoint |
@@ -452,7 +480,7 @@ end-to-end test, a production observation) — not code review alone.
 | Milestone | Acceptance criteria | Status |
 |---|---|---|
 | **M0 — Investigation** | Real JennySol repo located and distinguished from the unrelated local folder; architecture audited via direct source inspection; target architecture documented and published. *Documentation/design-only — no code required.* | **DONE** |
-| **M1 — Tool-calling engine** | `LlmProvider` gains a tool-definitions-in/tool-calls-out capability, implemented for at least one real provider (Gemini); a real chat turn triggers a locally-defined test tool and incorporates its result; covered by a passing automated test. | NOT STARTED |
+| **M1 — Tool-calling engine** | `LlmProvider` gains a tool-definitions-in/tool-calls-out capability, implemented for at least one real provider (Gemini); a real chat turn triggers a locally-defined test tool and incorporates its result; covered by a passing automated test. | **DONE** — commit `107159c`, 5/5 new tests passing, 201/201 full suite, real Gemini SDK function-calling API used (mocked network layer only). Live-API call unverified (no `GEMINI_API_KEY` available) — tracked as an open item, not blocking M2. |
 | **M2 — Product identity/security** | A `ProductIdentity` concept and service-token verifier exist; forged/expired/wrong-audience/wrong-scope tokens are rejected; proven against a fake product connector before any real one exists; covered by passing automated tests. | NOT STARTED |
 | **M3 — Tool registry** | A `ToolRegistry` and `ProductConnector` interface exist; a second (fake) product can register tools scoped correctly to its own identity, proven by a test showing product A's tools are invisible under product B's identity. | NOT STARTED |
 | **M4 — Connector framework** | The general connector plumbing (registration, tool namespacing, per-connector health/config) is real and reusable by more than one product without code changes to the core. | NOT STARTED |
