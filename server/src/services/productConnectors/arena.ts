@@ -15,10 +15,17 @@ import type { ProductConnector, RegisteredTool } from "../tools/productConnector
 import type { ProductIdentity } from "../productIdentity.js";
 
 // Arena's own production API by default — overridable for local dev against a different Arena
-// deployment. Arena's `/jobs` endpoint is unauthenticated (public, per its own SecurityConfig —
-// confirmed during the original architecture investigation), so this first tool needs no
-// additional Arena-side credential beyond the request itself.
-const ARENA_API_BASE_URL = process.env.ARENA_API_BASE_URL || "https://api-arena.vikisol.in";
+// deployment. Includes the `/api/v1` prefix: Arena's Spring Boot app sets
+// `server.servlet.context-path: /api/v1` (application.yml), so every real endpoint — including
+// `/jobs` — is actually served under that path, not at the bare domain root. A real, live
+// end-to-end test during M6 caught this exact gap: a real Gemini call correctly decided to
+// invoke this tool, but the tool's request 404'd against the wrong URL until this prefix was
+// added — found by running the real flow, not by unit-testing this file in isolation (the
+// mocked-fetch tests below asserted the URL they were told to expect, which was itself wrong
+// until this fix). Arena's `/jobs` endpoint is unauthenticated (public, per its own
+// SecurityConfig — confirmed during the original architecture investigation), so this first tool
+// needs no additional Arena-side credential beyond the request itself.
+const ARENA_API_BASE_URL = process.env.ARENA_API_BASE_URL || "https://api-arena.vikisol.in/api/v1";
 
 interface ArenaApiEnvelope<T> {
   success: boolean;

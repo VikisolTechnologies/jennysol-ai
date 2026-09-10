@@ -123,7 +123,7 @@ describe("arena.searchJobs execution (M6)", () => {
 
     const result = await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { page: 0, size: 20 });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/jobs?page=0&size=20");
+    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/jobs?page=0&size=20");
     expect(result).toEqual({ content: [{ id: "job-1", title: "Senior React Engineer" }], page: 0, size: 20 });
   });
 
@@ -132,7 +132,7 @@ describe("arena.searchJobs execution (M6)", () => {
 
     await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { size: 9999 });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/jobs?page=0&size=50");
+    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/jobs?page=0&size=50");
   });
 
   it("throws (never silently returns empty) on a non-OK HTTP response from Arena", async () => {
