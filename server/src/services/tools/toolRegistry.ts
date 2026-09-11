@@ -4,7 +4,7 @@
 // the interface a product implements to register with it.
 import type { ProductIdentity } from "../productIdentity.js";
 import { requireScope } from "../productIdentity.js";
-import type { ProductConnector, RegisteredTool } from "./productConnector.js";
+import type { ProductConnector, RegisteredTool, ToolExecutionContext, ToolTier } from "./productConnector.js";
 
 export class ToolRegistryError extends Error {
   constructor(message: string) {
@@ -76,7 +76,16 @@ export class ToolRegistry {
     return connector.getTools().filter((t) => identity.scope.includes(t.name));
   }
 
-  async dispatch(identity: ProductIdentity, toolName: string, args: Record<string, unknown>): Promise<unknown> {
+  // M7: `dispatch` itself has no opinion on a tool's READ/WRITE tier — it is the one primitive
+  // that actually runs a tool, used identically whether the caller is offering an immediate READ
+  // result to the model or executing a WRITE tool the user has already approved (see
+  // routes/agentGateway.ts). The approval gate lives one layer above this method, not inside it.
+  async dispatch(
+    identity: ProductIdentity,
+    toolName: string,
+    args: Record<string, unknown>,
+    context: ToolExecutionContext
+  ): Promise<unknown> {
     if (!toolName.startsWith(`${identity.product}.`)) {
       throw new CrossProductToolAccessError(identity.product, toolName);
     }
@@ -90,6 +99,17 @@ export class ToolRegistry {
     if (!tool) {
       throw new ToolRegistryError(`Tool "${toolName}" not found for product "${identity.product}"`);
     }
-    return tool.execute(identity, args);
+    return tool.execute(identity, args, context);
+  }
+
+  // M7: looks up a tool's declared tier without executing it — the gateway route uses this to
+  // decide whether a model-requested call should be proposed for approval (WRITE) or dispatched
+  // immediately (READ). Returns undefined for an unknown/cross-product tool name, same as
+  // getToolsFor() silently omitting it — callers that need the CrossProductToolAccessError/
+  // ToolRegistryError distinctions should call dispatch() itself.
+  getTier(identity: ProductIdentity, toolName: string): ToolTier | undefined {
+    if (!toolName.startsWith(`${identity.product}.`)) return undefined;
+    const connector = this.connectors.get(identity.product);
+    return connector?.getTools().find((t) => t.name === toolName)?.tier;
   }
 }

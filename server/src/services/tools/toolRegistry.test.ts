@@ -17,6 +17,7 @@ function acmeConnector(opts?: { configured?: boolean }): ProductConnector {
         name: "acme.getWidget",
         description: "Fake test tool — returns a fake widget.",
         parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+        tier: "READ",
         execute: async (_identity, args) => ({ widgetId: args.id, name: "Test Widget" }),
       },
     ],
@@ -32,6 +33,7 @@ function widgetcoConnector(opts?: { configured?: boolean }): ProductConnector {
         name: "widgetco.getGadget",
         description: "Fake test tool — returns a fake gadget, from a completely different fake product.",
         parameters: { type: "object", properties: {}, required: [] },
+        tier: "READ",
         execute: async () => ({ gadget: "Test Gadget" }),
       },
     ],
@@ -61,7 +63,7 @@ describe("ToolRegistry (M3)", () => {
     const badConnector: ProductConnector = {
       product: "acme",
       getTools: () => [
-        { name: "notNamespaced", description: "bad", parameters: {}, execute: async () => null },
+        { name: "notNamespaced", description: "bad", parameters: {}, tier: "READ", execute: async () => null },
       ],
       configured: () => true,
     };
@@ -121,7 +123,8 @@ describe("ToolRegistry (M3)", () => {
     const result = await registry.dispatch(
       identity({ product: "acme", scope: ["acme.getWidget"] }),
       "acme.getWidget",
-      { id: "w-1" }
+      { id: "w-1" },
+      { rawToken: "test-token" }
     );
 
     expect(result).toEqual({ widgetId: "w-1", name: "Test Widget" });
@@ -132,7 +135,7 @@ describe("ToolRegistry (M3)", () => {
     registry.registerConnector(acmeConnector());
 
     await expect(
-      registry.dispatch(identity({ product: "acme", scope: [] }), "acme.getWidget", { id: "w-1" })
+      registry.dispatch(identity({ product: "acme", scope: [] }), "acme.getWidget", { id: "w-1" }, { rawToken: "test-token" })
     ).rejects.toThrow(InsufficientScopeError);
   });
 
@@ -146,6 +149,7 @@ describe("ToolRegistry (M3)", () => {
           name: "acme.getWidget",
           description: "test",
           parameters: {},
+          tier: "READ",
           execute: async () => {
             acmeToolWasCalled = true;
             return { should: "never happen" };
@@ -161,7 +165,7 @@ describe("ToolRegistry (M3)", () => {
     // after already having found and prepared to run the tool.
     const misconfigured = identity({ product: "widgetco", externalUserId: "wco-1", scope: ["acme.getWidget"] });
 
-    await expect(registry.dispatch(misconfigured, "acme.getWidget", {})).rejects.toThrow(
+    await expect(registry.dispatch(misconfigured, "acme.getWidget", {}, { rawToken: "test-token" })).rejects.toThrow(
       CrossProductToolAccessError
     );
     expect(acmeToolWasCalled).toBe(false);
@@ -172,7 +176,7 @@ describe("ToolRegistry (M3)", () => {
     registry.registerConnector(acmeConnector());
 
     await expect(
-      registry.dispatch(identity({ product: "acme", scope: ["acme.doesNotExist"] }), "acme.doesNotExist", {})
+      registry.dispatch(identity({ product: "acme", scope: ["acme.doesNotExist"] }), "acme.doesNotExist", {}, { rawToken: "test-token" })
     ).rejects.toThrow(/not found/);
   });
 

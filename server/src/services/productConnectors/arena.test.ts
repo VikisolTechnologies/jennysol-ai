@@ -32,14 +32,20 @@ describe("arenaConnector (M5/M6)", () => {
     expect(arenaConnector.product).toBe("arena");
   });
 
-  it("exposes exactly the arena.searchJobs tool, correctly namespaced", () => {
+  it("exposes exactly the arena.searchJobs and arena.applyToJob tools, correctly namespaced", () => {
     const tools = arenaConnector.getTools();
-    expect(tools.map((t) => t.name)).toEqual(["arena.searchJobs"]);
+    expect(tools.map((t) => t.name)).toEqual(["arena.searchJobs", "arena.applyToJob"]);
   });
 
   it("arena.searchJobs's own description is honest that Arena has no keyword search yet", () => {
     const [tool] = arenaConnector.getTools();
     expect(tool.description.toLowerCase()).toContain("does not currently support keyword");
+  });
+
+  it("M7: arena.searchJobs is tier READ and arena.applyToJob is tier WRITE", () => {
+    const tools = arenaConnector.getTools();
+    expect(tools.find((t) => t.name === "arena.searchJobs")!.tier).toBe("READ");
+    expect(tools.find((t) => t.name === "arena.applyToJob")!.tier).toBe("WRITE");
   });
 
   it("configured() reflects whether SERVICE_TOKEN_SECRET_ARENA is actually set", () => {
@@ -121,7 +127,11 @@ describe("arena.searchJobs execution (M6)", () => {
       }),
     });
 
-    const result = await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { page: 0, size: 20 });
+    const result = await tool().execute(
+      { product: "arena", externalUserId: "u1", scope: [] },
+      { page: 0, size: 20 },
+      { rawToken: "test-token" }
+    );
 
     expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/jobs?page=0&size=20");
     expect(result).toEqual({ content: [{ id: "job-1", title: "Senior React Engineer" }], page: 0, size: 20 });
@@ -130,7 +140,7 @@ describe("arena.searchJobs execution (M6)", () => {
   it("defaults page/size and clamps an oversized page size to Arena's real limit", async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { content: [] } }) });
 
-    await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { size: 9999 });
+    await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { size: 9999 }, { rawToken: "test-token" });
 
     expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/jobs?page=0&size=50");
   });
@@ -138,9 +148,9 @@ describe("arena.searchJobs execution (M6)", () => {
   it("throws (never silently returns empty) on a non-OK HTTP response from Arena", async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) });
 
-    await expect(tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, {})).rejects.toThrow(
-      /503/
-    );
+    await expect(
+      tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, {}, { rawToken: "test-token" })
+    ).rejects.toThrow(/503/);
   });
 
   it("throws on Arena's own envelope reporting success:false, surfacing Arena's real message", async () => {
@@ -149,9 +159,9 @@ describe("arena.searchJobs execution (M6)", () => {
       json: async () => ({ success: false, message: "Something went wrong on Arena's side" }),
     });
 
-    await expect(tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, {})).rejects.toThrow(
-      "Something went wrong on Arena's side"
-    );
+    await expect(
+      tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, {}, { rawToken: "test-token" })
+    ).rejects.toThrow("Something went wrong on Arena's side");
   });
 
   it("respects ARENA_API_BASE_URL for a non-production Arena deployment", async () => {
@@ -163,9 +173,71 @@ describe("arena.searchJobs execution (M6)", () => {
     await freshConnector
       .getTools()
       .find((t) => t.name === "arena.searchJobs")!
-      .execute({ product: "arena", externalUserId: "u1", scope: [] }, {});
+      .execute({ product: "arena", externalUserId: "u1", scope: [] }, {}, { rawToken: "test-token" });
 
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:8080/jobs?page=0&size=20");
     delete process.env.ARENA_API_BASE_URL;
+  });
+});
+
+// M7: arena.applyToJob's real execution — a WRITE tool that must forward the exact rawToken it's
+// given as its own request's Authorization header (the round-trip service-token design), never
+// mint or invent a credential of its own.
+describe("arena.applyToJob execution (M7)", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  function tool() {
+    return arenaConnector.getTools().find((t) => t.name === "arena.applyToJob")!;
+  }
+
+  it("POSTs to Arena's real /applications with jobId and forwards context.rawToken as the Authorization header", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, data: { id: "app-1", jobId: "job-42" } }),
+    });
+
+    const result = await tool().execute(
+      { product: "arena", externalUserId: "u1", scope: [] },
+      { jobId: "job-42" },
+      { rawToken: "the-exact-service-token" }
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api-arena.vikisol.in/api/v1/applications",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer the-exact-service-token" }),
+        body: JSON.stringify({ jobId: "job-42" }),
+      })
+    );
+    expect(result).toEqual({ id: "app-1", jobId: "job-42" });
+  });
+
+  it("throws when called without a jobId", async () => {
+    await expect(
+      tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, {}, { rawToken: "test-token" })
+    ).rejects.toThrow(/jobId/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("throws (never silently succeeds) when Arena rejects the application", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ success: false, message: "Only TALENT accounts may apply" }),
+    });
+
+    await expect(
+      tool().execute(
+        { product: "arena", externalUserId: "u1", scope: [] },
+        { jobId: "job-42" },
+        { rawToken: "test-token" }
+      )
+    ).rejects.toThrow("Only TALENT accounts may apply");
   });
 });

@@ -11,7 +11,7 @@
 // re-run automatically from this Node test suite (see arena.test.ts's own comment) — recorded as
 // one-time verified evidence in PROJECT-PROGRESS.md's M5 entry, the same way this project already
 // records other live-verified-once facts it can't keep re-proving in CI.
-import type { ProductConnector, RegisteredTool } from "../tools/productConnector.js";
+import type { ProductConnector, RegisteredTool, ToolExecutionContext } from "../tools/productConnector.js";
 import type { ProductIdentity } from "../productIdentity.js";
 
 // Arena's own production API by default — overridable for local dev against a different Arena
@@ -52,6 +52,41 @@ async function searchJobs(_identity: ProductIdentity, args: Record<string, unkno
   return body.data;
 }
 
+// M7 (approval-controlled write tools): Arena's first WRITE tool. Real, consequential — this
+// submits an actual application on the user's behalf, so ToolRegistry never calls this directly
+// off a model decision; it only ever runs after routes/agentGateway.ts has routed the proposed
+// call through pendingActions.ts's propose → user-approves → dispatch flow (ADR-004).
+//
+// Requires real Arena authentication — POST /applications (ApplicationController.java) is
+// class-level @PreAuthorize("hasRole('TALENT')"), unlike the public GET /jobs above. Forwards
+// `context.rawToken` — the exact service token Arena minted for this user's turn — as this
+// request's own Authorization header. Arena's AgentServiceTokenAuthenticationFilter verifies it
+// with the same shared secret, independently re-checks the token's own scope actually authorizes
+// this specific endpoint (per ADR-003), and resolves the real Arena user before this call is
+// allowed to reach ApplicationController at all — this tool is never trusted to have already
+// enforced that correctly on its own.
+async function applyToJob(_identity: ProductIdentity, args: Record<string, unknown>, context: ToolExecutionContext): Promise<unknown> {
+  const jobId = typeof args.jobId === "string" ? args.jobId : undefined;
+  if (!jobId) {
+    throw new Error("applyToJob requires a jobId");
+  }
+
+  const res = await fetch(`${ARENA_API_BASE_URL}/applications`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${context.rawToken}`,
+    },
+    body: JSON.stringify({ jobId }),
+  });
+
+  const body = (await res.json().catch(() => ({}))) as ArenaApiEnvelope<unknown>;
+  if (!res.ok || !body.success) {
+    throw new Error(body.message || `Arena application submission failed: HTTP ${res.status}`);
+  }
+  return body.data;
+}
+
 export const arenaConnector: ProductConnector = {
   product: "arena",
 
@@ -74,7 +109,25 @@ export const arenaConnector: ProductConnector = {
           },
           required: [],
         },
+        tier: "READ",
         execute: searchJobs,
+      },
+      {
+        name: "arena.applyToJob",
+        description:
+          "Submits a real, consequential job application on the user's behalf to a specific " +
+          "Arena job posting. This will only actually run after the user explicitly approves " +
+          "it — describe what you're about to do and wait for approval rather than assuming " +
+          "it already happened.",
+        parameters: {
+          type: "object",
+          properties: {
+            jobId: { type: "string", description: "The Arena job posting id to apply to." },
+          },
+          required: ["jobId"],
+        },
+        tier: "WRITE",
+        execute: applyToJob,
       },
     ];
   },

@@ -13,6 +13,12 @@ declare global {
   namespace Express {
     interface Request {
       productIdentity?: ProductIdentity;
+      // M7: the exact raw token this identity was verified from — a write tool that needs to
+      // call back into its own product's authenticated API (e.g. Arena's POST /applications, see
+      // AgentServiceTokenAuthenticationFilter on the Arena side) forwards this same token as its
+      // own Authorization header, a round trip rather than a new credential. Never logged, never
+      // stored beyond this one request's lifetime.
+      serviceToken?: string;
     }
   }
 }
@@ -31,6 +37,7 @@ export function requireProductIdentity(req: Request, res: Response, next: NextFu
   }
   try {
     req.productIdentity = verifyServiceToken(token);
+    req.serviceToken = token;
   } catch (err) {
     res.status(401).json({ error: err instanceof ServiceTokenError ? err.message : "Invalid service token" });
     return;
