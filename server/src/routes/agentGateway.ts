@@ -24,6 +24,9 @@ import { toolRegistry } from "../services/tools/registryInstance.js";
 import { proposeAction, consumeAction, PendingActionError, type PendingAction } from "../services/tools/pendingActions.js";
 import { routeChatCompletion } from "../services/modelRouter.js";
 import { zodErrorMessage } from "../utils/zodError.js";
+import { logAuditEvent } from "../services/agentAuditLog.js";
+import { InsufficientScopeError } from "../services/productIdentity.js";
+import { CrossProductToolAccessError } from "../services/tools/toolRegistry.js";
 
 export const agentGatewayRouter = Router();
 
@@ -57,6 +60,8 @@ agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
 
   const identity = req.productIdentity!;
   const rawToken = req.serviceToken!;
+  const correlationId = req.correlationId!;
+  const auditIdentity = { product: identity.product, externalUserId: identity.externalUserId, tenantId: identity.tenantId };
   const availableTools = toolRegistry.getToolsFor(identity);
   const tools = availableTools.map((t) => ({
     name: t.name,
@@ -64,6 +69,13 @@ agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
     parameters: t.parameters,
   }));
   const proposedActions: ProposedActionSummary[] = [];
+
+  logAuditEvent({
+    correlationId,
+    type: "agent_request_received",
+    identity: auditIdentity,
+    detail: { messageLength: parsed.data.message.length, toolsOffered: tools.map((t) => t.name) },
+  });
 
   let content = "";
   try {
@@ -80,23 +92,70 @@ agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
       tools.length
         ? async (call) => {
             const tier = toolRegistry.getTier(identity, call.name);
+            logAuditEvent({
+              correlationId,
+              type: "tool_call_decided",
+              identity: auditIdentity,
+              toolName: call.name,
+              detail: { tier: tier ?? "unknown", args: call.args },
+            });
+
             if (tier === "WRITE") {
               const action = proposeAction(identity, call.name, call.args);
               proposedActions.push({ actionId: action.id, toolName: action.toolName, args: action.args });
+              logAuditEvent({
+                correlationId,
+                type: "pending_action_created",
+                identity: auditIdentity,
+                toolName: call.name,
+                detail: { actionId: action.id },
+              });
               return {
                 status: "awaiting_user_approval",
                 actionId: action.id,
                 message: "This action requires the user's explicit approval before it will run.",
               };
             }
-            return toolRegistry.dispatch(identity, call.name, call.args, { rawToken });
+
+            try {
+              const result = await toolRegistry.dispatch(identity, call.name, call.args, { rawToken });
+              logAuditEvent({ correlationId, type: "tool_dispatched", identity: auditIdentity, toolName: call.name });
+              return result;
+            } catch (err) {
+              logAuditEvent({
+                correlationId,
+                type:
+                  err instanceof InsufficientScopeError
+                    ? "scope_violation"
+                    : err instanceof CrossProductToolAccessError
+                      ? "cross_product_attempt"
+                      : "tool_dispatch_failed",
+                identity: auditIdentity,
+                toolName: call.name,
+                detail: { error: err instanceof Error ? err.message : String(err) },
+              });
+              throw err;
+            }
           }
         : undefined
     );
   } catch (err) {
+    logAuditEvent({
+      correlationId,
+      type: "provider_failure",
+      identity: auditIdentity,
+      detail: { error: err instanceof Error ? err.message : String(err) },
+    });
     res.status(502).json({ error: err instanceof Error ? err.message : "Agent request failed" });
     return;
   }
+
+  logAuditEvent({
+    correlationId,
+    type: "agent_request_completed",
+    identity: auditIdentity,
+    detail: { contentLength: content.length, pendingActionCount: proposedActions.length },
+  });
 
   res.json(proposedActions.length ? { content, pendingActions: proposedActions } : { content });
 });
@@ -117,23 +176,60 @@ agentGatewayRouter.post("/actions/:actionId", requireProductIdentity, async (req
   }
 
   const identity = req.productIdentity!;
+  const correlationId = req.correlationId!;
+  const auditIdentity = { product: identity.product, externalUserId: identity.externalUserId, tenantId: identity.tenantId };
+
   let action: PendingAction;
   try {
     action = consumeAction(req.params.actionId, identity);
   } catch (err) {
-    res.status(404).json({ error: err instanceof PendingActionError ? err.message : "Action not found" });
+    const message = err instanceof PendingActionError ? err.message : "Action not found";
+    logAuditEvent({
+      correlationId,
+      type: /expired/i.test(message)
+        ? "pending_action_expired"
+        : /does not belong/i.test(message)
+          ? "pending_action_identity_mismatch"
+          : "pending_action_not_found",
+      identity: auditIdentity,
+      detail: { actionId: req.params.actionId, reason: message },
+    });
+    res.status(404).json({ error: message });
     return;
   }
 
   if (!parsed.data.approve) {
+    logAuditEvent({
+      correlationId,
+      type: "pending_action_rejected",
+      identity: auditIdentity,
+      toolName: action.toolName,
+      detail: { actionId: action.id },
+    });
     res.json({ status: "rejected" });
     return;
   }
 
+  logAuditEvent({
+    correlationId,
+    type: "pending_action_approved",
+    identity: auditIdentity,
+    toolName: action.toolName,
+    detail: { actionId: action.id },
+  });
+
   try {
     const result = await toolRegistry.dispatch(identity, action.toolName, action.args, { rawToken: req.serviceToken! });
+    logAuditEvent({ correlationId, type: "tool_dispatched", identity: auditIdentity, toolName: action.toolName, detail: { actionId: action.id } });
     res.json({ status: "executed", result });
   } catch (err) {
+    logAuditEvent({
+      correlationId,
+      type: "tool_dispatch_failed",
+      identity: auditIdentity,
+      toolName: action.toolName,
+      detail: { actionId: action.id, error: err instanceof Error ? err.message : String(err) },
+    });
     res.status(502).json({ error: err instanceof Error ? err.message : "Tool execution failed" });
   }
 });

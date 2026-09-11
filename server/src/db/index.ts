@@ -150,6 +150,28 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_agent_events_run ON agent_events(run_id, id);
+
+  -- M9 (audit/observability, PROJECT-PROGRESS.md milestone model): a real, append-only trail of
+  -- every product-gateway event distinguishable from a human-originated JennySol action, separate
+  -- from error_logs (crashes) and agent_events (a single AgentRun's own SSE replay log). Scoped by
+  -- product/external_user_id/tenant_id so a query can never return one identity's trail to
+  -- another (see agentAuditLog.ts). detail is always run through memoryScope.ts's redactSecrets()
+  -- before being stringified here — this table must never contain a raw service token, secret, or
+  -- Authorization header value.
+  CREATE TABLE IF NOT EXISTS agent_audit_log (
+    id TEXT PRIMARY KEY,
+    correlation_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    product TEXT,
+    external_user_id TEXT,
+    tenant_id TEXT,
+    tool_name TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_audit_log_correlation ON agent_audit_log(correlation_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_audit_log_identity ON agent_audit_log(product, external_user_id, tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_audit_log_created_at ON agent_audit_log(created_at);
 `);
 
 // Pre-auth deployments already have `documents`/`conversations` tables without a
