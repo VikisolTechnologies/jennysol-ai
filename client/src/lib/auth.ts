@@ -285,3 +285,26 @@ export async function resendVerification(): Promise<void> {
   const res = await authFetch("/api/auth/resend-verification", { method: "POST" });
   await parseOrThrow(res);
 }
+
+export interface SessionSummary {
+  fingerprint: string;
+  userAgent: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+}
+
+export async function fetchSessions(): Promise<SessionSummary[]> {
+  const res = await authFetch("/api/auth/sessions");
+  const data = await parseOrThrow(res);
+  return data.sessions;
+}
+
+export async function logoutOtherSessions(): Promise<void> {
+  const res = await authFetch("/api/auth/sessions/logout-others", { method: "POST" });
+  await parseOrThrow(res);
+}
+
+export async function revokeSession(fingerprint: string): Promise<void> {
+  const res = await authFetch(`/api/auth/sessions/${fingerprint}`, { method: "DELETE" });
+  await parseOrThrow(res);
+}

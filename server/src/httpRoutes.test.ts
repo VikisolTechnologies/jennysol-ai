@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
+import { createHash } from "node:crypto";
 
 // Real HTTP-layer tests against the actual configured Express app (app.ts) —
 // closing the gap the 2026-09-10 audit found: every prior test called
@@ -156,6 +157,88 @@ describe("HTTP routes — /api/chat deterministic short-circuits (real SSE respo
       .set("Authorization", `Bearer ${token}`)
       .send({ message: "" })
       .expect(400);
+  });
+});
+
+describe("HTTP routes — session management (Security/Sessions page backend)", () => {
+  it("lists only this user's own sessions, never another user's", async () => {
+    const a = await createGuest();
+    const b = await createGuest();
+
+    const res = await request(app).get("/api/auth/sessions").set("Authorization", `Bearer ${a.token}`).expect(200);
+    expect(res.body.sessions).toHaveLength(1);
+
+    const bRes = await request(app).get("/api/auth/sessions").set("Authorization", `Bearer ${b.token}`).expect(200);
+    expect(bRes.body.sessions).toHaveLength(1);
+    expect(bRes.body.sessions[0].fingerprint).not.toBe(res.body.sessions[0].fingerprint);
+  });
+
+  it("logout-others keeps the calling session alive and kills every other one for the same user", async () => {
+    const { token: sessionA, userId } = await createGuest();
+    // A second login for the SAME user (guest accounts have no password, so
+    // reuse a real full-account signup path instead for this test).
+    const email = `dual-session-${userId}@example.test`;
+    await request(app).post("/api/auth/signup").send({ email, password: "Correct-Horse-9", name: "T" });
+    const login1 = await request(app).post("/api/auth/login").send({ email, password: "Correct-Horse-9" });
+    const login2 = await request(app).post("/api/auth/login").send({ email, password: "Correct-Horse-9" });
+
+    await request(app)
+      .post("/api/auth/sessions/logout-others")
+      .set("Authorization", `Bearer ${login1.body.token}`)
+      .expect(204);
+
+    await request(app).get("/api/auth/me").set("Authorization", `Bearer ${login1.body.token}`).expect(200);
+    await request(app).get("/api/auth/me").set("Authorization", `Bearer ${login2.body.token}`).expect(401);
+    // The original guest session for a different user is untouched.
+    await request(app).get("/api/auth/me").set("Authorization", `Bearer ${sessionA}`).expect(200);
+  });
+
+  it("revokes exactly one named session by fingerprint, refuses to revoke the caller's own current session", async () => {
+    const email = `revoke-one-${Date.now()}@example.test`;
+    // Signup itself also issues a session (see /signup's own createSession
+    // call) — so this user has 3 sessions total (signup + session1 +
+    // session2), not 2. The test targets session2's fingerprint directly
+    // rather than "any session that isn't session1's", which would
+    // otherwise nondeterministically grab the signup session instead.
+    await request(app).post("/api/auth/signup").send({ email, password: "Correct-Horse-9", name: "T" });
+    const session1 = await request(app).post("/api/auth/login").send({ email, password: "Correct-Horse-9" });
+    const session2 = await request(app).post("/api/auth/login").send({ email, password: "Correct-Horse-9" });
+
+    const selfFingerprint = createHash("sha256").update(session1.body.token).digest("hex").slice(0, 12);
+    const targetFingerprint = createHash("sha256").update(session2.body.token).digest("hex").slice(0, 12);
+
+    // Refuses to let a session revoke itself via this granular endpoint.
+    await request(app)
+      .delete(`/api/auth/sessions/${selfFingerprint}`)
+      .set("Authorization", `Bearer ${session1.body.token}`)
+      .expect(400);
+
+    await request(app)
+      .delete(`/api/auth/sessions/${targetFingerprint}`)
+      .set("Authorization", `Bearer ${session1.body.token}`)
+      .expect(204);
+
+    // session1 (the caller) still works; session2 (revoked) no longer does.
+    await request(app).get("/api/auth/me").set("Authorization", `Bearer ${session1.body.token}`).expect(200);
+    await request(app).get("/api/auth/me").set("Authorization", `Bearer ${session2.body.token}`).expect(401);
+  });
+
+  it("cannot revoke another user's session by guessing/reusing its fingerprint", async () => {
+    const victim = await createGuest();
+    const attacker = await createGuest();
+
+    const victimSessions = await request(app)
+      .get("/api/auth/sessions")
+      .set("Authorization", `Bearer ${victim.token}`);
+    const victimFingerprint = victimSessions.body.sessions[0].fingerprint;
+
+    await request(app)
+      .delete(`/api/auth/sessions/${victimFingerprint}`)
+      .set("Authorization", `Bearer ${attacker.token}`)
+      .expect(404);
+
+    // Victim's session is untouched.
+    await request(app).get("/api/auth/me").set("Authorization", `Bearer ${victim.token}`).expect(200);
   });
 });
 

@@ -8,7 +8,9 @@ import {
   deleteAllSessionsForUser,
   deleteOtherSessions,
   deleteSession,
+  deleteSessionByFingerprint,
   extendSessionToFullTtl,
+  fingerprint,
   listSessionsForUser,
 } from "../services/auth/sessions.js";
 import { isLockedOut, recordLoginAttempt } from "../services/auth/loginAttempts.js";
@@ -47,6 +49,13 @@ const sensitiveLimiter = rateLimit({
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  // Real HTTP-layer tests (httpRoutes.test.ts and friends) exercise
+  // signup/login/guest dozens of times across one shared Express app
+  // instance per test file — a real production abuse-prevention concern,
+  // not something that should also make correctness tests flaky. Vitest
+  // sets NODE_ENV=test by default; nothing else in this app depends on
+  // that value to change behavior.
+  skip: () => process.env.NODE_ENV === "test",
 });
 
 const emailSchema = z.string().trim().toLowerCase().email();
@@ -265,6 +274,29 @@ authRouter.post("/logout-all", requireAuth, (req, res) => {
 
 authRouter.get("/sessions", requireAuth, (req, res) => {
   res.json({ sessions: listSessionsForUser(req.userId!) });
+});
+
+// Keeps the current session, signs out every other one — distinct from
+// /logout-all (which also kills the request making the call). Reuses the
+// same primitive change-password already relies on internally.
+authRouter.post("/sessions/logout-others", requireAuth, (req, res) => {
+  const currentToken = req.header("authorization")!.slice("Bearer ".length).trim();
+  deleteOtherSessions(req.userId!, currentToken);
+  res.status(204).send();
+});
+
+authRouter.delete("/sessions/:fingerprint", requireAuth, (req, res) => {
+  const currentToken = req.header("authorization")!.slice("Bearer ".length).trim();
+  if (fingerprint(currentToken) === req.params.fingerprint) {
+    res.status(400).json({ error: "That's your current session — use logout instead." });
+    return;
+  }
+  const revoked = deleteSessionByFingerprint(req.userId!, req.params.fingerprint);
+  if (!revoked) {
+    res.status(404).json({ error: "Session not found." });
+    return;
+  }
+  res.status(204).send();
 });
 
 // ---- Current user / profile ----

@@ -6,6 +6,9 @@ import {
   getSessionUserId,
   deleteExpiredSessions,
   extendSessionToFullTtl,
+  deleteSessionByFingerprint,
+  fingerprint,
+  listSessionsForUser,
 } from "./sessions.js";
 
 function makeUser(isGuest: boolean): string {
@@ -133,5 +136,64 @@ describe("session TTL — guest vs full account", () => {
 
     const daysUntilExpiry = (expiresAtFor(token) - Date.now()) / (1000 * 60 * 60 * 24);
     expect(daysUntilExpiry).toBeGreaterThan(29);
+  });
+});
+
+// Added 2026-09-10 for the new Security/Sessions page's per-row "revoke this
+// device" action — the fingerprint returned by listSessionsForUser is a
+// deliberate one-way hash (never the raw token), so this is the reverse
+// lookup that has to happen server-side without ever exposing a real token.
+describe("deleteSessionByFingerprint — per-row revoke for the Sessions UI", () => {
+  const createdUserIds: string[] = [];
+  afterEach(() => {
+    for (const id of createdUserIds) db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    createdUserIds.length = 0;
+  });
+
+  it("revokes exactly the session matching the given fingerprint, leaving others untouched", () => {
+    const userId = makeUser(false);
+    createdUserIds.push(userId);
+    const a = createSession(userId, "chrome-mac");
+    const b = createSession(userId, "safari-iphone");
+
+    const revoked = deleteSessionByFingerprint(userId, fingerprint(a.token));
+
+    expect(revoked).toBe(true);
+    expect(getSessionUserId(a.token)).toBeNull();
+    expect(getSessionUserId(b.token)).toBe(userId);
+  });
+
+  it("returns false and deletes nothing for a fingerprint that doesn't match any of this user's sessions", () => {
+    const userId = makeUser(false);
+    createdUserIds.push(userId);
+    const { token } = createSession(userId, "chrome-mac");
+
+    const revoked = deleteSessionByFingerprint(userId, "0000deadbeef");
+
+    expect(revoked).toBe(false);
+    expect(getSessionUserId(token)).toBe(userId);
+  });
+
+  it("never matches a fingerprint against a DIFFERENT user's session, even if that user's session id happens to be known", () => {
+    const userA = makeUser(false);
+    const userB = makeUser(false);
+    createdUserIds.push(userA, userB);
+    const bSession = createSession(userB, "victim-device");
+
+    const revoked = deleteSessionByFingerprint(userA, fingerprint(bSession.token));
+
+    expect(revoked).toBe(false);
+    expect(getSessionUserId(bSession.token)).toBe(userB); // untouched
+  });
+
+  it("listSessionsForUser's fingerprint output is exactly what deleteSessionByFingerprint expects (no drift between the two)", () => {
+    const userId = makeUser(false);
+    createdUserIds.push(userId);
+    const { token } = createSession(userId, "chrome-mac");
+
+    const [summary] = listSessionsForUser(userId);
+    const revoked = deleteSessionByFingerprint(userId, summary.fingerprint);
+
+    expect(revoked).toBe(true);
   });
 });

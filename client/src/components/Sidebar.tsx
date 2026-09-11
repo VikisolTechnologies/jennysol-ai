@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
+  Compass,
   File,
   FileText,
   LayoutDashboard,
@@ -10,6 +11,7 @@ import {
   MailWarning,
   MessageSquare,
   Pencil,
+  Settings,
   SquarePen,
   Sparkles,
   Trash2,
@@ -382,6 +384,26 @@ export function Sidebar({
             </div>
           </div>
         </div>
+      )}
+
+      {user && (
+        <Link
+          to="/agents"
+          className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-neutral-500 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-neutral-200"
+        >
+          <Compass size={13} />
+          Agents
+        </Link>
+      )}
+
+      {user && (
+        <Link
+          to="/account"
+          className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-neutral-500 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-neutral-200"
+        >
+          <Settings size={13} />
+          Account &amp; settings
+        </Link>
       )}
 
       {user?.role === "admin" && (
