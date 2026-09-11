@@ -80,6 +80,21 @@ body {
   position: fixed;
   inset: 0;
   overflow: hidden;
+  /* Painted at the document root, synchronized with the SAME `.dark` class
+     index.html's inline script sets synchronously before first paint (see
+     useTheme.ts) — not left to whatever a child React component's own
+     background class happens to paint once it mounts. Without this, the
+     browser's own default white canvas is what's actually visible during
+     the gap before any themed element exists: the initial HTML request,
+     a slow chunk load, or any other moment nothing has painted over it yet.
+     Matches the app's own dark surface (neutral-950) exactly, not an
+     approximation, so there's no visible seam once React's own dark:bg-
+     classes take over on top of it. */
+  background-color: #ffffff;
+}
+html.dark,
+html.dark body {
+  background-color: #0a0a0a;
 }
 
 body {

@@ -11,6 +11,7 @@ import {
   Pause,
   SendHorizontal,
   Square,
+  SquarePen,
   Sun,
   X,
 } from "lucide-react";
@@ -49,11 +50,13 @@ const SUGGESTIONS = [
 
 export function ChatWindow({
   onOpenSidebar,
+  onNewChat,
   conversationId,
   onConversationChange,
   onRequestAuthGate,
 }: {
   onOpenSidebar: () => void;
+  onNewChat: () => void;
   conversationId: string | null;
   onConversationChange: (id: string) => void;
   onRequestAuthGate: () => void;
@@ -502,18 +505,26 @@ export function ChatWindow({
             "radial-gradient(ellipse 60% 45% at 50% 38%, rgba(118,69,255,0.08), transparent 70%)",
         }}
       />
-      <header className="relative flex shrink-0 items-center justify-between border-b border-neutral-200 bg-white/80 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] backdrop-blur-xl dark:border-brand-300/[0.08] dark:bg-neutral-950/70">
-        <div className="flex items-center gap-2">
+      <header className="relative flex shrink-0 items-center justify-between border-b border-neutral-200 bg-white/80 px-2 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] backdrop-blur-xl dark:border-brand-300/[0.08] dark:bg-neutral-950/70 sm:px-4">
+        <div className="flex items-center gap-1">
           <button
             onClick={onOpenSidebar}
-            className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-white/10 md:hidden"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-white/10 md:hidden"
             aria-label="Open sidebar"
           >
-            <Menu size={18} />
+            <Menu size={19} />
           </button>
-          <span className="text-sm font-semibold">Chat</span>
+          <span className="text-sm font-semibold">JennySol</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          <button
+            onClick={onNewChat}
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-white/10 md:hidden"
+            aria-label="New chat"
+            title="New chat"
+          >
+            <SquarePen size={18} />
+          </button>
           {voiceConv.supported ? (
             <div className="flex items-center gap-1">
               <button
@@ -599,7 +610,7 @@ export function ChatWindow({
           />
           <button
             onClick={toggleTheme}
-            className="rounded-lg p-2 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200 sm:h-9 sm:w-9"
             aria-label="Toggle theme"
           >
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}

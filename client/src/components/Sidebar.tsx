@@ -12,6 +12,7 @@ import {
   LogOut,
   MailWarning,
   MessageSquare,
+  MoreVertical,
   Pencil,
   Plug,
   Settings,
@@ -21,6 +22,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
+import { RenameDialog, DeleteConversationDialog } from "./ConversationDialog";
 import {
   deleteConversation,
   deleteDocument,
@@ -52,6 +54,29 @@ function relativeTime(iso: string): string {
   return new Date(iso.replace(" ", "T") + "Z").toLocaleDateString();
 }
 
+// Buckets by calendar day (in the browser's own local timezone), not a
+// rolling 24h/7d window — "Yesterday" should mean the actual previous
+// calendar date, matching how every mainstream chat product's history
+// grouping reads, not "somewhere between 24 and 48 hours ago."
+function groupConversations(conversations: ConversationSummary[]): { label: string; items: ConversationSummary[] }[] {
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = startOfDay(new Date());
+  const yesterday = today - 86_400_000;
+  const weekAgo = today - 7 * 86_400_000;
+
+  const buckets: Record<string, ConversationSummary[]> = { Today: [], Yesterday: [], "Previous 7 days": [], Older: [] };
+  for (const c of conversations) {
+    const day = startOfDay(new Date(c.updatedAt.replace(" ", "T") + "Z"));
+    if (day >= today) buckets["Today"].push(c);
+    else if (day >= yesterday) buckets["Yesterday"].push(c);
+    else if (day >= weekAgo) buckets["Previous 7 days"].push(c);
+    else buckets["Older"].push(c);
+  }
+  return Object.entries(buckets)
+    .filter(([, items]) => items.length > 0)
+    .map(([label, items]) => ({ label, items }));
+}
+
 export function Sidebar({
   open,
   onClose,
@@ -79,9 +104,14 @@ export function Sidebar({
     void fetchServerVersion().then(setServerVersion);
   }, []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const renameInputRef = useRef<HTMLInputElement>(null);
+  // Which row's "⋯" menu is open, plus the two dialogs it can lead to.
+  // Replaces the old hover-only pencil/trash icons (opacity-0 until
+  // group-hover) — confirmed those were completely unreachable on any
+  // touch device with no :hover, meaning rename/delete were effectively
+  // broken on mobile. This menu button is always visible instead.
+  const [menuOpenForId, setMenuOpenForId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ConversationSummary | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ConversationSummary | null>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [documentsExpanded, setDocumentsExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -114,40 +144,34 @@ export function Sidebar({
     refreshConversations();
   }, [conversationsVersion]);
 
+  // Close the row menu on outside click/tap — standard kebab-menu behavior.
   useEffect(() => {
-    if (renamingId) {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
+    if (!menuOpenForId) return;
+    function onDocClick() {
+      setMenuOpenForId(null);
     }
-  }, [renamingId]);
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [menuOpenForId]);
 
-  function startRename(c: ConversationSummary) {
-    setRenamingId(c.id);
-    setRenameValue(c.title);
+  // Real backend persistence via the same renameConversation the old
+  // inline-edit path used (server-side ownership enforced in
+  // routes/conversations.ts) — only reflected in local state once the
+  // request actually succeeds, so a failed rename can never silently
+  // diverge from what the server has.
+  async function commitRename(c: ConversationSummary, trimmed: string) {
+    await renameConversation(c.id, trimmed);
+    setConversations((prev) => prev.map((x) => (x.id === c.id ? { ...x, title: trimmed, titleSource: "manual" } : x)));
   }
 
-  function cancelRename() {
-    setRenamingId(null);
-    setRenameValue("");
-  }
-
-  // Optimistic, reverted if the request fails — matches how delete already
-  // updates local state immediately below. Ownership is enforced
-  // server-side (PATCH /api/conversations/:id, see routes/conversations.ts);
-  // this is purely UI responsiveness, not the authorization boundary.
-  async function commitRename(c: ConversationSummary) {
-    const trimmed = renameValue.trim();
-    setRenamingId(null);
-    if (!trimmed || trimmed === c.title) return;
-
-    setConversations((prev) =>
-      prev.map((x) => (x.id === c.id ? { ...x, title: trimmed, titleSource: "manual" } : x))
-    );
-    try {
-      await renameConversation(c.id, trimmed);
-    } catch {
-      setConversations((prev) => prev.map((x) => (x.id === c.id ? { ...x, title: c.title } : x)));
-    }
+  // Same real backend call as before (DELETE /api/conversations/:id), but
+  // now gated behind an explicit confirmation dialog instead of firing the
+  // instant a trash icon is tapped, and only removed from local state once
+  // the server confirms the delete actually happened.
+  async function commitDelete(c: ConversationSummary) {
+    await deleteConversation(c.id);
+    setConversations((prev) => prev.filter((x) => x.id !== c.id));
+    if (c.id === activeConversationId) onNewChat();
   }
 
   async function handleFile(file: File) {
@@ -197,82 +221,102 @@ export function Sidebar({
       </button>
 
       <div className="flex-1 overflow-y-auto">
-        <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Chats</h3>
-        <ul className="space-y-0.5">
-          {conversations.map((c) =>
-            renamingId === c.id ? (
-              <li key={c.id} className="px-2.5 py-1">
-                <input
-                  ref={renameInputRef}
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void commitRename(c);
-                    } else if (e.key === "Escape") {
-                      e.preventDefault();
-                      cancelRename();
-                    }
-                  }}
-                  onBlur={() => void commitRename(c)}
-                  maxLength={200}
-                  className="w-full rounded-lg border border-brand-300 bg-white px-2 py-1.5 text-sm outline-none ring-2 ring-brand-500/20 dark:border-brand-400/50 dark:bg-neutral-900 dark:text-white"
-                  aria-label="Conversation title"
-                />
-              </li>
-            ) : (
-              <li key={c.id}>
-                <button
-                  onClick={() => onSelectConversation(c.id)}
-                  className={`group flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition ${
-                    c.id === activeConversationId
-                      ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200"
-                      : "text-neutral-700 hover:bg-neutral-200/60 dark:text-neutral-300 dark:hover:bg-white/5"
-                  }`}
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <MessageSquare size={14} className="shrink-0 opacity-60" />
-                    <span className="truncate">{c.title}</span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-0.5">
-                    <span
-                      role="button"
-                      tabIndex={0}
+        {conversations.length === 0 && (
+          <p className="px-2.5 py-3 text-xs text-neutral-400">No chats yet — say something!</p>
+        )}
+        {groupConversations(conversations).map((group) => (
+          <div key={group.label} className="mb-3">
+            <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+              {group.label}
+            </h3>
+            <ul className="space-y-0.5">
+              {group.items.map((c) => (
+                <li key={c.id} className="relative">
+                  {/* The row selector and the "..." trigger are SIBLINGS,
+                      not parent/child — a <button> can never validly
+                      contain another interactive element (invalid HTML,
+                      and confirmed via real touch-tap testing to make the
+                      inner control unreliable to activate). */}
+                  <div
+                    className={`flex w-full items-center gap-0.5 rounded-lg pl-0.5 pr-1 transition ${
+                      c.id === activeConversationId
+                        ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200"
+                        : "text-neutral-700 hover:bg-neutral-200/60 dark:text-neutral-300 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    <button
+                      onClick={() => onSelectConversation(c.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2 text-left text-sm"
+                    >
+                      <MessageSquare size={14} className="shrink-0 opacity-60" />
+                      <span className="truncate">{c.title}</span>
+                    </button>
+                    {/* Always visible (never hover-gated) — a hover-only
+                        trigger is unreachable on any touchscreen with no
+                        :hover, which is what the old pencil/trash icons
+                        were. 44px-tall tap target via fixed sizing. */}
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        startRename(c);
+                        setMenuOpenForId((prev) => (prev === c.id ? null : c.id));
                       }}
-                      className="rounded p-0.5 text-neutral-400 opacity-0 transition hover:text-brand-500 group-hover:opacity-100"
-                      aria-label={`Rename "${c.title}"`}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+                      aria-label={`More options for "${c.title}"`}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpenForId === c.id}
                     >
-                      <Pencil size={13} />
-                    </span>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        setConversations((prev) => prev.filter((x) => x.id !== c.id));
-                        await deleteConversation(c.id);
-                        if (c.id === activeConversationId) onNewChat();
-                      }}
-                      className="rounded p-0.5 text-neutral-400 opacity-0 transition hover:text-rose-500 group-hover:opacity-100"
-                      aria-label={`Delete "${c.title}"`}
+                      <MoreVertical size={15} />
+                    </button>
+                  </div>
+                  <span className="ml-2.5 block px-0.5 text-[10px] text-neutral-400">{relativeTime(c.updatedAt)}</span>
+
+                  {menuOpenForId === c.id && (
+                    <div
+                      role="menu"
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute right-1 top-9 z-10 w-40 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg motion-safe:animate-fade-in dark:border-white/10 dark:bg-neutral-900"
                     >
-                      <Trash2 size={13} />
-                    </span>
-                  </span>
-                </button>
-                <span className="ml-6 block px-0.5 text-[10px] text-neutral-400">{relativeTime(c.updatedAt)}</span>
-              </li>
-            )
-          )}
-          {conversations.length === 0 && (
-            <li className="px-2.5 py-3 text-xs text-neutral-400">No chats yet — say something!</li>
-          )}
-        </ul>
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpenForId(null);
+                          setRenameTarget(c);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-white/5"
+                      >
+                        <Pencil size={14} /> Rename
+                      </button>
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpenForId(null);
+                          setDeleteTarget(c);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                      >
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
+
+      <RenameDialog
+        open={renameTarget !== null}
+        initialValue={renameTarget?.title ?? ""}
+        onClose={() => setRenameTarget(null)}
+        onSave={(value) => commitRename(renameTarget!, value)}
+      />
+      <DeleteConversationDialog
+        open={deleteTarget !== null}
+        title={deleteTarget?.title ?? ""}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => commitDelete(deleteTarget!)}
+      />
 
       <div className="shrink-0 border-t border-neutral-200 pt-3 dark:border-white/10">
         <button

@@ -100,7 +100,7 @@ export function MainApp() {
       <div className="flex min-h-0 flex-1 w-screen overflow-hidden">
         {sidebarOpen && (
           <div
-            className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm md:hidden"
+            className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm motion-safe:animate-fade-in md:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -115,6 +115,7 @@ export function MainApp() {
         />
         <ChatWindow
           onOpenSidebar={() => setSidebarOpen(true)}
+          onNewChat={() => selectConversation(null)}
           conversationId={activeConversationId}
           onConversationChange={(id) => {
             setActiveConversationId(id);
