@@ -113,8 +113,12 @@ describe("agentGateway — audit trail (M9, real HTTP + real audit_log table)", 
       .expect(200);
 
     const { db } = await import("./db/index.js");
+    // Grouped and ordered by each correlationId's OWN first row — a correlationId is a random
+    // UUID, so sorting by its string value would not reflect real request order.
     const rows = db
-      .prepare("SELECT DISTINCT correlation_id FROM agent_audit_log WHERE external_user_id = ? ORDER BY correlation_id")
+      .prepare(
+        "SELECT correlation_id FROM agent_audit_log WHERE external_user_id = ? GROUP BY correlation_id ORDER BY MIN(rowid)"
+      )
       .all("arena-audit-user-2") as { correlation_id: string }[];
     // Two real HTTP requests through requireProductIdentity -> two distinct correlationIds.
     expect(rows).toHaveLength(2);
