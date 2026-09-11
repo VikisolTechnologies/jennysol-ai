@@ -240,4 +240,26 @@ describe("arena.applyToJob execution (M7)", () => {
       )
     ).rejects.toThrow("Only TALENT accounts may apply");
   });
+
+  // M8 (acceptance test F): the round-trip token this tool forwards must never end up embedded
+  // in a thrown Error's own message — that message is exactly the kind of string a caller further
+  // up the stack (e.g. app.ts's global error handler) can end up persisting to error_logs. Arena's
+  // own error message is untrusted content this connector already treats as data, never
+  // instructions (see the honesty note on searchJobs); this proves the token specifically can
+  // never ride along inside it either way.
+  it("a failure never leaks context.rawToken into the thrown error's own message", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ success: false, message: "Rejected" }),
+    });
+
+    const rawToken = "the-exact-service-token-must-not-leak";
+    try {
+      await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { jobId: "job-42" }, { rawToken });
+      throw new Error("expected tool().execute to throw");
+    } catch (err) {
+      expect(err instanceof Error ? err.message : String(err)).not.toContain(rawToken);
+    }
+  });
 });

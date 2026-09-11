@@ -55,6 +55,18 @@ describe("pendingActions (M7)", () => {
     expect(() => consumeAction(action.id, crossProduct)).toThrow(/does not belong to the requesting identity/);
   });
 
+  // M8 (product-scoped memory/context isolation): tenantId is a real, independent dimension of
+  // ProductIdentity (see productIdentity.ts) — this proves the same externalUserId string under a
+  // DIFFERENT tenant can never consume another tenant's pending action, closing a real gap this
+  // function had before M8 (it previously compared product+externalUserId only).
+  it("rejects consuming an action proposed by the same product+externalUserId but a DIFFERENT tenant", () => {
+    const tenantA = identity({ product: "acme", externalUserId: "user-1", tenantId: "tenant-A" });
+    const tenantB = identity({ product: "acme", externalUserId: "user-1", tenantId: "tenant-B" });
+    const action = proposeAction(tenantA, "acme.doSomething", {});
+
+    expect(() => consumeAction(action.id, tenantB)).toThrow(/does not belong to the requesting identity/);
+  });
+
   it("rejects consuming an action after it has expired", () => {
     vi.useFakeTimers();
     const proposer = identity();

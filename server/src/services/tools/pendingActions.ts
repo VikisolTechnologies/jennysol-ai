@@ -43,6 +43,14 @@ export function proposeAction(identity: ProductIdentity, toolName: string, args:
 // always fails rather than silently no-op'ing or executing the underlying tool a second time.
 // Also independently re-verifies the requester is the exact same identity that proposed it —
 // never trust that only the right person could have learned this id.
+//
+// M8: compares tenantId too, not just product+externalUserId. Arena's own externalUserId is a
+// globally-unique User.id UUID today, so this specific collision can't happen there in practice
+// — but ProductIdentity models tenantId as a real, independent dimension of identity (per
+// ADR-003), and this function's job is to enforce the identity contract as written, not to rely
+// on one product's current UUID-generation strategy happening to make the gap unreachable. A
+// future product (or connector bug) whose externalUserId is only unique *within* a tenant must
+// not be able to cross a tenant boundary just because this check forgot to look.
 export function consumeAction(actionId: string, requesterIdentity: ProductIdentity): PendingAction {
   const action = pending.get(actionId);
   if (!action) {
@@ -53,7 +61,11 @@ export function consumeAction(actionId: string, requesterIdentity: ProductIdenti
   if (Date.now() - action.createdAt > ACTION_TTL_MS) {
     throw new PendingActionError("This action has expired — ask again");
   }
-  if (action.identity.product !== requesterIdentity.product || action.identity.externalUserId !== requesterIdentity.externalUserId) {
+  if (
+    action.identity.product !== requesterIdentity.product ||
+    action.identity.externalUserId !== requesterIdentity.externalUserId ||
+    action.identity.tenantId !== requesterIdentity.tenantId
+  ) {
     throw new PendingActionError("This action does not belong to the requesting identity");
   }
   return action;
