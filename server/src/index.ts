@@ -52,6 +52,15 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const port = Number(process.env.PORT) || 8787;
-app.listen(port, () => {
-  console.log(`[jennysol] server listening on http://localhost:${port}`);
+// Defaults to every interface (0.0.0.0) — required on Railway, where the
+// platform's own edge proxy reaches this container over its internal
+// network, not literally 127.0.0.1. Set HOST=127.0.0.1 for a machine (this
+// Mac, eventually) fronted by a local reverse proxy/tunnel on the same
+// box — see JENNY_MAC_PRODUCTION_REQUIREMENTS.md for why that binding
+// matters there: found this session bound to every interface with no host
+// override and the OS firewall disabled, meaning the dev server was
+// reachable from any device on the same network, not just this machine.
+const host = process.env.HOST || "0.0.0.0";
+app.listen(port, host, () => {
+  console.log(`[jennysol] server listening on http://${host}:${port}`);
 });

@@ -4,6 +4,10 @@ import { requireAuth, requireAdmin } from "../middleware/auth.js";
 import { getAdminStats, listUsers, countUsers, getAdminUser, listConversationsForUser, getConversationForAdmin, conversationBelongsToUser } from "../services/adminStore.js";
 import { listRecentErrors, countRecentErrors } from "../services/errorLog.js";
 import { getCapabilityRegistry } from "../services/capabilityRegistry.js";
+import { getProviderRouteStatus } from "../services/modelRouter.js";
+import { getHealthSnapshot } from "../services/providerHealth.js";
+import { getHardwareSnapshot } from "../services/models/hardwareProfile.js";
+import { listInstalledOllamaModels } from "../services/providers/ollama.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);
@@ -19,6 +23,27 @@ adminRouter.get("/stats", (_req, res) => {
 // asserting no key value ever appears in this output.
 adminRouter.get("/config-health", (_req, res) => {
   res.json({ capabilities: getCapabilityRegistry() });
+});
+
+// Admin-only — per-provider circuit-breaker state (section 45's "provider
+// debugging panel"): which providers are in the active LLM_PROVIDER_CHAIN,
+// each one's live health/cooldown/failure-kind counters, the active
+// hardware profile driving local-model admission control, and (best-effort,
+// never blocking the response) which Ollama models are actually pulled on
+// this machine right now. Every field here is already secret-free by
+// construction — configured() only ever checks presence, getHealthSnapshot()
+// only ever holds counts/timestamps — so nothing here needs its own
+// redaction pass the way a raw env dump would.
+adminRouter.get("/provider-health", async (_req, res) => {
+  const providers = getProviderRouteStatus();
+  const health = getHealthSnapshot();
+  const hardware = getHardwareSnapshot();
+  const ollamaModels = await listInstalledOllamaModels().catch(() => []);
+  res.json({
+    providers: providers.map((p) => ({ ...p, health: health[p.name] ?? null })),
+    hardware,
+    ollamaModels,
+  });
 });
 
 const listQuerySchema = z.object({

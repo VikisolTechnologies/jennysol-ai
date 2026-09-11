@@ -92,6 +92,31 @@ export function hasAnyConfiguredProvider(): boolean {
   return resolveChain().some((e) => e.configured());
 }
 
+// Safe, secret-free summary of the router's live state — every entry in the
+// registry (not just the ones in the active chain), so an operator can see
+// *why* a provider isn't in rotation (never in the configured
+// LLM_PROVIDER_CHAIN at all, vs. configured but currently unhealthy). Feeds
+// routes/admin.ts's provider-health endpoint; never exposes a key value,
+// only booleans/names/counts already safe by construction (configured() and
+// getHealthSnapshot() never touch the key's actual value).
+export interface ProviderRouteStatus {
+  name: string;
+  inActiveChain: boolean;
+  configured: boolean;
+  usable: boolean;
+}
+
+export function getProviderRouteStatus(): ProviderRouteStatus[] {
+  const chain = resolveChain();
+  const chainNames = new Set(chain.map((e) => e.name));
+  return REGISTRY.map((e) => ({
+    name: e.name,
+    inActiveChain: chainNames.has(e.name),
+    configured: e.configured(),
+    usable: usable(e),
+  }));
+}
+
 export class AllProvidersUnavailableError extends Error {
   constructor(public attempts: { name: string; reason: string }[]) {
     super("All configured AI providers are currently unavailable");

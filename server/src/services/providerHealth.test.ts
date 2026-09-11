@@ -59,6 +59,19 @@ describe("providerHealth circuit breaker", () => {
     expect(isHealthy("deepseek")).toBe(false); // but not past the auth one
   });
 
+  it("trips on a single quota failure, not three", () => {
+    recordFailure("gemini", "quota");
+    expect(isHealthy("gemini")).toBe(false);
+  });
+
+  it("keeps a quota failure cooled down well past the transient window but recovers before an hour", () => {
+    recordFailure("gemini", "quota");
+    vi.advanceTimersByTime(30_001); // past the transient (503-style) cooldown
+    expect(isHealthy("gemini")).toBe(false);
+    vi.advanceTimersByTime(5 * 60 * 1000); // past the 5-minute quota cooldown
+    expect(isHealthy("gemini")).toBe(true);
+  });
+
   it("tracks providers independently", () => {
     recordFailure("gemini", "503");
     recordFailure("gemini", "503");

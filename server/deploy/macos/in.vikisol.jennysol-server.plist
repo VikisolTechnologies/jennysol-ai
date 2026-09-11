@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	JennySol server as a macOS LaunchAgent — runs the real production build
+	(`npm run build && npm run start`, i.e. `node dist/index.js`), not
+	`npm run dev`, per JENNY_MAC_PRODUCTION_REQUIREMENTS.md.
+
+	No API keys or other secrets live in this file. The server loads them
+	from server/.env via `dotenv/config` exactly the same way it does when
+	started by hand — this file only sets WorkingDirectory so that lookup
+	resolves to the right .env, and does not duplicate or embed any secret
+	material itself.
+
+	A LaunchAgent runs once a user is logged in (RunAtLoad), not before
+	login the way a LaunchDaemon would — see the "Reboot / login required"
+	caveat in JENNY_MAC_PRODUCTION_REQUIREMENTS.md. That tradeoff is
+	deliberate for a personal development Mac: a LaunchDaemon would need to
+	run as root and has real restrictions on user-level things this app may
+	eventually want (Keychain access, GUI-adjacent APIs) that a LaunchAgent
+	doesn't.
+	-->
+	<key>Label</key>
+	<string>in.vikisol.jennysol-server</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homebrew/opt/node@22/bin/node</string>
+		<string>dist/index.js</string>
+	</array>
+
+	<key>WorkingDirectory</key>
+	<string>/Users/jenniferisrael/Developer/jennysol-ai/server</string>
+
+	<!-- Restart after failure or crash. -->
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+
+	<!-- Start once this user logs in / the agent is loaded — see the
+	     LaunchAgent-vs-LaunchDaemon note above for what this does and does
+	     not guarantee across a full machine reboot. -->
+	<key>RunAtLoad</key>
+	<true/>
+
+	<!-- Cheap crash-loop guard: if it exits within 10s of starting, wait
+	     10s before the next attempt instead of spinning immediately. -->
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+
+	<key>StandardOutPath</key>
+	<string>/Users/jenniferisrael/Developer/jennysol-ai/server/logs/server.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/jenniferisrael/Developer/jennysol-ai/server/logs/server.err.log</string>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>NODE_ENV</key>
+		<string>production</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/opt/node@22/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<!-- Localhost-only — see JENNY_MAC_PRODUCTION_REQUIREMENTS.md's
+		     firewall/exposure finding. Only a local reverse proxy/tunnel on
+		     this same machine should ever reach this port; nothing on the
+		     LAN should. -->
+		<key>HOST</key>
+		<string>127.0.0.1</string>
+	</dict>
+</dict>
+</plist>

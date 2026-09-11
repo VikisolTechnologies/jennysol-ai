@@ -51,6 +51,18 @@ const TRANSIENT_COOLDOWN_MS = 30_000;
 // rotation before automatically getting one more chance; the real fix is
 // still someone updating the env var and redeploying.
 const AUTH_COOLDOWN_MS = 60 * 60 * 1000;
+// A quota failure (classifyError's "quota" kind — Gemini's own
+// RESOURCE_EXHAUSTED, not a short rate-limit window) is a different failure
+// shape from a 503 blip: it won't clear in 30 seconds, but unlike auth it
+// isn't a config problem someone has to go fix either — provider-side quota
+// windows commonly reset within a few minutes. Found live in this
+// production service's own logs (real requests genuinely hitting
+// RESOURCE_EXHAUSTED under real load) while every quota failure was still
+// only earning the same 30s transient cooldown as a plain 503 — meaning the
+// router would keep re-trying an exhausted provider every 30s for no
+// benefit. 5 minutes: long enough not to hammer a still-exhausted quota
+// window, short enough to recover well within a typical quota reset period.
+const QUOTA_COOLDOWN_MS = 5 * 60 * 1000;
 
 function getStats(name: string): ProviderStats {
   let s = stats.get(name);
@@ -91,6 +103,10 @@ export function recordFailure(name: string, kind: ErrorKind): void {
 
   if (kind === "auth") {
     s.cooldownUntil = Date.now() + AUTH_COOLDOWN_MS;
+    return;
+  }
+  if (kind === "quota") {
+    s.cooldownUntil = Date.now() + QUOTA_COOLDOWN_MS;
     return;
   }
   if (s.consecutiveFailures >= CONSECUTIVE_FAILURES_TO_TRIP) {

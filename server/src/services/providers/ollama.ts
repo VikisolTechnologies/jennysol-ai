@@ -118,4 +118,29 @@ export function isOllamaAvailable(): boolean {
   return available ?? false;
 }
 
-void checkNow(); // kick off an initial check at module load
+// The module-load probe below is fire-and-forget for the router's own sake
+// (a live chat request must never block on it), but that means a
+// short-lived process — models-cli.ts's `health`/`benchmark` commands, or
+// any test calling isOllamaAvailable() synchronously right after import —
+// reliably observes `available === null` (-> reported as unreachable) even
+// when Ollama is genuinely running, simply because the process asks before
+// the in-flight fetch above has had a chance to resolve. Confirmed live:
+// `npm run models -- health` reported "reachable: false" against an Ollama
+// instance that `curl 127.0.0.1:11434/api/version` answered correctly in
+// the same second. This awaits that *same* initial probe (never starts a
+// second one) so a diagnostic command gets a real answer instead of a false
+// negative, without changing isOllamaAvailable()'s non-blocking contract
+// for the router's hot path at all.
+export async function ensureOllamaChecked(): Promise<boolean> {
+  await initialCheck;
+  return isOllamaAvailable();
+}
+
+// lastCheckedAt is set here too (not just inside isOllamaAvailable()) —
+// found via this file's own test: without it, lastCheckedAt stays 0 until
+// isOllamaAvailable() itself first runs, so that very first call always saw
+// "no check within RECHECK_INTERVAL_MS" and fired a second, redundant
+// fetch on top of this module-load one, even though the answer it needed
+// was already in flight.
+lastCheckedAt = Date.now();
+const initialCheck = checkNow(); // kick off an initial check at module load

@@ -3,7 +3,7 @@ import "dotenv/config";
 import { MODEL_REGISTRY, fitsHardware } from "../src/services/models/modelRegistry.js";
 import { getHardwareSnapshot } from "../src/services/models/hardwareProfile.js";
 import {
-  isOllamaAvailable,
+  ensureOllamaChecked,
   listInstalledOllamaModels,
   isModelInstalled,
   ollamaProvider,
@@ -48,7 +48,11 @@ async function cmdHealth() {
   console.log(`deepseek: configured=${!!process.env.DEEPSEEK_API_KEY}`);
 
   console.log("\n--- Local (Ollama) ---");
-  const reachable = isOllamaAvailable();
+  // This is a short-lived process, not the long-running server — await the
+  // real probe instead of isOllamaAvailable()'s non-blocking snapshot,
+  // which would otherwise always report false here (see ollama.ts's
+  // ensureOllamaChecked doc comment for why).
+  const reachable = await ensureOllamaChecked();
   console.log(`reachable at ${process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"}: ${reachable}`);
   if (reachable) {
     try {
@@ -149,7 +153,7 @@ async function cmdBenchmark() {
     results.push({ provider: "deepseek", ok: false, error: "not configured (DEEPSEEK_API_KEY unset)" });
   }
 
-  if (isOllamaAvailable()) {
+  if (await ensureOllamaChecked()) {
     await bench("ollama", (onDelta) =>
       ollamaProvider.streamChatCompletion("Answer briefly.", [{ role: "user", content: PROMPT }], onDelta)
     );

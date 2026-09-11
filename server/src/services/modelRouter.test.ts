@@ -10,7 +10,7 @@ vi.mock("./providers/ollama.js", () => ({
 import { geminiProvider } from "./providers/gemini.js";
 import { deepseekProvider } from "./providers/deepseek.js";
 import { isOllamaAvailable } from "./providers/ollama.js";
-import { routeChatCompletion, hasAnyConfiguredProvider, AllProvidersUnavailableError } from "./modelRouter.js";
+import { routeChatCompletion, hasAnyConfiguredProvider, getProviderRouteStatus, AllProvidersUnavailableError } from "./modelRouter.js";
 import { __resetHealthForTests, recordFailure } from "./providerHealth.js";
 
 function errWithStatus(status: number, message = "err"): Error & { status: number } {
@@ -524,5 +524,52 @@ describe("hasAnyConfiguredProvider", () => {
   it("is true as soon as any one provider is configured", () => {
     process.env.GEMINI_API_KEY = "key";
     expect(hasAnyConfiguredProvider()).toBe(true);
+  });
+});
+
+// Admin-only diagnostics (routes/admin.ts's /provider-health) reads this
+// directly — real regression coverage for exactly the shape that endpoint
+// exposes, including that a provider outside the active chain is still
+// reported (not silently dropped) so an operator can see *why* it's unused.
+describe("getProviderRouteStatus", () => {
+  beforeEach(() => {
+    __resetHealthForTests();
+    process.env = { ...originalEnv };
+    delete process.env.LLM_PROVIDER_CHAIN;
+    delete process.env.LLM_PROVIDER;
+    delete process.env.DEEPSEEK_API_KEY;
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it("reports every registered provider, not just the ones in the active chain", () => {
+    const status = getProviderRouteStatus();
+    expect(status.map((s) => s.name).sort()).toEqual(["deepseek", "gemini", "ollama"]);
+  });
+
+  it("marks only the default chain's entries as in the active chain", () => {
+    const status = getProviderRouteStatus();
+    const byName = Object.fromEntries(status.map((s) => [s.name, s]));
+    expect(byName.gemini.inActiveChain).toBe(true);
+    // Default chain (no LLM_PROVIDER_CHAIN, DEPLOYMENT_MODE!=local) is just ["gemini"].
+    expect(byName.deepseek.inActiveChain).toBe(false);
+    expect(byName.ollama.inActiveChain).toBe(false);
+  });
+
+  it("reflects configured vs. usable independently (a configured-but-unhealthy provider)", () => {
+    recordFailure("gemini", "auth");
+    const status = getProviderRouteStatus();
+    const gemini = status.find((s) => s.name === "gemini")!;
+    expect(gemini.configured).toBe(true);
+    expect(gemini.usable).toBe(false);
+  });
+
+  it("respects an explicit LLM_PROVIDER_CHAIN", () => {
+    process.env.LLM_PROVIDER_CHAIN = "ollama,gemini";
+    const status = getProviderRouteStatus();
+    const byName = Object.fromEntries(status.map((s) => [s.name, s]));
+    expect(byName.ollama.inActiveChain).toBe(true);
+    expect(byName.gemini.inActiveChain).toBe(true);
+    expect(byName.deepseek.inActiveChain).toBe(false);
   });
 });
