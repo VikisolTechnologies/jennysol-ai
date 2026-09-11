@@ -24,6 +24,31 @@ export default {
           900: "#3c1786",
           950: "#240a5c",
         },
+        // The "JennySol Aurora" system — used by the public marketing/landing
+        // page (see pages/Landing.tsx) and legal pages. Deliberately additive
+        // alongside `brand` above rather than replacing it: `brand` is load-
+        // bearing throughout the existing authenticated app (Sidebar,
+        // MainApp, GuestLimitModal, JennySolIntro) and changing it there
+        // wasn't part of this task's scope.
+        aurora: {
+          bg: "#070A12",
+          surface: "#0D111C",
+          elevated: "#121827",
+          blue: "#3B82F6",
+          indigo: "#6366F1",
+          purple: "#8B5CF6",
+          violet: "#A855F7",
+          cyan: "#22D3EE",
+          lavender: "#C4B5FD",
+          text: "#F8FAFC",
+          "text-secondary": "#A7B0C0",
+          "text-muted": "#667085",
+          border: "#20283A",
+          success: "#34D399",
+          warning: "#FBBF24",
+          error: "#F87171",
+          info: "#60A5FA",
+        },
       },
       animation: {
         "fade-in": "fade-in 0.35s ease-out",
@@ -47,6 +72,16 @@ export default {
         "intro-tagline-in": "intro-tagline-in 0.8s ease-out 3.3s forwards",
         "intro-exit": "intro-exit 0.85s cubic-bezier(0.6, 0, 0.85, 0.35) forwards",
         "intro-exit-reduced": "intro-exit-reduced 0.3s ease-in forwards",
+        // --- Landing page hero orb (see pages/Landing.tsx) ---
+        // Deliberately slow (20s+) and linear — a continuous, ambient
+        // rotation meant to sit in peripheral vision, not draw the eye the
+        // way the post-auth intro's faster portal-spin does. Pure CSS
+        // transform, no JS/rAF/React state involved.
+        "aurora-ring-spin": "aurora-ring-spin 24s linear infinite",
+        "aurora-ring-spin-reverse": "aurora-ring-spin 32s linear infinite reverse",
+        "aurora-core-spin": "aurora-core-spin 18s linear infinite",
+        "aurora-drift": "aurora-drift 9s ease-in-out infinite",
+        "aurora-fade-up": "aurora-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards",
       },
       keyframes: {
         "fade-in": {
@@ -154,10 +189,30 @@ export default {
           "0%": { opacity: 1 },
           "100%": { opacity: 0 },
         },
+        "aurora-ring-spin": {
+          "0%": { transform: "rotate(0deg)" },
+          "100%": { transform: "rotate(360deg)" },
+        },
+        "aurora-core-spin": {
+          "0%": { transform: "rotate(0deg) scale(1)" },
+          "50%": { transform: "rotate(180deg) scale(1.03)" },
+          "100%": { transform: "rotate(360deg) scale(1)" },
+        },
+        "aurora-drift": {
+          "0%, 100%": { transform: "translate(0, 0)", opacity: 0.5 },
+          "50%": { transform: "translate(6px, -8px)", opacity: 1 },
+        },
+        "aurora-fade-up": {
+          "0%": { opacity: 0, transform: "translateY(14px)" },
+          "100%": { opacity: 1, transform: "translateY(0)" },
+        },
       },
       backgroundImage: {
         "brand-gradient": "linear-gradient(135deg, #7645ff 0%, #a855f7 50%, #ec4899 100%)",
         "brand-gradient-soft": "linear-gradient(135deg, #7645ff15 0%, #a855f715 50%, #ec489915 100%)",
+        // The signature JennySol Aurora gradient and its button variant.
+        "aurora-gradient": "linear-gradient(135deg, #3B82F6 0%, #6366F1 35%, #8B5CF6 70%, #A855F7 100%)",
+        "aurora-button-gradient": "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
       },
     },
   },

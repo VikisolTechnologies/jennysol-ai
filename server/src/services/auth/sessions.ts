@@ -133,7 +133,10 @@ export interface SessionSummary {
   lastUsedAt: string;
 }
 
-function fingerprint(token: string): string {
+// Exported so routes/auth.ts can tell whether a fingerprint the client
+// wants to revoke is THIS request's own current session, without ever
+// needing to reverse a fingerprint back into a token itself.
+export function fingerprint(token: string): string {
   return createHash("sha256").update(token).digest("hex").slice(0, 12);
 }
 
@@ -145,4 +148,20 @@ export function listSessionsForUser(userId: string): SessionSummary[] {
     )
     .all(userId) as { id: string; userAgent: string | null; createdAt: string; lastUsedAt: string }[];
   return rows.map(({ id, ...rest }) => ({ fingerprint: fingerprint(id), ...rest }));
+}
+
+// Revoking one specific session from the list (e.g. "sign out that old
+// phone") needs to go from the fingerprint shown in the UI back to the real
+// session id to delete — but the fingerprint is a deliberate one-way hash
+// (see SessionSummary above), so there's no column to look it up by
+// directly. Scoped to `userId` first (never scans another user's sessions)
+// and only that user's real ids are ever hashed for the comparison — the
+// raw token never leaves this function or gets compared to anything
+// client-supplied.
+export function deleteSessionByFingerprint(userId: string, targetFingerprint: string): boolean {
+  const rows = db.prepare("SELECT id FROM sessions WHERE user_id = ?").all(userId) as { id: string }[];
+  const match = rows.find((r) => fingerprint(r.id) === targetFingerprint);
+  if (!match) return false;
+  db.prepare("DELETE FROM sessions WHERE id = ?").run(match.id);
+  return true;
 }

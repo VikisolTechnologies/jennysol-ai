@@ -7,6 +7,55 @@
      window.visualViewport height — this default only covers the instant
      before that effect first runs. */
   --app-vh: 100dvh;
+
+  /* JennySol Aurora design tokens — used by the public landing/legal pages
+     (pages/Landing.tsx, Privacy.tsx, Terms.tsx) via arbitrary Tailwind
+     values, e.g. bg-[var(--aurora-bg)]. CSS custom properties (rather than
+     static Tailwind color utilities) so the same class names produce the
+     correct palette under both themes, driven by the existing `.dark` class
+     toggle (see useTheme.ts) — no separate light/dark component variants
+     needed. Light values here are the defaults; dark values below override
+     them. Success/warning/error/info were only specified for the dark
+     palette in the design brief — the light equivalents below are chosen
+     for equivalent readability on a white surface, not given values.
+  */
+  --aurora-bg: #f8fafc;
+  --aurora-surface: #ffffff;
+  --aurora-elevated: #f1f5f9;
+  --aurora-blue: #2563eb;
+  --aurora-indigo: #4f46e5;
+  --aurora-purple: #7c3aed;
+  --aurora-violet: #7c3aed;
+  --aurora-cyan: #0891b2;
+  --aurora-lavender: #6d28d9;
+  --aurora-text: #0f172a;
+  --aurora-text-secondary: #475569;
+  --aurora-text-muted: #64748b;
+  --aurora-border: #e2e8f0;
+  --aurora-success: #059669;
+  --aurora-warning: #d97706;
+  --aurora-error: #dc2626;
+  --aurora-info: #2563eb;
+}
+
+.dark {
+  --aurora-bg: #070a12;
+  --aurora-surface: #0d111c;
+  --aurora-elevated: #121827;
+  --aurora-blue: #3b82f6;
+  --aurora-indigo: #6366f1;
+  --aurora-purple: #8b5cf6;
+  --aurora-violet: #a855f7;
+  --aurora-cyan: #22d3ee;
+  --aurora-lavender: #c4b5fd;
+  --aurora-text: #f8fafc;
+  --aurora-text-secondary: #a7b0c0;
+  --aurora-text-muted: #667085;
+  --aurora-border: #20283a;
+  --aurora-success: #34d399;
+  --aurora-warning: #fbbf24;
+  --aurora-error: #f87171;
+  --aurora-info: #60a5fa;
 }
 
 html,
