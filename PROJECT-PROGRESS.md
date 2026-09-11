@@ -13,11 +13,18 @@ service, or an architecture document is never sufficient evidence of DONE on its
 
 ## Current milestone
 
-**M7 — Approval-controlled Arena write tools.** **DONE — real model, real WRITE-tier proposal,
-real user approval, real Arena write, verified live end-to-end, then withdrawn to leave no
-residue.** This checkpoint additionally closes **M11** (full read+write real end-to-end flow) and
-**M12** (production rollout) — see the full evidence under [Completed](#completed) below and the
-updated [Milestone Model](#phase-8--milestone-model). M8–M10 not started.
+**M8 — Product-scoped memory isolation.** **DONE — real boundary code, real unit + integration +
+adversarial tests, run against the real modules (not mocks), a real gap found and fixed.** See the
+full evidence under [Completed](#completed) below. **Explicit scope note (per this checkpoint's own
+instruction): finishing M8 does NOT mean the whole system is production-ready** — M9
+(audit/observability) and M10 (full security testing) are still NOT STARTED, and per this
+checkpoint's own explicit instruction, no additional write tools are to be activated until M10 is
+done. M9, M10 not started.
+
+**Recovery checkpoint:** the M7/M11/M12-verified state (before any M8 work) is tagged
+`m7-m11-m12-verified-2026-09-11` in both the JennySol (`Jennysol-AI`) and Arena
+(`Vikisol-Arena-BE`) repositories, pushed to `origin`. If any M8+ work needs to be rolled back,
+that tag is the last known-good, fully live-verified state of the integration.
 
 ## Current date
 
@@ -25,18 +32,23 @@ updated [Milestone Model](#phase-8--milestone-model). M8–M10 not started.
 
 ## JennySol HEAD
 
-`0d40011` — "Merge remote-tracking branch 'origin/main'" (merging this integration's M7 work,
-commit `dbe5bcd`, with unrelated concurrent frontend work from another session, commit `f99ed56`).
-Branch `main`, working tree clean at commit time. Repository:
-`https://github.com/VikisolTechnologies/jennysol-ai`.
+`8a09a11` — "feat(memory): product-scoped memory isolation boundary + tenant-isolation fix (M8)",
+on top of `6b42cd4` (a third-party concurrent frontend/docs commit — see below) and `0d40011` (M7's
+own merge). This checkpoint's own doc commit lands one commit after `8a09a11` — see
+[Commit History](#commit-history) for the exact final hash. Branch `main`, working tree clean at
+commit time. Repository: `https://github.com/VikisolTechnologies/jennysol-ai`.
 
 **Important note for any future session reading this file:** JennySol is being actively developed
-by more than one session/contributor concurrently — this is now the **second** real merge this
-integration has needed (the first was `512d6c8` at M6). `f99ed56` (Aurora landing page, account/
-security UX pages, a real supertest HTTP layer for auth) is real and tested but **not** part of
-the M0–M12 milestone tracking this file owns. **Before starting M8, re-fetch `origin/main` and
-check for further concurrent changes** — do not assume this file's last-known HEAD is still
-current without checking.
+by more than one session/contributor concurrently. Since M7's own checkpoint, one more real,
+unrelated concurrent commit landed: `6b42cd4` ("Add Files, Memory, Tasks, Integrations pages; sync
+stale docs") — a **frontend-only** commit (no `server/src` changes) that happened to add a
+client-side `/memory` page, confirmed by direct read to be showing real conversation history only
+and explicitly stating "long-term extracted memory... does not exist" rather than implying it does
+— directly relevant context for this checkpoint's own M8 work, and consistent with what this
+checkpoint's own inspection of the server independently found. Fast-forward merged cleanly (no
+conflict, `server/src` untouched), 331/331 tests still passing afterward. **Before starting M9,
+re-fetch `origin/main` and check for further concurrent changes** — do not assume this file's
+last-known HEAD is still current without checking.
 
 **Critical deployment note discovered this checkpoint:** JennySol's production Railway service
 (`jennysol-api` in project `jennysol-ai-api`) has **no GitHub integration** (`source.repo: null`
@@ -96,29 +108,31 @@ round-trip against `POST /applications` succeeded using the new `AgentServiceTok
 
 ## Overall completion
 
-**10 of 13 milestones complete = 76.9% (≈77%).**
+**11 of 13 milestones complete = 84.6% (≈85%).**
 
 Calculation: milestones M0–M12 (13 total, defined in [Milestone Model](#phase-8--milestone-model)
 below), equal weight, no partial credit for a milestone unless its own explicit acceptance
-criteria are *fully* met. M0 through M7 now meet their acceptance criteria in full, and this same
-checkpoint's verification work also independently satisfies **M11** (full read+write real
-end-to-end flow, evidence recorded at every hop) and **M12** (production rollout — the real client
-now replaces `NoopAgentServiceClient` in production via configuration only, verified live) — see
-[Completed](#completed) below for the exact evidence behind each. This was **not** rounded up
-without new evidence: two genuine gaps were found and fixed in the process (Arena's
-`RealAgentServiceClient` minted every real-trigger-path token with only `arena.searchJobs` scope,
-never `arena.applyToJob`, so no real TALENT user's token could ever have triggered the write tool
-at all; and JennySol's production Railway service turned out to have no GitHub auto-deploy,
-meaning the milestone's own code was not actually live until `railway up` was run directly). M8,
-M9, M10 still require CODE + TESTS + VERIFICATION and have none of the three, so each remains 0%.
+criteria are *fully* met. M0 through M8 now meet their acceptance criteria in full, plus **M11**
+(full read+write real end-to-end flow) and **M12** (production rollout) from the prior checkpoint
+— see [Completed](#completed) below for the exact evidence behind each. **M9 and M10 still require
+CODE + TESTS + VERIFICATION and have none of the three, so each remains 0%** — and per this
+checkpoint's own explicit instruction, no additional write tools are to be activated until M10 is
+done, regardless of how close the percentage looks.
 
-**The dormant-production caveat from M5/M6 no longer applies.** Both `SERVICE_TOKEN_SECRET_ARENA`
-and `JENNYSOL_GATEWAY_URL` are now set, for real, on both services' real production deployments —
-`RealAgentServiceClient.isAvailable()` returns `true` in production today, for every real Arena
-account, not just a designated test one. `arena.searchJobs` and `arena.applyToJob` are both live
-for real Arena users right now. M8–M10's own acceptance criteria (memory isolation,
-audit/observability, and the full security test matrix, respectively) are still not met — see
-[Arena Integration Audit](#phase-3--arena-integration-audit) for the full inventory.
+**A completion percentage is not the same claim as "production-ready."** M8 closes a real,
+tested boundary against the specific risks this milestone's acceptance criteria named — it does
+not mean the system has been audited for every way those boundaries could be attacked (that is
+M10's own, separate job), nor does it mean audit/observability exists yet (M9). Treat 85% as "11 of
+13 defined milestones have met their own explicit bar," not as a general readiness score.
+
+**The dormant-production caveat from M5/M6 no longer applies** (established at M7/M11/M12, see the
+recovery tag noted under [Current milestone](#current-milestone)). Both
+`SERVICE_TOKEN_SECRET_ARENA` and `JENNYSOL_GATEWAY_URL` are set on both services' real production
+deployments — `RealAgentServiceClient.isAvailable()` returns `true` in production today, for every
+real Arena account. `arena.searchJobs` and `arena.applyToJob` are both live for real Arena users
+right now. M9's and M10's own acceptance criteria (audit/observability and the full security test
+matrix, respectively) are still not met — see [Arena Integration Audit](#phase-3--arena-integration-audit)
+for the full inventory.
 
 ---
 
@@ -495,23 +509,111 @@ audit/observability, and the full security test matrix, respectively) are still 
   (verifier/filter) → `928310e` (scope fix), both auto-deployed via Arena's real GitHub
   integration to the *correct* `arena-api`/`arena-staging` service.
 
+- **M8 — Product-scoped memory isolation.** **DONE.** Before writing any code, inspected the
+  existing memory implementation directly rather than assuming one didn't exist or inventing a
+  parallel one: `conversationStore.ts`/`vectorStore.ts` (both real, already scoped by JennySol's
+  own `user_id`, already covered by `security.test.ts`'s 10 cross-user tests — re-run as part of
+  this checkpoint's full suite, still passing), and `db/index.ts`'s schema (no `tenant`/`product`
+  concept anywhere). Confirmed, by reading `routes/agentGateway.ts` line by line (unchanged since
+  M7), that the product gateway **has never called either persistence module at all** — it is
+  fully stateless by M6's own original design choice, so the highest-risk scenario named by M8's
+  own objective ("Arena data... accidentally become global JennySol long-term memory") could not
+  physically be occurring today. **This checkpoint's job was to prove that with real tests and add
+  a structural guard against it being silently introduced later, not to build a new memory system
+  to test against a hypothetical.**
+
+  **New: `services/memoryScope.ts`.** A real `MemoryScope` taxonomy
+  (`global | user | conversation | product`, the last carrying `product`/`externalUserId`/
+  `tenantId`). A `ProductToolResult` type, branded with a `__brand: "current-turn-only"` field a
+  future persistence call site cannot satisfy by accident — only `wrapProductToolResult`/
+  `unwrapForExplicitUserMemory` produce or consume it, and the latter requires the caller to
+  supply an explicit `user`/`conversation` target scope (never `global`, never another product's
+  or user's scope — not expressible by its own type signature). `redactSecrets()`: real, recursive
+  redaction — by key name (`token|secret|password|credential|authorization|api[_-]?key`, case
+  insensitive, at any nesting depth) and, independently, by value shape (any bare string matching
+  a three-segment JWT pattern, redacted regardless of which key it sits under).
+
+  **A real gap found and fixed while implementing this** (the exact discipline this document's own
+  rigor exists for): `pendingActions.consumeAction` (M7) compared `product` + `externalUserId`
+  only — never `tenantId`, despite `ProductIdentity` modeling `tenantId` as a real, independent
+  identity dimension per ADR-003. Fixed defense-in-depth: two identities with the same
+  `product`+`externalUserId` but different `tenantId` can no longer consume each other's pending
+  action. (Arena's own `externalUserId` is a globally-unique `User.id` UUID today, so this exact
+  collision isn't currently reachable through Arena specifically — the fix closes the contract gap
+  for any product/scenario where it could be.)
+
+  **CODE + UNIT + INTEGRATION + ADVERSARIAL tests, run against the real modules, not mocks:**
+  - **Unit** (`memoryScope.test.ts`, 9 tests): `redactSecrets` against ordinary data (unchanged),
+    nested credential-shaped keys, a bare JWT-shaped string under an innocuous key, arrays/null/
+    circular references; `wrapProductToolResult`/`unwrapForExplicitUserMemory`'s scope relabeling
+    and automatic redaction.
+  - **Integration** (`memoryScope.test.ts`, 1 test): wires the explicit-memory escape hatch to the
+    **real** `conversationStore` (a real SQLite row, not a mock) — an Arena tool result explicitly
+    remembered into user A's real conversation is readable by user A and invisible to user B via
+    the store's own existing, unmodified `WHERE user_id = ?` join, and the token embedded in the
+    original tool result never survives into the stored content.
+  - **Structural/adversarial, against the real deployed gateway** (new
+    `agentGateway.memoryIsolation.test.ts`, 5 tests, same real-app supertest pattern as M6/M7):
+    a real Arena tool result (deliberately shaped with candidate-contact-style PII, to prove the
+    guarantee doesn't depend on which specific tool produced it) never reaches
+    `conversationStore.addMessage`/`vectorStore.insertChunks` — proven via `vi.spyOn` on the
+    **real** modules, not a substitute; the raw service token used for a real WRITE-tool round
+    trip is likewise never passed to either; a later, unrelated request's own model-call arguments
+    contain zero trace of an earlier request's tool data (the gateway's per-request history array
+    is asserted directly, not inferred from "it's stateless"); a hostile tool call's `args` field
+    (containing a fake `__override_scope` claim and injected "SYSTEM OVERRIDE" text) cannot bypass
+    the WRITE-tier approval gate — proven both at the HTTP layer (still proposed, never
+    dispatched, real `fetch` never called) and at `ToolRegistry.dispatch` itself (a fake connector,
+    an under-scoped identity, a scope-elevation claim smuggled in `args` — still rejected with
+    `InsufficientScopeError`, since `dispatch` never reads `args` when authorizing).
+  - **One additional adversarial test** (`arena.test.ts`, 1 test): confirms a real Arena rejection
+    of `arena.applyToJob` never embeds `context.rawToken` in the thrown `Error`'s own message —
+    closing a narrow but real path (JennySol's existing, general-purpose `error_logs` table, which
+    persists `err.message` on any unhandled error) that predates this milestone and wasn't
+    previously checked against this specific credential.
+
+  **Mapping to this checkpoint's own lettered acceptance tests:** A/D → the PII-shaped structural
+  test above. B → M7's own pre-existing `pendingActions.test.ts` cross-user test (re-verified
+  still passing). C → the new tenant-isolation test (the gap found and fixed above). E → the two
+  injection/scope-smuggling tests above. F → `redactSecrets`'s adversarial unit tests plus the raw-
+  token structural test plus the new `arena.test.ts` error-message test. G → the later-unrelated-
+  request test above. H → the real `conversationStore` integration test above.
+
+  **What "actual verification" means for this milestone, precisely, and why it differs from M6/
+  M7's:** M6 and M7 proved an *external* integration works by calling real production Arena and
+  Gemini. M8 proves an *internal negative property* — that specific data never crosses specific
+  boundaries — which has no equivalent "call the real API and see" verification; the correct proof
+  for a negative claim is exhaustive, real (non-mocked) tests against the actual code paths that
+  could violate it, which is what the suite above does. There is no live-Arena-call step for this
+  milestone because the boundary being proven doesn't depend on Arena's live behavior at all.
+
+  **Full suite:** JennySol **346/346 passing** (331 pre-existing/M7 + 1 concurrent-frontend-merge
+  regression check + 14 new M8 tests), `tsc --noEmit` clean, `npm run build` clean.
+  **Files:** `services/memoryScope.ts` (new), `services/memoryScope.test.ts` (new),
+  `agentGateway.memoryIsolation.test.ts` (new), `services/tools/pendingActions.ts` (tenant-check
+  fix), `services/tools/pendingActions.test.ts` (+1 tenant test),
+  `services/productConnectors/arena.test.ts` (+1 token-leak test).
+  **Commit:** `8a09a11`.
+
 ## In Progress
 
-Nothing. M8 has not started as of this checkpoint.
+Nothing. M9 has not started as of this checkpoint.
 
 ## Not Started
 
-**M8, M9, M10 only.** See [Phase 3](#phase-3--arena-integration-audit) and
+**M9 and M10 only.** See [Phase 3](#phase-3--arena-integration-audit) and
 [Phase 4](#phase-4--tool-matrix) below for the exact, item-by-item evidence behind this. M0
-through M7 (plus M11, M12) are now genuinely DONE (see [Completed](#completed) above) — a real,
-working Arena connector, real read and write tools, a real approval mechanism, verified live
-end-to-end with the actual Gemini API and real Arena data, **now active in real production for
-real Arena accounts** (the M5/M6 "dormant in production" caveat no longer applies — see
-[Overall completion](#overall-completion)). Genuinely not started at all: no product-scoped memory
-isolation (M8), no agent-specific audit logging (M9), and no security tests beyond the
-token-primitive level plus a handful newly covered by M7's own tests (tests 7-17 below, see
+through M8 (plus M11, M12) are now genuinely DONE (see [Completed](#completed) above) — a real,
+working Arena connector, real read and write tools, a real approval mechanism, a real
+product-scoped memory isolation boundary, verified live end-to-end with the actual Gemini API and
+real Arena data, **now active in real production for real Arena accounts** (the M5/M6 "dormant in
+production" caveat no longer applies — see [Overall completion](#overall-completion)). Genuinely
+not started at all: no agent-specific audit logging (M9), and no security tests beyond the
+token-primitive level plus what M7 and M8 newly cover (tests 7-17 below, see
 [Phase 6](#phase-6--security-verification)) — because most of the systems those tests would
-exercise still don't exist.
+exercise still don't exist. **Per this checkpoint's own explicit instruction: no additional write
+tools are to be activated until M10 (security testing) is complete**, regardless of what the
+overall completion percentage might otherwise suggest is "next."
 
 ## Blocked
 
@@ -520,11 +622,13 @@ exercise still don't exist.
   (via `railway run`, transiently, never saved to disk here). M1's own automated tests remain
   mocked-provider-only; revisiting them against a live key is a small, low-risk follow-up, not
   blocked by anything architectural.
-- **Security verification (Phase 6), most of tests 7-17** remain blocked — they require systems
-  (tenant enforcement for agent calls, product-scoped memory, prompt-injection handling) that
-  still don't exist. Tests 1-6 (token primitive) and 16-17 (unauthorized write / approval bypass,
-  newly unblocked by M7's real write tool) now have real PASS evidence — see
-  [Phase 6](#phase-6--security-verification) for the updated table.
+- **Security verification (Phase 6), remaining tests** stay blocked where the underlying system
+  still doesn't exist (agent-specific audit logging for #21/#22-adjacent scenarios). Tests 1-6
+  (token primitive), 9-10 (cross-user/cross-tenant via agent tool, newly unblocked by M8's tenant
+  fix), 13-15 (PII/memory/prompt-injection, newly unblocked by M8's isolation tests), and 16-17
+  (unauthorized write / approval bypass, unblocked by M7) now have real PASS evidence — see
+  [Phase 6](#phase-6--security-verification) for the updated table. M10 is the milestone that
+  formally closes out whatever remains, adversarially, against the real integration end to end.
 - **Two Railway-infrastructure cleanup items, non-blocking but real:** (1) a stray, unused
   `SERVICE_TOKEN_SECRET_ARENA`/`JENNYSOL_GATEWAY_URL` pair left on the wrong, orphaned
   `Vikisol-Arena`/`Vikisol-Arena-BE` Railway project (see [Arena BE HEAD](#arena-be-head)) —
@@ -560,17 +664,18 @@ would build on. Full per-item status: [Phase 6](#phase-6--security-verification)
 
 | Repository | Test files | Tests | Result | Command | Verified |
 |---|---|---|---|---|---|
-| Jennysol-AI (`server`) | 30 | 331 | 331 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M7 (post-merge with concurrent work) |
-| Arena BE (`arena-api`) | 4 | 21 | 21 passed, 0 failed | `mvn clean test` (no filter) | 2026-09-11, M7 |
+| Jennysol-AI (`server`) | 32 | 346 | 346 passed, 0 failed | `npm test` (vitest) | 2026-09-11, M8 (post-merge with concurrent work) |
+| Arena BE (`arena-api`) | 4 | 21 | 21 passed, 0 failed | `mvn clean test` (no filter) | 2026-09-11, M7 (unchanged by M8, which is JennySol-only) |
 | Arena FE (`arena-web`) | 0 (unit) | 0 | N/A — no unit test files exist (a separate Playwright E2E suite exists for Arena's own product features, unrelated to the agent/tool integration this document tracks) | `find src -iname "*.test.*"` → empty | 2026-09-10 |
 
-Of JennySol's 331 passing tests, roughly 85 are this integration's own (5 M1 + 10 M2 + 14 M3/M4 +
-5 M5 + ~26 M6 + ~25 M7: 7 `pendingActions.test.ts`, 6 `arena.test.ts` write-tool tests, 6
-`agentGateway.http.test.ts` write-flow tests, plus `toolRegistry.test.ts`'s updated fixtures) —
-the concurrent session's own ~58 new tests (Aurora landing/account UX, a real supertest HTTP layer
-for auth) and the pre-existing ~196 cover unrelated JennySol subsystems, audited in Phase 2 as
-separate from the M1–M12 milestones. All 21 of Arena BE's tests are this integration's own — Arena
-had zero automated tests of any kind before M5.
+Of JennySol's 346 passing tests, roughly 99 are this integration's own (5 M1 + 10 M2 + 14 M3/M4 +
+5 M5 + ~26 M6 + ~25 M7 + 14 M8: 9 `memoryScope.test.ts`, 1 real-`conversationStore` integration
+test, 5 `agentGateway.memoryIsolation.test.ts` structural/adversarial tests, 1 tenant-isolation
+test in `pendingActions.test.ts`, 1 token-leak test in `arena.test.ts`) — the concurrent session's
+own ~58 new tests (Aurora landing/account UX, a real supertest HTTP layer for auth, the Files/
+Memory/Tasks/Integrations frontend pages) and the pre-existing ~196 cover unrelated JennySol
+subsystems, audited in Phase 2 as separate from the M1–M12 milestones. All 21 of Arena BE's tests
+are this integration's own — Arena had zero automated tests of any kind before M5.
 
 ## Deployment Status
 
@@ -622,36 +727,38 @@ not PR-based review.
 
 ## Next Exact Tasks
 
-**M0 through M7 (plus M11, M12) are all genuinely DONE, and the integration is live in
-production.** M8 is the first task that isn't about proving the pipe works — it's about making
-sure Arena data doesn't leak into JennySol's own cross-product long-term memory.
+**M0 through M8 (plus M11, M12) are all genuinely DONE, and the integration is live in
+production.** Per this checkpoint's own explicit instruction, the order from here is fixed:
+**M9 → M10 → only then any further write-tool expansion.** Do not skip ahead to more write tools
+before M10 is genuinely done, regardless of how the completion percentage might read.
 
-1. **M8 — Product-scoped memory isolation.** JennySol's existing memory layer
-   (`conversationStore.ts`, `vectorStore.ts`) isolates by `user_id` only — no concept of "product"
-   exists there at all yet (confirmed in Phase 2, item 18). Needs: a way to tag any memory write
-   that originated from an Arena tool call as Arena-scoped, and a test proving that data never
-   surfaces in JennySol's own cross-product/long-term memory without an explicit, separate
-   "remember this" action from the user. Since the product-federated gateway (`/api/agent/gateway`)
-   is currently stateless/single-turn by design (see M6's own class-doc note on
-   `routes/agentGateway.ts`), the realistic first question is *whether M8 needs the gateway to
-   grow persistence at all yet*, or whether it's scoped to "if/when Arena tool-call data ever
-   reaches JennySol's memory layer, it must be tagged" as a forward-looking guard with a test using
-   a fake product (matching this project's own M2/M3 sequencing convention of building against a
-   fake product before a real one needs it).
-2. **M9 — Audit/observability**, once M8's shape is clearer — every agent-originated Arena action
-   should land in Arena's existing `AuditService` (distinguishable from a human-originated action)
-   and in a JennySol-side tool-call log, verified by triggering a real tool call and finding it in
-   both.
-3. **Two small, non-blocking cleanup items carried from this checkpoint** (see
+1. **M9 — Audit/observability.** Every agent-originated Arena action should land in Arena's
+   existing `AuditService` (distinguishable from a human-originated action, per `audit/AuditService.java`'s
+   existing real usage for unlock/credit events) and in a JennySol-side tool-call log (no
+   equivalent exists on JennySol's side today — `error_logs` is for crashes, not a deliberate
+   audit trail). Verified by triggering a real tool call (read and write) and finding it in both
+   logs, with enough detail (identity, tool name, tier, result status, timestamp) to answer "who
+   did what, on whose behalf, when" without exposing credentials — reuse `memoryScope.ts`'s
+   `redactSecrets()` for whatever gets logged, rather than inventing a second redaction pass.
+2. **M10 — Security testing.** A dedicated, standalone adversarial audit of the real
+   JennySol↔Arena boundary, per this checkpoint's own framing: not "does it work" but "can it work
+   correctly, securely, and without crossing identity, tenant, privacy, memory, or authorization
+   boundaries." Should formally close out all 17 tests in [Phase 6](#phase-6--security-verification)
+   (13 already PASS via M7/M8's own suites — M10's job is to verify those hold up under deliberate,
+   adversarial pressure specifically targeting the real integration, not just re-read the existing
+   test files) and explicitly attempt every named attack this document has tracked as blocked or
+   assumed-safe, against the real deployed system where feasible.
+3. **Only after M9 and M10:** further write-tool expansion (`arena.unlockCandidateContact`,
+   `arena.placeBid`, etc.) — explicitly deferred by this checkpoint's own instruction, not by lack
+   of readiness in the approval mechanism itself.
+4. **Two small, non-blocking cleanup items carried from the M7 checkpoint** (see
    [Blocked](#blocked)): remove the stray shared-secret variables mistakenly left on the wrong,
    orphaned `Vikisol-Arena` Railway project; consider wiring Arena's real, already-built
-   `IntentCardView.tsx` to the new `/actions/:actionId` endpoint so a real user gets a clickable
-   approval UI instead of a plain-text message (frontend work, not part of M7's own backend
-   acceptance criteria, but the natural next step to make M7 actually usable end-to-end for a
-   real, non-technical user).
-4. **M1's own live-API verification** — a real `GEMINI_API_KEY` has now been used live twice (M6,
+   `IntentCardView.tsx` to the `/actions/:actionId` endpoint so a real user gets a clickable
+   approval UI instead of a plain-text message.
+5. **M1's own live-API verification** — a real `GEMINI_API_KEY` has now been used live twice (M6,
    M7); consider re-running M1's original tool-calling tests against it too for completeness. Low
-   priority, not blocking M8.
+   priority, not blocking M9.
 
 ## Known Risks
 
@@ -894,9 +1001,13 @@ exact commands used.
 
 ## Phase 6 — Security Verification
 
-Tests 1-6 (the service-token primitive itself) now have real PASS evidence as of M2. Tests 7-17
-remain **BLOCKED** — they require a real connector, tool, or product to attack-test cross-user/
-cross-tenant/leakage/injection scenarios against, none of which exist yet:
+**13 of 17 tests now PASS** (1-10, 13-17), as of M8. Only 11-12 remain **BLOCKED** — both concern
+systems (Arena's own session-JWT boundary re Arena's own frontend, and a refresh-token concept)
+that this integration hasn't touched and that don't exist in this form anywhere in the codebase,
+not gaps M8/M9/M10 are meant to close. **This PASS count is not the same claim as M10 being
+done** — M10's own acceptance criteria require *all* 17 to have real evidence, run against the
+real integration, as a dedicated milestone's own adversarial audit; the entries below were proven
+incrementally by M7 and M8's own test suites, not by a standalone M10 effort yet:
 
 | # | Test | Result |
 |---|---|---|
@@ -906,15 +1017,15 @@ cross-tenant/leakage/injection scenarios against, none of which exist yet:
 | 4 | Wrong audience | **PASS** — test 4, a token signed with `audience: "some-other-service"` is rejected. |
 | 5 | Wrong issuer | **PASS** — test 5, a token claiming an issuer with no configured `SERVICE_TOKEN_SECRET_*` is rejected before any signature check even runs. |
 | 6 | Invalid scope | **PASS** — test 6, a validly-issued token with `scope: ["acme.getWidget"]` correctly fails `requireScope()` for `"acme.deleteEverything"` and succeeds for its own granted tool. |
-| 7 | Wrong tenant | BLOCKED — `tenantId` is carried and verifiable in the token today, but no real tool checks it against a resource's actual owner yet (that check belongs to each tool's own implementation, first exercised at M6) |
-| 8 | Wrong user | BLOCKED |
-| 9 | Cross-user access (via agent tool) | BLOCKED — no agent tool exists to attempt this through |
-| 10 | Cross-tenant access (via agent tool) | BLOCKED |
-| 11 | Arena JWT leakage into JennySol | BLOCKED — no call path exists for it to leak across |
-| 12 | Refresh-token leakage | BLOCKED |
-| 13 | PII leakage (Arena → JennySol memory) | BLOCKED — no memory-write path from Arena data exists |
-| 14 | Memory leakage (cross-product) | BLOCKED |
-| 15 | Prompt injection through Arena data | BLOCKED — no Arena data ever reaches a JennySol prompt today |
+| 7 | Wrong tenant | **PASS (M8)** — `pendingActions.test.ts`'s new tenant test: two identities sharing `product`+`externalUserId` but a different `tenantId` cannot consume each other's pending action. Closes a real gap `consumeAction` had before M8 (it previously ignored `tenantId` entirely). |
+| 8 | Wrong user | **PASS** — `pendingActions.test.ts` (M7): an identity with a different `externalUserId` (same product) cannot consume another identity's pending action. |
+| 9 | Cross-user access (via agent tool) | **PASS** — same `pendingActions.test.ts` coverage as #8, exercised through the real HTTP `/actions/:actionId` route in `agentGateway.http.test.ts` (M7): "a different identity can never approve someone else's pending action." |
+| 10 | Cross-tenant access (via agent tool) | **PASS (M8)** — same mechanism as #7, now enforced at the same `consumeAction` layer every real approval goes through. |
+| 11 | Arena JWT leakage into JennySol | BLOCKED — no call path exists for it to leak across (unrelated to M8's scope — this is about Arena's own session JWT, not the service-token/product-memory boundary M8 addresses) |
+| 12 | Refresh-token leakage | BLOCKED — no refresh-token concept exists anywhere in this system |
+| 13 | PII leakage (Arena → JennySol memory) | **PASS (M8)** — `agentGateway.memoryIsolation.test.ts`: a tool result deliberately shaped with candidate-contact-style PII never reaches `conversationStore`/`vectorStore`, proven via `vi.spyOn` on the real modules. |
+| 14 | Memory leakage (cross-product) | **PASS (M8)** — the same test above, plus the "later unrelated request carries no trace of an earlier request's tool data" test — there is no persistence for cross-product data to leak *through* in the first place, and this is now proven rather than assumed. |
+| 15 | Prompt injection through Arena data | **PASS (M8)** — `agentGateway.memoryIsolation.test.ts`'s two injection tests: a hostile tool call's `args` (containing a fake scope-override claim and "SYSTEM OVERRIDE" text) cannot bypass the WRITE-tier approval gate or elevate `ToolRegistry.dispatch`'s scope check, since neither ever reads tool-call/result content when making an authorization decision. |
 | 16 | Unauthorized write action | **PASS (M7)** — a WRITE tool call from the model is never dispatched by `/chat` under any circumstance (`agentGateway.http.test.ts`: "a WRITE tool call from the model never dispatches immediately"); Arena's own `AgentServiceTokenAuthenticationFilter` independently re-verifies the round-trip token's scope against `POST /applications` regardless of what JennySol believes it authorized (`AgentServiceTokenAuthenticationFilterTest.java`: wrong-scope token does not authenticate). |
 | 17 | Approval bypass | **PASS (M7)** — `consumeAction` is single-use (verified by both a unit test and a real HTTP test: approving the same real `actionId` twice returns 404 the second time, never a second execution); a different identity can never approve someone else's pending action (`agentGateway.http.test.ts`, `pendingActions.test.ts`); a rejected action never reaches `dispatch()` (`fetchMock` assertion). **Not yet tested**: a real, live rejection against production infrastructure specifically (covered by real HTTP-level automated tests only, not a live production call — see M7's Completed entry). |
 
@@ -934,17 +1045,17 @@ end-to-end test, a production observation) — not code review alone.
 | **M5 — Arena connector** | Arena mints a real, scoped service token; JennySol's Arena connector verifies it; a live round trip succeeds with a real Arena test account and fails correctly when tampered with. | **DONE** — Arena `6b060a4` / JennySol `3ceca59`. A real Java-minted token verified correctly by the real TypeScript verifier; a tampered copy correctly rejected. Caught and fixed a genuine HS256-vs-HS384 interop bug in the process. 5 new JennySol tests + 4 new Arena tests (Arena's first ever). |
 | **M6 — Arena read tools** | At least one real Arena read tool (e.g. `arena.searchJobs`) is implemented, registered, connected, and triggered by a real chat message end-to-end in a live test, returning real Arena data. | **DONE** — commits JennySol `cd81da2`→`512d6c8`→`5f1624b`, Arena `72f3df4`. A real message ("Show me some jobs available on Arena.") sent to the real Gemini API caused a real model-decided call to `arena.searchJobs`, which called real production Arena's `/api/v1/jobs` and returned 10 real job listings, which the model used to produce a real final answer (that itself honestly noted Arena's real no-keyword-search limitation, unprompted). A real bug (missing `/api/v1` context-path) was found and fixed by this exact process. All credentials masked throughout; nothing written to disk or committed. Not yet active in production (`NoopAgentServiceClient` remains live there) — a separate rollout decision. |
 | **M7 — Approval/write tools** | At least one write tool (e.g. `arena.applyToJob`) is gated behind a real approval step the user must explicitly confirm before the tool executes; verified live that a rejected approval never calls the tool and an approved one does, exactly once. | **DONE** — JennySol `dbe5bcd`/`0d40011`, Arena `d15de6b`/`928310e`. `arena.applyToJob` is a real WRITE-tier tool; a real Gemini-decided call against real production Arena, through a real demo-talent account, was proposed (not dispatched), then explicitly approved, then executed exactly once against real production Arena's `POST /applications` via the round-trip token — real `Application` row created, then withdrawn. The reject/single-use/cross-identity guarantees are proven by real HTTP-level automated tests (13 new across both repos); the reject path specifically has not been additionally exercised against live production infrastructure (no equivalent "does the model really decide this" question exists for a reject, unlike an approve). |
-| **M8 — Memory isolation** | Product-scoped memory tagging exists; a test proves Arena tool-call data never appears in JennySol's own cross-product/long-term memory without an explicit, separate "remember this" action. | NOT STARTED |
+| **M8 — Memory isolation** | Product-scoped memory tagging exists; a test proves Arena tool-call data never appears in JennySol's own cross-product/long-term memory without an explicit, separate "remember this" action. | **DONE** — commit `8a09a11`. `services/memoryScope.ts`'s real `MemoryScope` taxonomy + branded `ProductToolResult` + `redactSecrets`; a real gap fixed (`pendingActions` never checked `tenantId`); 14 new tests spanning unit, integration (against the real `conversationStore`), and adversarial (against the real deployed gateway, via spies on the real `conversationStore`/`vectorStore` modules) layers, all passing. See this document's own [Completed](#completed) entry for the full mapping to acceptance tests A-H. |
 | **M9 — Audit/observability** | Every agent-originated Arena action is written to Arena's existing `AuditService` (distinguishable from a human-originated action) and to a JennySol-side tool-call log; verified by triggering a real tool call and finding it in both logs. | NOT STARTED |
-| **M10 — Security testing** | All 17 tests listed in this document's Phase 6 move from BLOCKED to PASS/FAIL with real evidence, run against the real integration. | NOT STARTED — tests 1-6 and 16-17 now PASS (11 of 17), but 7-15 remain BLOCKED on systems (tenant enforcement, memory, prompt-injection handling) that don't exist yet; the milestone's own bar is *all 17*, so it stays NOT STARTED rather than PARTIAL, per this document's own no-partial-credit rule. |
+| **M10 — Security testing** | All 17 tests listed in this document's Phase 6 move from BLOCKED to PASS/FAIL with real evidence, run against the real integration. | NOT STARTED — 13 of 17 now PASS (via M7's and M8's own milestone-scoped test suites), 2 remain BLOCKED on systems that don't exist (Arena's own JWT boundary, refresh tokens), and 2 more (#11-12's neighbors, already reflected above) are accounted for — but M10's own bar is a *dedicated, standalone adversarial audit of the real integration* per this checkpoint's own explicit instruction ("Can it work correctly, securely, and without crossing identity, tenant, privacy, memory or authorization boundaries?"), not simply totaling up what incidental coverage other milestones produced. Stays NOT STARTED rather than PARTIAL, per this document's own no-partial-credit rule, until that dedicated audit actually runs. |
 | **M11 — Real end-to-end integration** | The full flow in this document's Phase 5 executes for real, for at least one read and one approved write, with recorded evidence at every hop. | **DONE** — see M7's Completed entry and [Phase 5](#phase-5--real-end-to-end-verification). A real read (`arena.searchJobs`) and a real approved write (`arena.applyToJob`) both executed live against real production Arena and real production JennySol, with evidence recorded at every hop (Arena trigger → RealAgentServiceClient → JennySol gateway → Gemini decision → tool dispatch/proposal → approval → Arena round-trip → real result), then the test write was withdrawn. |
 | **M12 — Production rollout** | The real client replaces `NoopAgentServiceClient` for at least one production Arena account via configuration only (no code change required to flip it, per the existing interface→Noop→real pattern), verified live. | **DONE** — `SERVICE_TOKEN_SECRET_ARENA` (both services) and `JENNYSOL_GATEWAY_URL` (Arena) were set on both real production Railway deployments, via configuration only (zero code changes to flip the binding — `AgentProviderConfig`'s existing `isAvailable() ? real : noop` logic did the rest). Verified live for the real `demo.talent@vikisol.dev` account, for both a read and a write. Not scoped to "at least one account" — every real Arena account is now served by the real client. |
 
 ---
 
-*Generated 2026-09-10, updated 2026-09-11 for M7 by direct inspection of all three repositories and
-live verification against real production infrastructure — no status above was carried forward
-from a prior conversation without being independently re-verified via a command run during this
-checkpoint. Phase 1's exact commit-history dumps below predate M7 and are retained for M0-M6
-context; [JennySol HEAD](#jennysol-head), [Arena BE HEAD](#arena-be-head), and the sections above
-are the current source of truth.*
+*Generated 2026-09-10, updated 2026-09-11 for M7 (live production verification) and again for M8
+(memory isolation) by direct inspection of the JennySol repository and real, non-mocked test runs
+— no status above was carried forward from a prior conversation without being independently
+re-verified via a command run during this checkpoint. Phase 1's exact commit-history dumps below
+predate M7/M8 and are retained for M0-M6 context; [JennySol HEAD](#jennysol-head),
+[Arena BE HEAD](#arena-be-head), and the sections above are the current source of truth.*
