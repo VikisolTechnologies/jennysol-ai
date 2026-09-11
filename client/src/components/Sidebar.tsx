@@ -112,6 +112,14 @@ export function Sidebar({
   const [menuOpenForId, setMenuOpenForId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ConversationSummary | null>(null);
+  // Captured at the moment a row's "..." button opens its menu — not read
+  // from document.activeElement when the dialog opens, because the
+  // Rename/Delete menuitem that was actually clicked unmounts (closing the
+  // menu) in the same commit that opens the dialog, and a focused element
+  // being removed makes the browser fall back to <body> before any effect
+  // can observe it. This ref stays valid across that unmount so Escape/close
+  // can restore focus to the real trigger instead of stranding it on <body>.
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [documentsExpanded, setDocumentsExpanded] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -254,13 +262,16 @@ export function Sidebar({
                     {/* Always visible (never hover-gated) — a hover-only
                         trigger is unreachable on any touchscreen with no
                         :hover, which is what the old pencil/trash icons
-                        were. 44px-tall tap target via fixed sizing. */}
+                        were. Real 44px tap target (h-11 w-11), not just a
+                        44px-tall row — the icon itself stays visually small
+                        via the inner size={15}. */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        menuTriggerRef.current = e.currentTarget;
                         setMenuOpenForId((prev) => (prev === c.id ? null : c.id));
                       }}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
                       aria-label={`More options for "${c.title}"`}
                       aria-haspopup="menu"
                       aria-expanded={menuOpenForId === c.id}
@@ -274,7 +285,7 @@ export function Sidebar({
                     <div
                       role="menu"
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute right-1 top-9 z-10 w-40 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg motion-safe:animate-fade-in dark:border-white/10 dark:bg-neutral-900"
+                      className="absolute right-1 top-11 z-10 w-40 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg motion-safe:animate-fade-in dark:border-white/10 dark:bg-neutral-900"
                     >
                       <button
                         role="menuitem"
@@ -282,7 +293,7 @@ export function Sidebar({
                           setMenuOpenForId(null);
                           setRenameTarget(c);
                         }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-white/5"
+                        className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-white/5"
                       >
                         <Pencil size={14} /> Rename
                       </button>
@@ -292,7 +303,7 @@ export function Sidebar({
                           setMenuOpenForId(null);
                           setDeleteTarget(c);
                         }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                        className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
                       >
                         <Trash2 size={14} /> Delete
                       </button>
@@ -310,18 +321,20 @@ export function Sidebar({
         initialValue={renameTarget?.title ?? ""}
         onClose={() => setRenameTarget(null)}
         onSave={(value) => commitRename(renameTarget!, value)}
+        restoreFocusRef={menuTriggerRef}
       />
       <DeleteConversationDialog
         open={deleteTarget !== null}
         title={deleteTarget?.title ?? ""}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => commitDelete(deleteTarget!)}
+        restoreFocusRef={menuTriggerRef}
       />
 
       <div className="shrink-0 border-t border-neutral-200 pt-3 dark:border-white/10">
         <button
           onClick={() => setDocumentsExpanded((v) => !v)}
-          className="flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+          className="flex min-h-11 w-full items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
         >
           <span>Documents {documents.length > 0 && `(${documents.length})`}</span>
           {documentsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}

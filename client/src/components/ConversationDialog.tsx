@@ -12,11 +12,13 @@ function DialogShell({
   open,
   onClose,
   labelledBy,
+  restoreFocusRef,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   labelledBy: string;
+  restoreFocusRef?: React.RefObject<HTMLElement | null>;
   children: React.ReactNode;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -47,11 +49,19 @@ function DialogShell({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      // Restore focus to whatever opened the dialog (the row's ⋯ button) —
-      // never leaves focus stranded on a now-unmounted element.
-      previouslyFocused.current?.focus();
+      // Restore focus to the row's "..." button explicitly, not whatever
+      // document.activeElement happens to be by the time this cleanup runs.
+      // The dropdown menuitem that was actually clicked (e.g. "Rename")
+      // unmounts in the same commit that opens this dialog, and a focused
+      // element being removed from the DOM makes the browser fall back to
+      // <body> *before* any effect gets a chance to observe it — so relying
+      // on previouslyFocused (captured from document.activeElement) silently
+      // restores focus to <body> instead of the trigger. restoreFocusRef is
+      // captured by the caller at the moment the menu itself was opened,
+      // while the trigger button still definitely had focus.
+      (restoreFocusRef?.current ?? previouslyFocused.current)?.focus();
     };
-  }, [open, onClose]);
+  }, [open, onClose, restoreFocusRef]);
 
   if (!open) return null;
 
@@ -80,11 +90,13 @@ export function RenameDialog({
   initialValue,
   onClose,
   onSave,
+  restoreFocusRef,
 }: {
   open: boolean;
   initialValue: string;
   onClose: () => void;
   onSave: (value: string) => Promise<void>;
+  restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [value, setValue] = useState(initialValue);
   const [status, setStatus] = useState<"idle" | "saving" | "error">("idle");
@@ -124,7 +136,7 @@ export function RenameDialog({
   }
 
   return (
-    <DialogShell open={open} onClose={onClose} labelledBy="rename-dialog-title">
+    <DialogShell open={open} onClose={onClose} labelledBy="rename-dialog-title" restoreFocusRef={restoreFocusRef}>
       <div className="flex items-center justify-between">
         <h2 id="rename-dialog-title" className="text-base font-semibold">
           Rename conversation
@@ -176,11 +188,13 @@ export function DeleteConversationDialog({
   title,
   onClose,
   onConfirm,
+  restoreFocusRef,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   onConfirm: () => Promise<void>;
+  restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [status, setStatus] = useState<"idle" | "deleting" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -205,7 +219,7 @@ export function DeleteConversationDialog({
   }
 
   return (
-    <DialogShell open={open} onClose={onClose} labelledBy="delete-dialog-title">
+    <DialogShell open={open} onClose={onClose} labelledBy="delete-dialog-title" restoreFocusRef={restoreFocusRef}>
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400">
           <AlertTriangle size={18} />
