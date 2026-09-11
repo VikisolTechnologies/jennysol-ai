@@ -39,12 +39,24 @@ User message
 
 ## 3. Search providers — actual configuration (checked directly, not assumed)
 
-| Provider | Configured in production? | Evidence |
-|---|---|---|
-| Tavily (`TAVILY_API_KEY`) | **NOT CONFIGURED** | `railway variables` — key absent |
-| Gemini native grounding | **CONFIGURED but PERMANENTLY FAILING** | `railway logs` after this session's new logging: `[gemini] grounding (Google Search tool) probe failed ... 429 RESOURCE_EXHAUSTED` |
+**Updated 2026-09-10: Tavily is now configured and live in production.**
+Verified with real queries returning real citations (provider/sourceType/
+freshness metadata), independently checked against raw Tavily snippet text
+to confirm answers are genuinely grounded, not fabricated. The table below
+is kept as the historical record of the state this document originally
+audited — not the current one.
 
-**This means: no live search of any kind is currently reaching Jennysol in production, regardless of detection.** Every "current info" answer today is either (a) an honest "I can't verify that" (the persona correctly triggering), or (b) the model answering from pretrained knowledge with no freshness signal at all (the gap this session narrowed but did not eliminate — see Section 9).
+| Provider | Configured in production (as of original audit)? | Evidence |
+|---|---|---|
+| Tavily (`TAVILY_API_KEY`) | ~~NOT CONFIGURED~~ → **CONFIGURED since 2026-09-10** | `railway variables` — key present; live production queries verified |
+| Gemini native grounding | **CONFIGURED but PERMANENTLY FAILING** | `railway logs`: `[gemini] grounding (Google Search tool) probe failed ... 429 RESOURCE_EXHAUSTED` (unchanged — Tavily is the active path instead, not a fix to this) |
+
+**Current state**: live search reaches production via Tavily. The
+deterministic safety gate described elsewhere in this document (never let
+the model guess when live verification genuinely fails) remains in place
+and was itself verified live — a real transient Tavily failure correctly
+produced the honest fallback instead of a guess, with normal service
+resuming on the very next request.
 
 ## 4. Freshness model — CURRENT STATE: NOT IMPLEMENTED AS A SEPARATE SYSTEM
 

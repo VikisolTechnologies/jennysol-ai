@@ -73,7 +73,25 @@ USER REQUEST → frontend (image mode toggle, ChatWindow.tsx)
 
 ## Search / current information
 
-See `docs/CURRENT_INFORMATION_ARCHITECTURE.md` for the full audit. Summary: the architecture (provider-independent `SearchProvider`/`searchRouter.ts`, injected into context for any model) is IMPLEMENTED, but **NOT CONFIGURED** (no `TAVILY_API_KEY`) and Gemini's own native fallback is **CONFIGURED but quota-blocked** on this API key's tier — so no live search is actually reaching production right now, regardless of how well the request is classified.
+**Updated 2026-09-10: `TAVILY_API_KEY` is now configured in production.** The
+architecture (provider-independent `SearchProvider`/`searchRouter.ts`,
+injected into context for any model) is IMPLEMENTED and live — verified with
+real production queries returning real citations with provider/sourceType/
+freshness metadata (e.g. "What is the latest OpenAI model?" → 5 real sources,
+grounding independently checked against the raw Tavily snippet text). See
+`docs/CURRENT_INFORMATION_ARCHITECTURE.md` for the full original audit — the
+paragraph below is preserved as the historical record of the pre-2026-09-10
+state, not the current one.
+
+> **Historical (pre-2026-09-10):** the architecture was IMPLEMENTED, but
+> **NOT CONFIGURED** (no `TAVILY_API_KEY`) and Gemini's own native fallback
+> was **CONFIGURED but quota-blocked** on this API key's tier — so no live
+> search was actually reaching production, regardless of how well the
+> request was classified.
+
+SearXNG (`SEARXNG_BASE_URL`) remains coded but not deployed — a deliberate,
+not-yet-made decision (a second Railway service, real infra cost), not a
+bug. Tavily's free tier is the sole active search provider today.
 
 ## Capability summary table
 
@@ -82,8 +100,8 @@ See `docs/CURRENT_INFORMATION_ARCHITECTURE.md` for the full audit. Summary: the 
 | Text chat | Yes | Yes (per-provider) | Not tested yet (Ollama not installed — see architecture handoff) | Yes |
 | Creator identity | Yes, deterministic | Yes — bypasses the model entirely | Yes (never reaches Ollama for this) | Yes, verified |
 | Document RAG | Yes | Yes | Yes (once Ollama is installed) | Yes |
-| Provider-independent web search | Yes (code) | Yes | Yes (once configured) | **No** — no key configured |
-| Gemini native search grounding | Yes (code) | No (Gemini-only) | N/A | **No** — quota-blocked on this key |
+| Provider-independent web search | Yes (code) | Yes | Yes (once configured) | **Yes, verified** — Tavily live since 2026-09-10 |
+| Gemini native search grounding | Yes (code) | No (Gemini-only) | N/A | **No** — quota-blocked on this key (Tavily is the active path instead) |
 | Image generation | Yes (code) | No (Gemini-only) | No | **No** — quota-blocked on this key |
 | Weather | Yes | Yes — bypasses no model, injects real data any provider can state | Yes | **Yes, verified** — Open-Meteo, no key |
 | Current date/time | Yes, deterministic | Yes — bypasses the model entirely | Yes | Yes, verified |
@@ -96,7 +114,7 @@ See `docs/CURRENT_INFORMATION_ARCHITECTURE.md` for the full audit. Summary: the 
 |---|---|---|
 | `GEMINI_API_KEY` | chat, image gen, native grounding | Configured; tier lacks image-gen and grounding quota specifically |
 | `GEMINI_IMAGE_MODEL` | image generation | Configured (`gemini-3.1-flash-image`) — model choice isn't the problem, billing tier is |
-| `TAVILY_API_KEY` | provider-independent search | Not configured |
+| `TAVILY_API_KEY` | provider-independent search | Configured (since 2026-09-10) |
 | `SEARXNG_BASE_URL` | self-hosted search | Not configured — coded, not deployed (see free-first architecture doc) |
 | `DEEPSEEK_API_KEY` | cloud fallback chat | Not configured |
 | `OLLAMA_BASE_URL` | local chat fallback | Configured with a default; Ollama itself not installed on the dev machine yet |

@@ -155,6 +155,20 @@ next step before anything else in this category can move past PARTIAL.
 **Status:** PARTIAL — user accounts, sessions, and per-user tenant isolation are now
 TESTED and real; organizations and role-specific experiences are not started.
 
+**Update 2026-09-11:** a real frontend now exists for account/security/sessions, closing
+the "no settings UI" gap this category's evidence originally described for the backend-only
+`GET /api/auth/sessions`/`logout-all`/`change-password` endpoints below. `client/src/pages/
+account/` — Profile, Security, Sessions (including a new per-device revoke,
+`deleteSessionByFingerprint`), Appearance (a real Dark/Light/System preference), and Privacy.
+Also added: a public landing page (`/welcome`), Privacy Policy and Terms of Service pages
+(marked pending legal review, not finalized), and honest product-boundary pages for Agents
+(no catalog exists), Files (a second view onto the same RAG backend this document already
+describes, not a new system), Memory (separates real conversation history from the
+non-existent long-term memory this document is right to call out below), Tasks and
+Integrations (both correctly still NOT STARTED — see categories 19–26/31–32 — now with an
+honest UI boundary instead of no UI at all). Account deletion, organizations, and
+role-specific experiences remain exactly as described below — genuinely not built.
+
 **Implementation:**
 - `server/src/services/auth/` — `password.ts` (scrypt hashing, no new dependency),
   `sessions.ts` (opaque DB-backed tokens, not stateless JWT — chosen specifically so

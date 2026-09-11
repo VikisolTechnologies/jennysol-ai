@@ -132,15 +132,21 @@ IMPLEMENTED, VERIFIED. `server/src/services/llmProvider.ts` defines `LlmProvider
 
 ## 12. Search / current-information architecture
 
-IMPLEMENTED, VERIFIED (unit-tested; live end-to-end pending a `TAVILY_API_KEY`, which is not yet configured).
+**Updated 2026-09-10/11: `TAVILY_API_KEY` is now configured and verified live
+in production** (real queries, real citations, independently checked
+against raw Tavily snippet text to confirm answers are genuinely grounded).
+The rest of this section otherwise describes the same, unchanged
+architecture — only the "not yet configured" status below is historical.
+
+IMPLEMENTED, VERIFIED (unit-tested and live end-to-end — was pending a `TAVILY_API_KEY` as of the original writing below; no longer).
 
 - `SearchProvider` interface (`services/search/searchProvider.ts`): `{ name, configured(), search(query, opts?) }`. One concrete implementation today, `tavily.ts` — chosen since it's purpose-built for "give an LLM current results," but the interface makes adding Serper/Bing a new file + one registry line, not a redesign.
 - `searchRouter.ts` mirrors `modelRouter.ts`'s pattern exactly: ordered chain (`SEARCH_PROVIDER_CHAIN`, default `"tavily"`), health-gated via the *same* `providerHealth.ts` functions (namespaced `search:<name>` to avoid key collision with LLM provider names).
 - `contextManager.ts`'s `buildContext()` runs the search step **before any model is chosen**, alongside the existing document-RAG retrieval, and injects results into the system prompt as a labeled `LIVE WEB RESULTS` section — the exact same pattern already used for uploaded-document context. This is what makes it provider-independent: Gemini, DeepSeek, and Ollama all receive identical injected text; none has special access.
 - Gemini's own native Google Search grounding tool is **only** attempted when `hasAnySearchProviderConfigured()` is false — i.e., it's the interim fallback for "no external search provider configured yet," not a competing mechanism once one exists.
 - Citations: web sources are attached to the final assistant message's `sources` array (same shape as document citations) — real URLs from actual search/grounding results, never fabricated.
-- **When search is unavailable** (no provider configured, or the configured one fails): the persona (`llm.ts`) explicitly instructs every provider to say plainly it can't verify a current fact rather than guessing a stale/invented number — this is prompt-level guidance, not a hard code-level block, so it depends on model compliance (documented as a limitation, not a guarantee).
-- **API key required**: `TAVILY_API_KEY` — **NOT CONFIGURED** as of this writing. Until it is, current-info queries fall back to Gemini's native tool (if Gemini is healthy) or the honest "can't verify" persona instruction (if not).
+- **When search is unavailable** (no provider configured, or the configured one fails this turn): **updated 2026-09-10** — this is no longer prompt-level guidance alone. `chatRunner.ts` now runs a deterministic, model-free gate before any model call: if the message needs current info and no live evidence was actually obtained this turn (search returned nothing, weather also empty, and Gemini's native grounding won't fire either), a fixed honest response is returned directly, without invoking the model at all — it cannot be gotten wrong by a model that doesn't comply. Confirmed live: a real transient Tavily failure correctly triggered this exact path, with normal service resuming on the very next request. The persona instruction in `llm.ts` remains as defense-in-depth for the (rarer) case where partial/ambiguous evidence exists.
+- **API key required**: `TAVILY_API_KEY` — **CONFIGURED since 2026-09-10** (was NOT CONFIGURED as of this document's original writing). Gemini's native grounding remains quota-blocked regardless — Tavily is the active search path.
 
 ## 13. Tool architecture
 
@@ -218,7 +224,7 @@ Server (`server/.env.example`) — secrets never printed, only presence/absence:
 | `OLLAMA_MODEL` | fallback default model | Optional | Non-secret |
 | `LOCAL_HARDWARE_PROFILE` | `m1_16gb` / `dedicated_rtx5060ti_16gb` | Optional (auto-detects) | Non-secret |
 | `DEPLOYMENT_MODE` | `local` / `cloud` — affects default chain order | Optional (default `cloud`) | Non-secret |
-| `TAVILY_API_KEY` | provider-independent web search | Optional, **NOT CONFIGURED** | Secret |
+| `TAVILY_API_KEY` | provider-independent web search | Optional, **CONFIGURED since 2026-09-10** | Secret |
 | `FRONTEND_URL` | email link generation | Required for real emails | Non-secret |
 | `CONTEXT_RECENT_WINDOW`, `CONTEXT_SUMMARY_BATCH` | memory tuning | Optional | Non-secret |
 | `LLM_FIRST_TOKEN_TIMEOUT_MS`, `LLM_FALLBACK_FIRST_TOKEN_TIMEOUT_MS` | router failover speed | Optional | Non-secret |
@@ -301,7 +307,7 @@ All foreign keys use `ON DELETE CASCADE` except `error_logs.user_id` (`SET NULL`
 - Task classifier is intentionally narrow (coding/current-info/general only) — no real signal exists for a broader "hard reasoning"/vision classifier yet.
 - Ollama isn't installed on the M1 dev machine yet — the provider/registry/CLI layer is proven, the actual local-inference path is not yet exercised end-to-end.
 - No OpenAI/Anthropic provider files exist — no keys, nothing to route to yet; the registry pattern makes adding one small.
-- `TAVILY_API_KEY` not configured — current-info queries fall back to Gemini's native grounding or an honest "can't verify" response.
+- ~~`TAVILY_API_KEY` not configured~~ — **configured since 2026-09-10**, live in production. `DEEPSEEK_API_KEY` remains not configured.
 
 **PLANNED** (described in specs given this session, not built): real tool-calling/function-calling loop, calendar/email-send/Zoom/Teams/places/weather/hotels/restaurants tools, Local Computer Agent, voice sharing the AgentRun runtime (today TTS is a separate stateless call, not a competing "brain" but also not unified), Postgres/pgvector migration, Redis/queue-backed workers, the full `queued→acknowledged→running→thinking→tool_running→streaming→waiting_for_dependency→paused→completed→failed→cancelled` status vocabulary (only the subset that has real meaning today is implemented).
 
@@ -309,7 +315,7 @@ All foreign keys use `ON DELETE CASCADE` except `error_logs.user_id` (`SET NULL`
 
 1. Confirm the security fix in real usage — ask the reporter to verify the "Not you? Start a new session" control resolves the shared-device scenario in practice, not just in scripted tests.
 2. Install Ollama on the M1 Mac and run `npm run models -- health`/`benchmark` against real local inference to close that verification gap.
-3. Decide on `DEEPSEEK_API_KEY` / `TAVILY_API_KEY` — both are coded, tested, and waiting on credentials only.
+3. ~~Decide on `DEEPSEEK_API_KEY` / `TAVILY_API_KEY` — both are coded, tested, and waiting on credentials only.~~ `TAVILY_API_KEY` was decided and configured 2026-09-10, now live. `DEEPSEEK_API_KEY` remains the open one.
 4. If/when real tool-calling or computer-control work begins, design idempotency keys and permission scopes *before* wiring any side-effecting tool (calendar/email-send) — today there is nothing that could double-fire, but that changes the moment such a tool exists.
 5. Revisit the SQLite/single-instance ceiling only if/when real multi-instance scaling pressure appears — not before (avoid a speculative Postgres migration with nothing forcing it yet).
 

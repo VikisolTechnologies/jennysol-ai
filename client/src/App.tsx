@@ -23,6 +23,10 @@ import { AccountSessions } from "./pages/account/AccountSessions";
 import { AccountAppearance } from "./pages/account/AccountAppearance";
 import { AccountPrivacy } from "./pages/account/AccountPrivacy";
 import { Agents } from "./pages/Agents";
+import { Files } from "./pages/Files";
+import { Memory } from "./pages/Memory";
+import { Tasks } from "./pages/Tasks";
+import { Integrations } from "./pages/Integrations";
 
 export default function App() {
   useViewportHeight();
@@ -50,6 +54,38 @@ export default function App() {
         element={
           <RequireAuth>
             <Agents />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/files"
+        element={
+          <RequireAuth>
+            <Files />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/memory"
+        element={
+          <RequireAuth>
+            <Memory />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/tasks"
+        element={
+          <RequireAuth>
+            <Tasks />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/integrations"
+        element={
+          <RequireAuth>
+            <Integrations />
           </RequireAuth>
         }
       />
