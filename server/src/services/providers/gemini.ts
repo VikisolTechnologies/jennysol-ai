@@ -1,8 +1,9 @@
 import { GoogleGenAI, createPartFromFunctionResponse } from "@google/genai";
 import type { Content, FunctionCall, Part } from "@google/genai";
-import type { ChatTurn, LlmProvider, ToolCall, ToolCallHandler, ToolDefinition, WebSource } from "../llmProvider.js";
+import type { ChatTurn, LlmProvider, TokenUsage, ToolCall, ToolCallHandler, ToolDefinition, WebSource } from "../llmProvider.js";
 import { needsCurrentInfo } from "../currentInfo.js";
 import { hasAnySearchProviderConfigured } from "../search/searchRouter.js";
+import { estimateTokens } from "./openaiCompatible.js";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
@@ -152,13 +153,26 @@ async function attemptWithTools(
   onDelta: (text: string) => void,
   tools: ToolDefinition[],
   onToolCall: ToolCallHandler,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onUsage?: (usage: TokenUsage) => void
 ): Promise<void> {
   const contents: Content[] = history.map((h) => ({
     role: h.role === "assistant" ? "model" : "user",
     parts: [{ text: h.content }],
   }));
   const functionDeclarations = toFunctionDeclarations(tools);
+  let lastPromptTokens: number | undefined;
+  let totalCompletionTokens = 0;
+  let anyRealUsage = false;
+
+  function reportUsage(): void {
+    if (!onUsage) return;
+    onUsage(
+      anyRealUsage
+        ? { promptTokens: lastPromptTokens ?? null, completionTokens: totalCompletionTokens, estimated: false }
+        : { promptTokens: estimateTokens(systemPrompt + history.map((h) => h.content).join("\n")), completionTokens: null, estimated: true }
+    );
+  }
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const stream = await getClient().models.generateContentStream({
@@ -178,15 +192,30 @@ async function attemptWithTools(
     // whatever happened to be in the last chunk.
     const accumulatedParts: Part[] = [];
     let calls: FunctionCall[] | undefined;
+    // Gemini reports a running cumulative total per chunk *within this one
+    // round's stream*, not a per-chunk delta (same pattern as
+    // groundingMetadata above) — keep only the round's latest value, then
+    // fold that round's completion tokens into the cross-round total once
+    // the round finishes below.
+    let roundUsage: { promptTokenCount?: number; candidatesTokenCount?: number } | undefined;
     for await (const chunk of stream) {
       const text = chunk.text;
       if (text) onDelta(text);
       const chunkParts = chunk.candidates?.[0]?.content?.parts;
       if (chunkParts?.length) accumulatedParts.push(...chunkParts);
       if (chunk.functionCalls?.length) calls = chunk.functionCalls;
+      if (chunk.usageMetadata) roundUsage = chunk.usageMetadata;
+    }
+    if (roundUsage) {
+      anyRealUsage = true;
+      lastPromptTokens = roundUsage.promptTokenCount ?? lastPromptTokens;
+      totalCompletionTokens += roundUsage.candidatesTokenCount ?? 0;
     }
 
-    if (!calls || calls.length === 0) return; // model answered in plain text — this round is the final one
+    if (!calls || calls.length === 0) {
+      reportUsage();
+      return; // model answered in plain text — this round is the final one
+    }
 
     if (accumulatedParts.length) contents.push({ role: "model", parts: accumulatedParts });
 
@@ -218,7 +247,7 @@ async function attemptWithTools(
 export const geminiProvider: LlmProvider = {
   async streamChatCompletion(systemPrompt, history, onDelta, onWebSources, opts) {
     if (opts?.tools?.length && opts.onToolCall) {
-      return attemptWithTools(systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal);
+      return attemptWithTools(systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal, opts.onUsage);
     }
 
     const lastUserMessage = [...history].reverse().find((h) => h.role === "user")?.content ?? "";
@@ -231,6 +260,10 @@ export const geminiProvider: LlmProvider = {
     // second, competing current-info mechanism.
     const tryWithSearch = groundingAvailable && !hasAnySearchProviderConfigured() && needsCurrentInfo(lastUserMessage);
     let deltasSent = 0;
+    // usageMetadata, like groundingMetadata, only shows up on later chunks —
+    // keep the latest value seen. Reset per attempt() call so a retry/fallback
+    // attempt never reports a stale count from an earlier, abandoned one.
+    let lastUsage: { promptTokenCount?: number; candidatesTokenCount?: number } | undefined;
 
     // groundingMetadata is only populated on later chunks (often the last
     // one), so keep the latest value seen rather than the first.
@@ -239,6 +272,7 @@ export const geminiProvider: LlmProvider = {
       signal: AbortSignal | undefined = opts?.signal,
       deltaHandler: (text: string) => void = onDelta
     ): Promise<unknown> {
+      lastUsage = undefined;
       const stream = await getClient().models.generateContentStream(
         buildRequest(systemPrompt, history, withSearch, signal)
       );
@@ -251,8 +285,31 @@ export const geminiProvider: LlmProvider = {
         }
         const md = chunk.candidates?.[0]?.groundingMetadata;
         if (md) grounding = md;
+        if (chunk.usageMetadata) lastUsage = chunk.usageMetadata;
       }
       return grounding;
+    }
+
+    function reportUsage(): void {
+      if (!opts?.onUsage) return;
+      opts.onUsage(
+        lastUsage
+          ? {
+              promptTokens: lastUsage.promptTokenCount ?? null,
+              completionTokens: lastUsage.candidatesTokenCount ?? null,
+              estimated: false,
+            }
+          : {
+              // Gemini reliably reports usageMetadata; this only fires if
+              // that ever changes. No safe way to estimate output length
+              // here without threading a text accumulator through every
+              // delta path above, so completion is left unknown rather
+              // than guessed.
+              promptTokens: estimateTokens(systemPrompt + history.map((h) => h.content).join("\n")),
+              completionTokens: null,
+              estimated: true,
+            }
+      );
     }
 
     // Races the search-grounded attempt against SEARCH_SOFT_TIMEOUT_MS.
@@ -348,6 +405,7 @@ export const geminiProvider: LlmProvider = {
         const sources = extractWebSources(grounding);
         if (sources.length > 0) onWebSources(sources);
       }
+      reportUsage();
     } catch (err) {
       // Defense in depth: grounding looked available (probe succeeded, or
       // hasn't run yet) but this specific call still failed with nothing
@@ -355,6 +413,7 @@ export const geminiProvider: LlmProvider = {
       if (tryWithSearch && deltasSent === 0) {
         groundingAvailable = false;
         await attempt(false);
+        reportUsage();
         return;
       }
       throw err;

@@ -1,7 +1,7 @@
-import type { ChatTurn, LlmProvider, ToolCallHandler, ToolDefinition, WebSource } from "./llmProvider.js";
+import type { ChatTurn, LlmProvider, TokenUsage, ToolCallHandler, ToolDefinition, WebSource } from "./llmProvider.js";
 import { geminiProvider } from "./providers/gemini.js";
 import { deepseekProvider } from "./providers/deepseek.js";
-import { ollamaProvider, isOllamaAvailable } from "./providers/ollama.js";
+import { ollamaProvider, isOllamaAvailable, wasModelWarm } from "./providers/ollama.js";
 import { isHealthy, recordSuccess, recordFailure } from "./providerHealth.js";
 import { classifyError, affectsProviderHealth, type ErrorKind } from "./retryClassifier.js";
 import { pickOllamaModel, type TaskCapability } from "./models/modelRegistry.js";
@@ -135,6 +135,13 @@ export interface RouteResult {
   firstTokenMs?: number;
   totalMs?: number;
   hedged?: boolean;
+  taskCapability: TaskCapability;
+  // Every provider tried/skipped before the one that actually answered —
+  // "what failed above it," not just whether this was a fallback.
+  attempts: { name: string; reason: string }[];
+  usage?: TokenUsage;
+  // Ollama only — best-effort per providers/ollama.ts's wasModelWarm().
+  wasWarm?: boolean;
 }
 
 // A provider that never starts responding is a worse failure mode than one
@@ -182,6 +189,7 @@ function hedgeDelayMs(): number {
 interface AttemptOutcome {
   deltasSent: number;
   firstTokenMs: number | null;
+  usage?: TokenUsage;
 }
 
 // Runs one provider attempt with a first-token deadline. Resolves/rejects
@@ -209,6 +217,7 @@ function attemptWithTimeout(
   const startedAt = Date.now();
   let deltasSent = 0;
   let firstTokenMs: number | null = null;
+  let usage: TokenUsage | undefined;
   let settled = false;
 
   return new Promise<AttemptOutcome>((resolve, reject) => {
@@ -270,12 +279,15 @@ function attemptWithTimeout(
         model,
         tools,
         onToolCall,
+        onUsage: (u) => {
+          usage = u;
+        },
       })
       .then(() => {
         if (!settled) {
           settled = true;
           clearTimeout(timer);
-          resolve({ deltasSent, firstTokenMs });
+          resolve({ deltasSent, firstTokenMs, usage });
         }
       })
       .catch((err) => {
@@ -329,7 +341,8 @@ function runHedgedPair(
   history: ChatTurn[],
   onDelta: (text: string) => void,
   onWebSources: ((s: WebSource[]) => void) | undefined,
-  hedgeDelayMs: number
+  hedgeDelayMs: number,
+  taskCapability: TaskCapability
 ): Promise<{ result: RouteResult | null; attempts: { name: string; reason: string }[] }> {
   const routeStart = Date.now();
   const attempts: { name: string; reason: string }[] = [];
@@ -365,11 +378,18 @@ function runHedgedPair(
               (isSecondary ? ` (hedged after ${hedgeDelayMs}ms against ${primary.name})` : "")
           );
           finish({
+            // Hedging is off by default and doesn't do per-request model
+            // selection or usage capture the way the sequential path does
+            // (see this function's own doc comment on known limitations) —
+            // taskCapability/attempts are real, usage/wasWarm are simply
+            // not collected on this path.
             result: {
               providerUsed: entry.name,
               fellBack: entry.name !== primary.name,
               totalMs: Date.now() - routeStart,
               hedged: isSecondary,
+              taskCapability,
+              attempts: [...attempts],
             },
             attempts,
           });
@@ -458,7 +478,8 @@ export async function routeChatCompletion(
           history,
           onDelta,
           onWebSources,
-          hedgeDelayMs()
+          hedgeDelayMs(),
+          taskCapability
         );
         consumedByHedge.add(entry.name);
         consumedByHedge.add(hedgeTarget.name);
@@ -472,9 +493,13 @@ export async function routeChatCompletion(
     // have one fixed model already baked into their own provider file, and
     // pickOllamaModel is a no-op call for them (result simply unused below).
     const model = entry.name === "ollama" ? pickOllamaModel(taskCapability)?.modelId : undefined;
+    // Checked *before* the attempt (attemptWithTimeout/ollama.ts's own
+    // markModelUsed would otherwise make every request "warm" by the time
+    // anything could ask) — best-effort per wasModelWarm()'s own caveats.
+    const wasWarm = entry.name === "ollama" && model ? wasModelWarm(model) : undefined;
 
     try {
-      const { deltasSent, firstTokenMs } = await attemptWithTimeout(
+      const { deltasSent, firstTokenMs, usage } = await attemptWithTimeout(
         entry,
         systemPrompt,
         history,
@@ -499,6 +524,10 @@ export async function routeChatCompletion(
         firstTokenMs: firstTokenMs ?? undefined,
         totalMs: Date.now() - routeStart,
         hedged: false,
+        taskCapability,
+        attempts: [...attempts],
+        usage,
+        wasWarm,
       };
     } catch (err) {
       const deltasSentHere = (err as { __deltasSent?: number })?.__deltasSent ?? 0;

@@ -63,3 +63,34 @@ describe("ensureOllamaChecked", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("wasModelWarm", () => {
+  it("reports cold for a model never used, then warm immediately after a real request", async () => {
+    const encoder = new TextEncoder();
+    const chatStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        url.includes("/api/tags")
+          ? Promise.resolve(new Response(JSON.stringify({ models: [] }), { status: 200 }))
+          : Promise.resolve(new Response(chatStream, { status: 200 }))
+      )
+    );
+
+    const { ollamaProvider, wasModelWarm } = await import("./ollama.js");
+
+    expect(wasModelWarm("qwen3:8b")).toBe(false);
+
+    await ollamaProvider.streamChatCompletion("sys", [], () => {}, undefined, { model: "qwen3:8b" });
+
+    expect(wasModelWarm("qwen3:8b")).toBe(true);
+    // A different, never-requested model stays cold — this isn't a global flag.
+    expect(wasModelWarm("qwen3:4b")).toBe(false);
+  });
+});

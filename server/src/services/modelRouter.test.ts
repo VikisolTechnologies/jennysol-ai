@@ -5,6 +5,7 @@ vi.mock("./providers/deepseek.js", () => ({ deepseekProvider: { streamChatComple
 vi.mock("./providers/ollama.js", () => ({
   ollamaProvider: { streamChatCompletion: vi.fn() },
   isOllamaAvailable: vi.fn(() => false),
+  wasModelWarm: vi.fn(() => false),
 }));
 
 import { geminiProvider } from "./providers/gemini.js";

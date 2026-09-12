@@ -17,6 +17,7 @@ import {
 import * as runStore from "./agentRunStore.js";
 import { publish } from "./runBus.js";
 import { registerRun, unregisterRun } from "./runCancellation.js";
+import { recordRequest } from "./requestMetrics.js";
 
 function emit(runId: string, type: string, payload?: unknown): runStore.AgentEvent {
   const event = runStore.appendEvent(runId, type, payload);
@@ -97,6 +98,8 @@ function logTiming(
   timings: RunTimings,
   context: BuiltContext
 ) {
+  const firstTokenMs = timings.firstTokenAt ? timings.firstTokenAt - timings.startedAt : null;
+  const totalMs = timings.completedAt ? timings.completedAt - timings.startedAt : null;
   console.log(
     JSON.stringify({
       event: "chat_timing",
@@ -105,15 +108,37 @@ function logTiming(
       userId,
       provider: routeResult.providerUsed,
       model: routeResult.model ?? null,
+      taskCapability: routeResult.taskCapability,
       fellBack: routeResult.fellBack,
+      // What was tried/skipped before the provider that actually answered —
+      // "why this was a fallback," not just that it was one.
+      attemptsBeforeWinner: routeResult.attempts,
       hedged: routeResult.hedged ?? false,
+      wasWarm: routeResult.wasWarm ?? null,
+      promptTokens: routeResult.usage?.promptTokens ?? null,
+      completionTokens: routeResult.usage?.completionTokens ?? null,
+      tokensEstimated: routeResult.usage?.estimated ?? null,
       retrievalSkipped: context.retrievalSkipped,
       historyTurnsSent: context.turns.length,
       contextBuiltMs: timings.contextBuiltAt ? timings.contextBuiltAt - timings.startedAt : null,
-      firstTokenMs: timings.firstTokenAt ? timings.firstTokenAt - timings.startedAt : null,
-      totalMs: timings.completedAt ? timings.completedAt - timings.startedAt : null,
+      firstTokenMs,
+      totalMs,
     })
   );
+  recordRequest({
+    timestamp: Date.now(),
+    provider: routeResult.providerUsed,
+    model: routeResult.model,
+    taskCapability: routeResult.taskCapability,
+    fellBack: routeResult.fellBack,
+    firstTokenMs,
+    totalMs,
+    promptTokens: routeResult.usage?.promptTokens ?? null,
+    completionTokens: routeResult.usage?.completionTokens ?? null,
+    tokensEstimated: routeResult.usage?.estimated ?? null,
+    wasWarm: routeResult.wasWarm ?? null,
+    outcome: "success",
+  });
 }
 
 // Runs independently of any HTTP response — persists to SQLite regardless of
@@ -356,6 +381,31 @@ export async function executeChatRun(
       const message = describeError(err);
       runStore.markFailed(runId, message);
       emit(runId, "error", { error: message });
+
+      // One record per provider actually attempted (not per entry merely
+      // skipped as unconfigured/in-cooldown) — keeps error rate meaningful:
+      // "of the times we tried this provider, how often did it fail," not
+      // diluted by entries that were never really in the running.
+      if (err instanceof AllProvidersUnavailableError) {
+        const timestamp = Date.now();
+        for (const attempt of err.attempts) {
+          if (attempt.reason === "not configured" || attempt.reason === "in cooldown") continue;
+          recordRequest({
+            timestamp,
+            provider: attempt.name,
+            taskCapability: classifyTask(message),
+            fellBack: false,
+            firstTokenMs: null,
+            totalMs: null,
+            promptTokens: null,
+            completionTokens: null,
+            tokensEstimated: null,
+            wasWarm: null,
+            outcome: "error",
+            errorKind: attempt.reason,
+          });
+        }
+      }
     }
   } finally {
     unregisterRun(runId);

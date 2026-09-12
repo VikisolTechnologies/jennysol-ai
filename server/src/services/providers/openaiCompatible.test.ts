@@ -37,6 +37,34 @@ describe("streamOpenAiCompatible — plain chat (no tools)", () => {
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body.tools).toBeUndefined();
   });
+
+  it("requests include_usage and reports real usage when the API sends it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([contentChunk("hi"), { choices: [], usage: { prompt_tokens: 12, completion_tokens: 3 } }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onUsage = vi.fn();
+    await streamOpenAiCompatible("http://fake/v1/chat/completions", {}, "test-model", "sys", [], () => {}, { onUsage });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.stream_options).toEqual({ include_usage: true });
+    expect(onUsage).toHaveBeenCalledWith({ promptTokens: 12, completionTokens: 3, estimated: false });
+  });
+
+  it("falls back to an estimate, clearly labeled, if a response ends without a usage chunk", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([contentChunk("hi there")]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onUsage = vi.fn();
+    await streamOpenAiCompatible("http://fake/v1/chat/completions", {}, "test-model", "sys", [], () => {}, { onUsage });
+
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    const usage = onUsage.mock.calls[0][0];
+    expect(usage.estimated).toBe(true);
+    expect(usage.completionTokens).toBeGreaterThan(0);
+    expect(usage.promptTokens).toBeGreaterThan(0);
+  });
 });
 
 describe("streamOpenAiCompatible — tool calling", () => {

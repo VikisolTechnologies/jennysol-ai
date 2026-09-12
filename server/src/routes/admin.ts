@@ -8,6 +8,7 @@ import { getProviderRouteStatus } from "../services/modelRouter.js";
 import { getHealthSnapshot } from "../services/providerHealth.js";
 import { getHardwareSnapshot } from "../services/models/hardwareProfile.js";
 import { listInstalledOllamaModels } from "../services/providers/ollama.js";
+import { getMetricsSummary } from "../services/requestMetrics.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);
@@ -43,6 +44,17 @@ adminRouter.get("/provider-health", async (_req, res) => {
     providers: providers.map((p) => ({ ...p, health: health[p.name] ?? null })),
     hardware,
     ollamaModels,
+  });
+});
+
+// Admin-only — per-provider rolling request metrics (Phase 1 of
+// JENNYSOL-LOCAL-CUTOVER.md: "you cannot decide what you cannot see").
+// In-memory only, same as providerHealth.ts — this is for judgement calls
+// about the local-cutover decision, not a persisted audit trail.
+adminRouter.get("/request-metrics", (_req, res) => {
+  res.json({
+    last1h: getMetricsSummary(60 * 60 * 1000),
+    last24h: getMetricsSummary(24 * 60 * 60 * 1000),
   });
 });
 

@@ -1,4 +1,14 @@
-import type { ChatTurn, StreamOptions, ToolCall, ToolCallHandler, ToolDefinition } from "../llmProvider.js";
+import type { ChatTurn, StreamOptions, TokenUsage, ToolCall, ToolCallHandler, ToolDefinition } from "../llmProvider.js";
+
+// Rough, clearly-labeled fallback for the rare case a request errors out (or
+// is aborted) before any usage chunk arrives — Ollama and DeepSeek both
+// report real usage via stream_options.include_usage on a normal completion
+// (confirmed live against Ollama 0.33.3), so this estimate is a safety net,
+// not the common case. ~4 chars/token is the standard ballpark for English
+// text — good enough for a rolling dashboard, not for billing.
+export function estimateTokens(text: string): number {
+  return Math.max(1, Math.round(text.length / 4));
+}
 
 // Shared streaming client for any OpenAI-compatible chat completions endpoint
 // (DeepSeek, Ollama, and most other providers all speak this same shape).
@@ -12,7 +22,7 @@ export async function streamOpenAiCompatible(
   opts?: StreamOptions
 ): Promise<void> {
   if (opts?.tools?.length && opts.onToolCall) {
-    return attemptWithTools(url, headers, model, systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal);
+    return attemptWithTools(url, headers, model, systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal, opts.onUsage);
   }
 
   const res = await fetch(url, {
@@ -22,6 +32,7 @@ export async function streamOpenAiCompatible(
     body: JSON.stringify({
       model,
       stream: true,
+      stream_options: { include_usage: true },
       messages: [
         { role: "system", content: systemPrompt },
         ...history.map((h) => ({ role: h.role, content: h.content })),
@@ -41,6 +52,8 @@ export async function streamOpenAiCompatible(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let assistantText = "";
+  let realUsage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -53,9 +66,30 @@ export async function streamOpenAiCompatible(
     for (const line of lines) {
       const payload = line.replace(/^data: /, "").trim();
       if (!payload || payload === "[DONE]") continue;
-      const delta = JSON.parse(payload)?.choices?.[0]?.delta?.content;
-      if (delta) onDelta(delta);
+      const parsed = JSON.parse(payload);
+      const delta = parsed?.choices?.[0]?.delta?.content;
+      if (delta) {
+        assistantText += delta;
+        onDelta(delta);
+      }
+      if (parsed?.usage) realUsage = parsed.usage;
     }
+  }
+
+  if (opts?.onUsage) {
+    opts.onUsage(
+      realUsage
+        ? {
+            promptTokens: realUsage.prompt_tokens ?? null,
+            completionTokens: realUsage.completion_tokens ?? null,
+            estimated: false,
+          }
+        : {
+            promptTokens: estimateTokens(systemPrompt + history.map((h) => h.content).join("\n")),
+            completionTokens: estimateTokens(assistantText),
+            estimated: true,
+          }
+    );
   }
 }
 
@@ -90,7 +124,8 @@ async function attemptWithTools(
   onDelta: (text: string) => void,
   tools: ToolDefinition[],
   onToolCall: ToolCallHandler,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onUsage?: (usage: TokenUsage) => void
 ): Promise<void> {
   // OpenAI-shaped message history this loop grows round to round — starts
   // from the same plain (role, content) turns as the non-tool path, then
@@ -100,13 +135,17 @@ async function attemptWithTools(
     ...history.map((h) => ({ role: h.role, content: h.content })),
   ];
   const openAiTools = toOpenAiTools(tools);
+  let totalCompletionTokens = 0;
+  let lastPromptTokens: number | undefined;
+  let anyRealUsage = false;
+  let allAssistantText = "";
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       signal,
-      body: JSON.stringify({ model, stream: true, messages, tools: openAiTools }),
+      body: JSON.stringify({ model, stream: true, stream_options: { include_usage: true }, messages, tools: openAiTools }),
     });
 
     if (!res.ok || !res.body) {
@@ -136,10 +175,17 @@ async function attemptWithTools(
       for (const line of lines) {
         const payload = line.replace(/^data: /, "").trim();
         if (!payload || payload === "[DONE]") continue;
-        const delta = JSON.parse(payload)?.choices?.[0]?.delta;
+        const parsed = JSON.parse(payload);
+        if (parsed?.usage) {
+          anyRealUsage = true;
+          lastPromptTokens = parsed.usage.prompt_tokens ?? lastPromptTokens;
+          totalCompletionTokens += parsed.usage.completion_tokens ?? 0;
+        }
+        const delta = parsed?.choices?.[0]?.delta;
         if (!delta) continue;
         if (delta.content) {
           assistantText += delta.content;
+          allAssistantText += delta.content;
           onDelta(delta.content);
         }
         for (const tc of delta.tool_calls ?? []) {
@@ -158,7 +204,10 @@ async function attemptWithTools(
       }
     }
 
-    if (callsByIndex.size === 0) return; // model answered in plain text — this round is the final one
+    if (callsByIndex.size === 0) {
+      reportUsage();
+      return; // model answered in plain text — this round is the final one
+    }
 
     const calls = [...callsByIndex.values()];
     messages.push({
@@ -194,4 +243,18 @@ async function attemptWithTools(
   // Bounded loop exhausted without a plain-text final answer — never leave
   // the turn silently empty (same fallback gemini.ts uses).
   onDelta("I tried a few tool calls but couldn't reach a final answer — mind rephrasing your question?");
+  reportUsage();
+
+  function reportUsage(): void {
+    if (!onUsage) return;
+    onUsage(
+      anyRealUsage
+        ? { promptTokens: lastPromptTokens ?? null, completionTokens: totalCompletionTokens, estimated: false }
+        : {
+            promptTokens: estimateTokens(systemPrompt + history.map((h) => h.content).join("\n")),
+            completionTokens: estimateTokens(allAssistantText),
+            estimated: true,
+          }
+    );
+  }
 }

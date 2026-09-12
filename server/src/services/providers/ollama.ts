@@ -26,6 +26,24 @@ export function getActiveOllamaRuns(): number {
   return activeRuns;
 }
 
+// Best-effort warm/cold signal for observability, not a real query of
+// Ollama's own residency state (Ollama exposes no API for "is this model
+// currently loaded") — approximated from our own request history instead.
+// Default window matches Ollama's own default model unload timeout (5
+// minutes) so "warm" here means "recently used enough that Ollama probably
+// hasn't evicted it yet," not a guarantee.
+const lastUsedAt = new Map<string, number>();
+const WARM_WINDOW_MS = Number(process.env.OLLAMA_WARM_WINDOW_MS) || 5 * 60 * 1000;
+
+export function wasModelWarm(modelId: string): boolean {
+  const last = lastUsedAt.get(modelId);
+  return last !== undefined && Date.now() - last < WARM_WINDOW_MS;
+}
+
+function markModelUsed(modelId: string): void {
+  lastUsedAt.set(modelId, Date.now());
+}
+
 function atCapacity(): boolean {
   return activeRuns >= getHardwareProfile().maxConcurrentLocalRuns;
 }
@@ -39,17 +57,11 @@ export const ollamaProvider: LlmProvider = {
       err.code = "at_capacity";
       throw err;
     }
+    const model = opts?.model || DEFAULT_MODEL;
     activeRuns++;
+    markModelUsed(model);
     try {
-      await streamOpenAiCompatible(
-        `${BASE_URL}/v1/chat/completions`,
-        {},
-        opts?.model || DEFAULT_MODEL,
-        systemPrompt,
-        history,
-        onDelta,
-        opts
-      );
+      await streamOpenAiCompatible(`${BASE_URL}/v1/chat/completions`, {}, model, systemPrompt, history, onDelta, opts);
     } finally {
       activeRuns--;
     }
