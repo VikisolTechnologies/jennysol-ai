@@ -25,9 +25,9 @@ available. This document is about making that fleet small, license-safe, and rel
 | Category | Status |
 |---|---|
 | General chat | **Live** — `qwen3:8b` (local), Gemini + DeepSeek (cloud) |
-| Fast / small | Registered, pull in progress this session — `qwen3:4b` |
-| Coding | Registered, pull in progress this session — `qwen2.5-coder:7b` |
-| Reasoning | Registered, pull in progress this session — `deepseek-r1:7b` |
+| Fast / small | **Installed and verified this session** — `qwen3:4b` |
+| Coding | **Installed and verified this session** — `qwen2.5-coder:7b`, real router benchmark: 3.3s first token |
+| Reasoning | **Installed**, but see [Real finding](#real-finding-the-reasoning-model-is-currently-unreachable-through-normal-routing) — `deepseek-r1:7b` is pulled and functional standalone, but the router never actually selects it today |
 | Tool calling | **Live** — Gemini (native), Ollama + DeepSeek (via the shared OpenAI-compatible client, implemented and unit-tested last session) |
 | Embeddings | **Live**, but not via Ollama — see below |
 | Long context | Gemini (1M tokens, cloud); Qwen3 (256K, local) — no dedicated long-context-only model needed at current scale |
@@ -43,9 +43,9 @@ available. This document is about making that fleet small, license-safe, and rel
 | General (primary) | `qwen3:8b` | Ollama | Apache 2.0 | Yes (prior session) |
 | General (cloud) | `gemini-3.5-flash-lite` | Gemini API | Proprietary | N/A (API) |
 | General (cloud fallback) | `deepseek-v4-flash` | DeepSeek API | Proprietary | N/A (API), key not yet configured in production |
-| Fast/small | `qwen3:4b` | Ollama | Apache 2.0 | **Pull started this session** (background, in progress at time of writing — verify with `ollama list` before relying on it) |
-| Coding | `qwen2.5-coder:7b` | Ollama | Apache 2.0 | **Pull started this session** (same caveat) |
-| Reasoning | `deepseek-r1:7b` | Ollama | MIT (DeepSeek) + Apache 2.0 (Qwen2.5 base) — corrected this session, was previously mislabeled plain "MIT" in the registry | **Pull started this session** (same caveat) |
+| Fast/small | `qwen3:4b` | Ollama | Apache 2.0 | **Yes — pulled and confirmed via `ollama list` this session** |
+| Coding | `qwen2.5-coder:7b` | Ollama | Apache 2.0 | **Yes — pulled and confirmed; real router benchmark 3.25s first token (warm)** |
+| Reasoning | `deepseek-r1:7b` | Ollama | MIT (DeepSeek) + Apache 2.0 (Qwen2.5 base) — corrected this session, was previously mislabeled plain "MIT" in the registry | **Yes — pulled and confirmed** (first pull attempt hit a transient DNS failure on Ollama's CDN, retried successfully). Functional when explicitly requested by exact model id, but see the routing gap below — it's not what `pickOllamaModel("reasoning")` actually returns today |
 | Embedding | `Xenova/all-MiniLM-L6-v2` | In-process ONNX (`@huggingface/transformers`) | Apache 2.0 (base model) | Yes, predates this session — **this is the real RAG embedder**, not `nomic-embed-text` |
 | Embedding (registered, unused) | `nomic-embed-text` | Ollama | Apache 2.0 | No — registered for future use/CLI visibility only; RAG does not call it |
 
@@ -54,6 +54,58 @@ measured warm first-token latency (~9s) and >10s cold starts. A 2.5GB model has 
 first-token latency for simple queries; the router doesn't yet route "simple" requests to it
 specifically (see [Router changes](#router-changes-recommended-not-implemented) below) but having it
 pulled is the prerequisite for that.
+
+## Real benchmark through JennySol's own router (not just the Ollama CLI)
+
+Per the governing directive's own distinction between testing a model directly and testing it
+through the real USER → JENNYSOL → ROUTER → MODEL → STREAM path: a throwaway script (written,
+run, and deleted this session — not committed) called `routeChatCompletion()` itself, the same
+function `chatRunner.ts` calls for real user traffic, with `LLM_PROVIDER_CHAIN=ollama` forced and
+`ensureOllamaChecked()` awaited first (a short-lived-process race the existing `models-cli.ts`
+benchmark command already works around the same way). Real, measured results:
+
+| Capability requested | Model the router actually picked | First token (warm) | Notes |
+|---|---|---|---|
+| `general` | `qwen3:8b` | 7.9s | Matches the prior session's ~9s measurement; see the timeout finding below |
+| `coding` | `qwen2.5-coder:7b` | 3.3s | Materially faster — a real, measured reason to route coding tasks here rather than the general model |
+| `reasoning` (requested explicitly) | **`qwen3:8b` — not `deepseek-r1:7b`** | 7.0s / 13.9s (two runs) | See finding below |
+
+### Real finding: the reasoning model is currently unreachable through normal routing
+
+Two independent, compounding gaps, both confirmed by running real code rather than reading it:
+
+1. `classifyTask()` (`modelRegistry.ts`) only ever classifies a message as `currentInfoSummarization`,
+   `coding`, or `general` — nothing in the codebase ever produces `"reasoning"` from message content.
+   No normal chat request can reach a reasoning-tagged model today regardless of what's registered.
+2. Even when `"reasoning"` is requested explicitly (as this benchmark did, bypassing
+   `classifyTask()`), `pickOllamaModel("reasoning")` **still returns `qwen3:8b`, not
+   `deepseek-r1:7b`** — confirmed live, twice. Root cause, read from `modelRegistry.ts`: `qwen3:8b`'s
+   own `capabilities` array already includes `"reasoning"` alongside `"general"`, so it's a candidate
+   too; `bestOf()`'s tie-break after quality-class (`qwen3:8b`: capable/medium-latency vs.
+   `deepseek-r1:7b`: capable/**slow**-latency) favors the faster one — which is the general model, not
+   the model actually specialized for reasoning. `deepseek-r1:7b` is fully functional when called by
+   its exact model id directly (verified), it's just never what the picker returns.
+
+**Not fixed this session** — this is a real router-logic question (should a dedicated reasoning
+model always win over a faster generalist that merely also claims the capability, or is the current
+"prefer latency once quality ties" behavior actually the right default?) rather than an obvious bug,
+so it's flagged for a deliberate decision rather than silently changed. See
+[Router changes](#router-changes-recommended-not-implemented).
+
+### Real finding: the router's default first-token timeout is tight for a cold `qwen3:8b`
+
+The very first benchmark run against a cold (just-restarted-Ollama-process-equivalent) `qwen3:8b`
+produced a genuine `AllProvidersUnavailableError` — `ollama timed out waiting for first token
+(10000ms)` — against `LLM_FIRST_TOKEN_TIMEOUT_MS`'s 15000ms `.env.example` default (10000ms is the
+code's own internal fallback when unset, which is what this script hit since it didn't load
+`.env`). Once warm, the same model answered in 7-8s, under the 10s code-default but with very thin
+margin, and comfortably under the 15s `.env.example` default. **Real, practical implication**: on
+this Mac, with only Ollama configured (no cloud fallback), a cold `qwen3:8b` can genuinely fail a
+request outright rather than just answering slowly — this is not a hypothetical, it happened during
+this session's own testing. `LLM_HEDGE_ENABLED`/keep-warm strategies (Section 38 of the governing
+directive) are worth real consideration here; not implemented this session, since choosing a
+keep-warm approach (a periodic no-op ping vs. `OLLAMA_KEEP_ALIVE`-style configuration) is a small
+but real behavior change to evaluate deliberately rather than bolt on unilaterally.
 
 ## Models evaluated and NOT recommended
 
@@ -151,6 +203,19 @@ count").
    `qwen3:8b` specifically to cut first-token latency, mirroring how `classifyTask()` already
    detects coding/current-info. Not implemented — would need real latency measurement to justify
    the added routing complexity, not just intuition.
+4. **Reasoning-model tie-break** — confirmed live this session (see the benchmark section above):
+   `pickOllamaModel("reasoning")` currently returns `qwen3:8b`, never `deepseek-r1:7b`, because both
+   claim the `"reasoning"` capability and `bestOf()`'s latency tie-break favors the faster generalist.
+   Also, nothing in `classifyTask()` ever produces `"reasoning"` from message content in the first
+   place, so this path isn't reachable by normal chat traffic today regardless. Two independent,
+   real gaps — fixing either is a deliberate router-behavior decision (e.g., should a capability-
+   specific model always outrank a generalist that also claims it?), not something to change
+   unilaterally.
+5. **Cold-start timeout margin** — also confirmed live this session: a cold `qwen3:8b` can exceed
+   the router's default first-token timeout outright (a real `AllProvidersUnavailableError`, not a
+   slow-but-successful response), when Ollama is the only configured provider. A keep-warm strategy
+   or a higher default timeout specifically for local models are both reasonable fixes; neither was
+   picked unilaterally.
 
 ## Future RTX-5090 migration
 
