@@ -155,12 +155,22 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     costClass: "free",
     latencyClass: "slow",
     qualityClass: "capable",
-    license: "MIT (Qwen-2.5 base license applies to weights)",
+    // Dual license, not plain MIT: DeepSeek's own README (github.com/deepseek-ai/DeepSeek-R1,
+    // section 7) states the distillation code is MIT, but each distilled checkpoint stays
+    // under its base model's license — this tag is distilled onto Qwen2.5-7B, so Apache 2.0
+    // (Qwen2.5's license) also applies to the weights. Verified 2026-09-11 — see
+    // JENNY_MODEL_LICENSE_MATRIX.md. (A Llama-based R1 distill would instead carry the Llama
+    // Community License underneath — this tag deliberately isn't that one.)
+    license: "MIT (DeepSeek) + Apache 2.0 (Qwen2.5 base)",
     requiresDedicatedServer: false,
     enabled: true,
   },
   {
     provider: "ollama",
+    // Registered and license-verified, but NOT currently wired into RAG — the live embedding
+    // pipeline (server/src/services/embeddings.ts) uses a separate in-process ONNX model
+    // (Xenova/all-MiniLM-L6-v2 via @huggingface/transformers), unrelated to Ollama. This entry
+    // exists for the router/CLI surface (`npm run models`) and future use, not active RAG traffic.
     modelId: "nomic-embed-text",
     displayName: "Nomic Embed Text",
     localOrCloud: "local",
@@ -211,7 +221,7 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     costClass: "free",
     latencyClass: "slow",
     qualityClass: "frontier",
-    license: "MIT (Qwen-2.5 base license applies to weights)",
+    license: "MIT (DeepSeek) + Apache 2.0 (Qwen2.5 base)",
     requiresDedicatedServer: true,
     enabled: false,
   },
