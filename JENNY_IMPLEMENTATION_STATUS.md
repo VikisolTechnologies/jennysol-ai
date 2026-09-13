@@ -1168,10 +1168,15 @@ says so explicitly rather than blurring the two.
 
 ---
 
-### 46. Multi-Agent Orchestration — Session Data Model (Phase 1 of docs/AI_AGENT_IMPLEMENTATION_PLAN.md)
+### 46. Multi-Agent Orchestration (docs/AI_AGENT_IMPLEMENTATION_PLAN.md — running log, extended per phase)
 
-**Status: VERIFIED — schema live, store module tested (11/11), full suite green (436/436), zero
-implementation beyond this started.**
+**Status: VERIFIED — Phases 1-2 live and tested, full suite green. Rest of this entry is extended in
+place as each further phase lands, per that plan's own "do not fake autonomy" discipline: this log
+only ever describes what's actually running, never what's designed but not yet built.**
+
+#### Phase 1 — Session data model
+
+**Status: VERIFIED — schema live, store module tested (11/11).**
 
 New SQLite tables, same `CREATE TABLE IF NOT EXISTS` convention as everything else in `db/index.ts`,
 generalizing the existing `agent_runs`/`agent_events` pattern from one chat turn to a whole
@@ -1221,9 +1226,52 @@ this codebase guards against elsewhere. Corrected both architecture and plan doc
 small, new `agentToolRegistry.ts` keyed by `(sessionId, agentId)` instead, reusing only the
 `redactSecrets()` function, not the cross-product table/approval map.
 
-**Not started**: everything from Phase 2 onward (agent registry, task DAG resolution, event bus,
-scheduler, tool integration, the actual agent roles, the dashboard). This entry will be extended,
-not replaced, as each phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
+#### Phase 2 — Agent registry
+
+**Status: VERIFIED — 7/7 tests pass, full suite green (443/443), tsc clean.**
+
+`server/src/services/agentRegistry.ts` (new): CRUD over the `agents` table plus the role ->
+capability -> default-permission catalog (`ROLE_CATALOG`) covering all 14 roles named across the
+founding directive and the architecture doc (Orchestrator, Architect, Coder, QA, Security,
+Performance, Code Reviewer, Product Analyst, UX, UI, Backend, Database, Visual QA, Final Judge).
+Each role's `defaultTaskCapability` is one of `modelRegistry.ts`'s own existing `TaskCapability`
+values (`general`/`coding`/`reasoning`) — reused directly, not a new routing concept, so Phase 5's
+`runAgentTask()` can route any agent's model call through the exact same `routeChatCompletion()`
+capability hint chat already uses today.
+
+`spawnAgent(sessionId, role)` is pure logic — one row insert, no model call, no provider module
+import. Proven, not just asserted: spawning 50 agents in a single test completes in well under the
+500ms bound asserted (real 50-agent model calls would never fit there), which is the concrete,
+ongoing regression guard for the architecture's central "many logical agents, few concurrent model
+executions" claim (§6).
+
+`hasPermission(agent, permission)` exists and is tested, but — stated plainly, per this phase's own
+audit requirement — is **not wired into any real dispatch path yet**. There is no dispatch path yet:
+Phase 7's `agentToolRegistry.ts` is the real enforcement point. Recorded now so the `permissions`
+column is never merely a decorative JSON field even before that phase lands.
+
+Role -> capability -> default-permission table (this phase's documentation deliverable):
+
+| Role | Task capability | Default permissions |
+|---|---|---|
+| orchestrator | reasoning | memory:write_any, task:create |
+| architect | reasoning | file:read, memory:write_any |
+| coder | coding | file:read, file:write, exec:command |
+| qa | reasoning | file:read, exec:command |
+| security | reasoning | file:read, exec:command |
+| performance | reasoning | file:read, exec:command |
+| code_reviewer | coding | file:read |
+| product_analyst | general | file:read |
+| ux | general | file:read |
+| ui | coding | file:read, file:write |
+| backend | coding | file:read, file:write, exec:command |
+| database | coding | file:read, file:write, exec:command |
+| visual_qa | general | file:read, exec:command |
+| final_judge | reasoning | memory:write_any |
+
+**Not started**: Phase 3 onward (task DAG resolution, event bus, scheduler, tool integration, the
+actual agent role system prompts, the dashboard). This entry is extended in place, not replaced, as
+each further phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
 ---
 
