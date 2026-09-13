@@ -1302,9 +1302,41 @@ Tested directly against the founding directive's own §9 worked example as a lit
 self-dependency, 2-node cycle, 3-node cycle, and unknown-reference rejection cases — each asserting
 the whole batch inserts nothing, not just that the throw happens.
 
-**Not started**: Phase 4 onward (event bus, scheduler, tool integration, the actual agent role
-system prompts, the dashboard). This entry is extended in place, not replaced, as each further phase
-lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
+#### Phase 4 — Event bus (session-scoped)
+
+**Status: VERIFIED — 7/7 tests pass, full suite green (463/463), tsc clean.**
+
+`server/src/services/sessionEventBus.ts` (new): `appendSessionEvent()` (durable-first — writes
+`agent_session_events`, then publishes to an in-process `EventEmitter` keyed by `sessionId`, never
+the reverse order), `subscribeToSession()`, `getSessionEventsAfter()` — the exact same shape as
+`agentRunStore.appendEvent`/`runBus.ts`, one level up, generalized from run scope to session scope.
+Same single-process caveat already honestly documented for `runBus.ts` (would need Redis pub/sub if
+this ever runs as more than one instance — not needed today, see architecture doc §4).
+
+The real, implemented event taxonomy (this phase's documentation deliverable — the actual list, not
+the founding directive's illustrative one verbatim): `session.created`, `session.status_changed`,
+`task.ready/started/progress/completed/failed`, `agent.spawned/status_changed`,
+`tool.exec.started/finished`, `file.locked/changed/unlocked`, `memory.updated`,
+`checkpoint.started/completed`, `decision.raised/answered`, `audit.started/result`.
+
+**The two properties this phase's own audit specifically demanded, both proven by a real test, not
+assumed:**
+- **Durable-first ordering**: a live subscriber's handler queries the DB synchronously from inside
+  the callback and confirms the row already exists — proves the write happens before the publish,
+  not just that both happen.
+- **Zero subscribers never drops an event**: one test kills the session's only live subscriber
+  mid-session, appends two more events, and confirms both still land durably (`getSessionEventsAfter`
+  sees all three; the dead subscriber only ever saw the first). A second test never attaches a
+  subscriber at all and confirms events still accumulate. This is the concrete, ongoing regression
+  guard for architecture doc §3's "fake autonomy" defense — the event log, not the emitter, is truth.
+
+Also proven: a late subscriber's DB replay is byte-for-byte identical (type, payload, id) to what a
+live subscriber saw in real time for the same sequence — the literal test this phase's build note
+asked for.
+
+**Not started**: Phase 5 onward (the LLM provider touch-point, scheduler, tool integration, the
+actual agent role system prompts, the dashboard). This entry is extended in place, not replaced, as
+each further phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
 ---
 
