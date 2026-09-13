@@ -1460,7 +1460,47 @@ tasks change the real achievable concurrency") — splitting the pool by provide
 not required to prove out this phase's core claim, and is flagged here rather than built
 speculatively ahead of a real multi-role session (Phase 9) that would actually exercise it.
 
-**Not started**: Phase 7 onward (tool system integration, code execution, the actual agent role
+#### Phase 7 — Tool system integration
+
+**Status: VERIFIED — 6 (locks) + 10 (tool registry) = 16/16 new tests pass, full suite 492/493 (1
+correctly-skipped live test unaffected), tsc clean.**
+
+Two new modules, both new/parallel to the existing cross-product tool system per the corrected §2 —
+never built on `toolRegistry.ts`/`pendingActions.ts`:
+
+- `server/src/services/agentFileLocks.ts`: `requestLock(sessionId, filePath, agentId)` returns
+  `{outcome: "acquired"|"wait", granted: Promise<void>}` — an uncontended path/re-entrant request
+  acquires immediately; a contended one gets the real `"wait"` outcome plus a real `file.locked`
+  (`status: "wait"`) event, and its `granted` promise resolves only once the current holder actually
+  calls `releaseLock()`. **The locking state machine** (this phase's documentation requirement):
+  `UNLOCKED -> held by agent A` (on request) `-> {released -> UNLOCKED | requested by agent B while
+  held -> B enters WAIT -> A releases -> transferred to B, A's slot is now UNLOCKED}`. Proven directly
+  — the literal §12 test: two agents request the same path, the second gets `"wait"`, its promise is
+  observably still unresolved before the release and resolves only after; a 3-waiter queue is granted
+  in request order, not arbitrarily.
+- `server/src/services/agentToolRegistry.ts`: `readFile()` (READ tier, executes immediately, gated
+  on `hasPermission(agent, "file:read")`) and a real `proposeAgentAction`/`approveAgentAction`/
+  `rejectAgentAction` WRITE-tier flow for `file.write` (same propose-approve-execute *shape* as
+  ADR-004, new/parallel code) — the actual write function is module-private, reachable only through
+  `approveAgentAction()`, so a WRITE structurally cannot bypass approval. Every file tool is confined
+  to a resolved `WORKSPACE_ROOT` (this repo's root by default, overridable via
+  `AGENT_WORKSPACE_ROOT` for tests only) — a path that would resolve outside it is refused before
+  touching the filesystem, tested directly with a `"../../../etc/passwd"`-shaped path. Errors are
+  redacted through the *existing* `redactSecrets()` (the function, not the cross-product table) before
+  ever being written to an event.
+
+**Audit boundary, verified as strongly as this table allows**: a real approved file write was
+confirmed to leave `agent_audit_log`'s total row count completely unchanged (not just one query
+shape returning empty) — internal agent tool calls produce `agent_session_events` rows exclusively,
+never touching the cross-product audit table, which stays reserved for real product-connector
+traffic.
+
+**Test isolation note**: `agentToolRegistry.test.ts` runs against a throwaway `mkdtempSync` directory
+(never this repo's own tree) — `AGENT_WORKSPACE_ROOT` must be set synchronously before that module's
+dynamic import, since the workspace root is resolved once at that module's own load time; a
+`beforeAll()` hook would run too late to affect it (caught while first writing this test).
+
+**Not started**: Phase 8 onward (the actual command-execution tool, output capture, the agent role
 system prompts). This entry is extended in place, not replaced, as each further phase lands — see
 `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
