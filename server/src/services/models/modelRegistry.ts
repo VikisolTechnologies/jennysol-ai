@@ -36,6 +36,21 @@ export interface ModelEntry {
 // Curated, not exhaustive — see modelRouter.ts's REGISTRY comment for the
 // same philosophy applied to providers: adding a model later is a new
 // entry here (plus, for Ollama, actually pulling it), not a redesign.
+// JENNYSOL-CONTINUE.md Phase 3 routing-table audit finding: the two cloud
+// entries' `capabilities` arrays below are NEVER actually consulted by any
+// real routing decision — confirmed by tracing every call site. Cloud
+// provider selection happens entirely in modelRouter.ts's own resolveChain()
+// against ITS OWN separate REGISTRY (name/provider/configured() only,
+// chain-order-based, already self-documented there as "no capability-scored
+// cloud selection exists"); modelsFor() (the only reader of `capabilities`
+// anywhere in this file) is only ever called from pickOllamaModel(), which
+// immediately filters to `provider === "ollama"`. So these two arrays are
+// accurate as a description of what each cloud model is good at, but
+// decorative as data — nothing routes a coding request to DeepSeek
+// *because* its capabilities list "coding". Not a bug (the underlying
+// design choice is deliberate and documented in modelRouter.ts), but worth
+// knowing before assuming a capability tag here changes real behavior for
+// a cloud entry the way it does for an Ollama one.
 export const MODEL_REGISTRY: ModelEntry[] = [
   // ---- Cloud (already live in this app; see providers/gemini.ts, deepseek.ts) ----
   {
@@ -74,6 +89,21 @@ export const MODEL_REGISTRY: ModelEntry[] = [
   },
 
   // ---- Local (Ollama) — sizes verified via ollama.com/library ----
+  // JENNYSOL-CONTINUE.md Phase 3 routing-table audit finding: this entry
+  // can never actually be selected by pickOllamaModel() under the current
+  // registry, for any capability — confirmed directly (general → qwen3:8b,
+  // trivial → qwen3:4b, coding → qwen2.5-coder:7b, reasoning →
+  // deepseek-r1:7b, every time, on this hardware profile). It only claims
+  // "general," and qwen3:8b's higher qualityClass always wins that pool.
+  // Not installed on this Mac either (confirmed via `ollama list`). Its one
+  // real remaining role is as the string default for OLLAMA_MODEL
+  // (ollama.ts, .env.example) — a last-resort path that only fires if
+  // pickOllamaModel() ever returns undefined entirely, which requires the
+  // registry to have zero enabled, hardware-fitting "general" candidates —
+  // not a real condition today. Kept registered (rather than deleted)
+  // specifically so that unreachable-in-practice fallback string still
+  // points at a real, license-verified, hardware-checked entry rather than
+  // an unregistered, unverified model name, should it ever actually fire.
   {
     provider: "ollama",
     modelId: "llama3.2:3b",

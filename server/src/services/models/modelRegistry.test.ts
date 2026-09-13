@@ -112,4 +112,16 @@ describe("modelRegistry", () => {
     const picked = pickOllamaModel("general");
     expect(picked?.modelId).toBe("qwen3:8b");
   });
+
+  it("documents a real audit finding (Phase 3): llama3.2:3b is never actually selected for any real capability today", () => {
+    // Not a bug to fix — a known, current baseline this test locks in on
+    // purpose. If a future registry change ever makes this start winning
+    // (or stops another model from winning, leaving this as the
+    // survivor), that's a real behavior shift worth reviewing deliberately
+    // rather than discovering by accident.
+    const capabilities = ["general", "coding", "reasoning", "currentInfoSummarization", "trivial"] as const;
+    for (const capability of capabilities) {
+      expect(pickOllamaModel(capability)?.modelId).not.toBe("llama3.2:3b");
+    }
+  });
 });
