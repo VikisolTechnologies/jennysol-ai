@@ -9,6 +9,9 @@ import { getHealthSnapshot } from "../services/providerHealth.js";
 import { getHardwareSnapshot } from "../services/models/hardwareProfile.js";
 import { listInstalledOllamaModels } from "../services/providers/ollama.js";
 import { getMetricsSummary } from "../services/requestMetrics.js";
+import { getSessionUnscoped, listAllSessions, listMemory, listTasksForSession } from "../services/agentSessionStore.js";
+import { listAgentsForSession } from "../services/agentRegistry.js";
+import { getSessionEventsAfter } from "../services/sessionEventBus.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);
@@ -91,6 +94,42 @@ adminRouter.get("/users/:id/conversations/:conversationId", (req, res) => {
     return;
   }
   res.json({ messages: getConversationForAdmin(conversationId) });
+});
+
+// Multi-agent engineering dashboard (docs/AI_AGENT_SYSTEM_ARCHITECTURE.md §8) — admin-only by
+// design (see agentSessionStore.ts's getSessionUnscoped/listAllSessions doc comment): this is a
+// founder-facing tool for watching AI-engineering sessions that build JennySol itself, not a
+// consumer feature, so it lives under /api/admin (already requireAuth+requireAdmin above), not a
+// route a regular signed-in user can reach. Read-only for now — no phase before 9 (real agent
+// roles) can actually produce a session worth creating, so there is deliberately no "start a
+// session" route yet; an empty list here is honest, not a stub.
+adminRouter.get("/agent-sessions", (_req, res) => {
+  res.json({ sessions: listAllSessions() });
+});
+
+adminRouter.get("/agent-sessions/:id", (req, res) => {
+  const session = getSessionUnscoped(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  res.json({
+    session,
+    agents: listAgentsForSession(session.id),
+    tasks: listTasksForSession(session.id),
+    memory: listMemory(session.id),
+  });
+});
+
+// Event replay — same ?after=<id> cursor pattern as GET /api/agent/runs/:id/events, one level up.
+adminRouter.get("/agent-sessions/:id/events", (req, res) => {
+  const session = getSessionUnscoped(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  const after = Number(req.query.after) || 0;
+  res.json({ events: getSessionEventsAfter(session.id, after) });
 });
 
 const errorsQuerySchema = z.object({ page: z.coerce.number().int().min(1).default(1) });

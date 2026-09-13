@@ -124,6 +124,19 @@ export function getSession(userId: string, sessionId: string): AgentSession | nu
   return row ? rowToSession(row) : null;
 }
 
+// Unscoped by design — for the admin-only engineering dashboard (mounted under adminRouter, which
+// already gates on requireAdmin), which needs to see every session regardless of which user
+// launched it, not just the requesting admin's own. Never expose this through a non-admin route.
+export function getSessionUnscoped(sessionId: string): AgentSession | null {
+  const row = db.prepare(`SELECT * FROM agent_sessions WHERE id = ?`).get(sessionId) as SessionRow | undefined;
+  return row ? rowToSession(row) : null;
+}
+
+export function listAllSessions(): AgentSession[] {
+  const rows = db.prepare(`SELECT * FROM agent_sessions ORDER BY created_at DESC, rowid DESC`).all() as SessionRow[];
+  return rows.map(rowToSession);
+}
+
 export function listSessionsForUser(userId: string): AgentSession[] {
   // rowid as a tiebreaker: created_at (datetime('now')) only has second resolution, so two
   // sessions created within the same second — real under concurrent orchestration, not just a

@@ -218,9 +218,20 @@ held to for destructive git operations.
 
 ## 8. Live dashboard UI
 
-Lands on the already-stubbed `client/src/pages/Agents.tsx` / `Tasks.tsx` — both currently inert
-placeholders whose own source comments already say no backend exists yet, which is exactly true
-today and exactly what this build fills in. Architecture:
+**Correction (found by inspection before building it, not assumed): does NOT land on
+`client/src/pages/Agents.tsx`/`Tasks.tsx`.** Those routes are `RequireAuth`-only (any signed-in
+JennySol user, not just the founder) and their existing content is genuinely consumer-facing —
+planned JennySol product features (Research, Travel planning, a future Coding agent, Personal
+assistant; Tasks.tsx is a user's own ongoing/scheduled work). This multi-agent engineering system is
+a different thing entirely: a founder-facing tool for watching AI-engineering sessions that build
+JennySol itself. Putting it on `/agents`/`/tasks` would show every regular user an internal build-ops
+dashboard instead of (or mixed with) their own planned features — a real product-boundary error, the
+same category of mistake as the Arena/`ProductIdentity` one corrected in §2. **The actual home**:
+`client/src/pages/admin/AgentSessions.tsx` (list) and `AgentSessionDetail.tsx` (one session), under
+`/admin` (`RequireAdmin`-gated, same as `AdminDashboard.tsx`) — reachable only by an admin account,
+same as every other admin page in this codebase.
+
+Architecture:
 
 - **One SSE connection per open session** (extending, not replacing, `chat.ts`'s existing pattern),
   streaming `agent_session_events` rows as they're written — the event log is the only source of

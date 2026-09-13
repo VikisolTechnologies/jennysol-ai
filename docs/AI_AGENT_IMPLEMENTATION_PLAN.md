@@ -24,14 +24,19 @@ from there, not a prerequisite.
 gets built before the machinery behind it — but Phase 13 deliberately deferred the *live* dashboard
 until real events exist to render, specifically so the UI is never built against invented data
 (VIKISOL-BUILD-DOCTRINE.md §1/§3: "never fabricate activity"). Both are honored by splitting Phase
-13 in two instead of picking one: the dashboard **shell** (layout, design system, `Agents.tsx`/
-`Tasks.tsx` page structure, session/agent/task card components, empty states) is pulled forward to
-right after Phase 1, as soon as there's a real (honestly-empty) `agent_sessions` table to query — it
-renders "no active session" truthfully rather than a mock. Each phase from 2 onward that adds a real
-event type wires that event into the already-built shell immediately, so the UI is never mocked and
-never waits until Phase 13 to exist. Phase 13's remaining scope is only the parts that need many
-phases' worth of real traffic to test properly (reconnect/replay under load, the full activity-feed
-filter set, screenshots of a real Phase-12-scale session).
+13 in two instead of picking one: the dashboard **shell** — `client/src/pages/admin/AgentSessions.tsx`
+(list) + `AgentSessionDetail.tsx` (one session), under `/admin`, **not** `Agents.tsx`/`Tasks.tsx` (see
+architecture doc §8's correction — those are consumer routes for an unrelated feature set) — was
+pulled forward and built immediately after Phase 4, once there was a real (honestly-empty)
+`agent_sessions` table and a real event bus to query. It renders "no sessions yet" truthfully today,
+backed by real `GET /api/admin/agent-sessions[/:id][/events]` routes and 3s polling against the real
+`agent_session_events` table (not SSE yet — see below). Verified end-to-end with a real session,
+agent, task, memory entry and two events inserted directly and confirmed to round-trip through the
+actual HTTP routes with correct auth/admin gating (401/403/404 all confirmed) before this was called
+done. Each phase from 5 onward that adds a real event type needs no new page — it renders through
+the same shell immediately. Phase 13's remaining scope is only the parts that need real traffic at
+scale to test properly: swapping the 3s poll for the real SSE multiplexing design, reconnect/replay
+under load, the full activity-feed filter set, screenshots of a real Phase-12-scale session.
 
 ---
 

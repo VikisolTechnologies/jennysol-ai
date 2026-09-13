@@ -23,6 +23,10 @@ const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard").then((m
 const AdminUsers = lazy(() => import("./pages/admin/AdminUsers").then((m) => ({ default: m.AdminUsers })));
 const AdminUserDetail = lazy(() => import("./pages/admin/AdminUserDetail").then((m) => ({ default: m.AdminUserDetail })));
 const AdminErrors = lazy(() => import("./pages/admin/AdminErrors").then((m) => ({ default: m.AdminErrors })));
+const AgentSessions = lazy(() => import("./pages/admin/AgentSessions").then((m) => ({ default: m.AgentSessions })));
+const AgentSessionDetail = lazy(() =>
+  import("./pages/admin/AgentSessionDetail").then((m) => ({ default: m.AgentSessionDetail }))
+);
 const AccountLayout = lazy(() => import("./pages/account/AccountLayout").then((m) => ({ default: m.AccountLayout })));
 const AccountProfile = lazy(() => import("./pages/account/AccountProfile").then((m) => ({ default: m.AccountProfile })));
 const AccountSecurity = lazy(() => import("./pages/account/AccountSecurity").then((m) => ({ default: m.AccountSecurity })));
@@ -125,6 +129,8 @@ export default function App() {
           <Route path="users" element={<AdminUsers />} />
           <Route path="users/:id" element={<AdminUserDetail />} />
           <Route path="errors" element={<AdminErrors />} />
+          <Route path="agent-sessions" element={<AgentSessions />} />
+          <Route path="agent-sessions/:id" element={<AgentSessionDetail />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -75,6 +75,16 @@ describe("agentSessionStore", () => {
     expect(done.completedAt).not.toBeNull();
   });
 
+  it("getSessionUnscoped/listAllSessions see a session regardless of which user it belongs to — admin-only surface", () => {
+    const otherUserId = makeUser();
+    const session = sessionStore.createSession({ userId: otherUserId, objective: "someone else's" });
+
+    expect(sessionStore.getSessionUnscoped(session.id)?.id).toBe(session.id);
+    expect(sessionStore.listAllSessions().map((s) => s.id)).toContain(session.id);
+
+    db.prepare("DELETE FROM users WHERE id = ?").run(otherUserId);
+  });
+
   it("lists a user's sessions newest-first", () => {
     const a = sessionStore.createSession({ userId, objective: "first" });
     const b = sessionStore.createSession({ userId, objective: "second" });

@@ -1334,9 +1334,51 @@ Also proven: a late subscriber's DB replay is byte-for-byte identical (type, pay
 live subscriber saw in real time for the same sequence — the literal test this phase's build note
 asked for.
 
+#### Dashboard shell (pulled forward from Phase 13 — see plan doc's "Sequencing decision")
+
+**Status: VERIFIED — real end-to-end, not a health probe: inserted a real session/agent/task/memory
+entry/2 events directly via the service layer, then confirmed all three new admin routes return
+correct shapes over real HTTP with real auth; 401 (no token), 403 (non-admin token), 404 (unknown
+session id), and 200s all confirmed live, not assumed.**
+
+**Correction found before building (not assumed): the dashboard does NOT land on
+`client/src/pages/Agents.tsx`/`Tasks.tsx`** as the architecture doc originally said. Those are
+`RequireAuth`-only consumer routes with real, unrelated existing content (planned JennySol product
+agents — Research, Travel planning, etc.; Tasks.tsx is a user's own scheduled work) — putting an
+internal engineering-ops dashboard there would show it to every regular signed-in user. Corrected:
+built at `client/src/pages/admin/AgentSessions.tsx` (list) + `AgentSessionDetail.tsx` (one session),
+under `/admin` (`RequireAdmin`-gated, same as `AdminDashboard.tsx`), linked from `AdminLayout.tsx`'s
+nav. New server routes, admin-only: `GET /api/admin/agent-sessions`, `GET
+/api/admin/agent-sessions/:id`, `GET /api/admin/agent-sessions/:id/events` — added
+`getSessionUnscoped()`/`listAllSessions()` to `agentSessionStore.ts` for this (admin needs to see
+every session regardless of owner, unlike every other user-scoped read in this store).
+
+List view renders a real, honest empty state ("no engineering sessions yet — this is honest, not a
+stub") since no phase before 9 can produce a session worth creating. Detail view polls
+`GET .../events?after=` every 3s (not SSE yet — that's real remaining work, deliberately deferred to
+Phase 13 proper per the plan doc's sequencing note) and re-fetches the session/agents/tasks/memory
+snapshot whenever new events arrive, rather than deriving state from event payloads client-side —
+the same "event log is truth" discipline as everywhere else in this system.
+
+**Real operational finding surfaced while verifying this** (recorded since it matters beyond this
+phase): port 8787 is currently held by `in.vikisol.jennysol-server`, a real macOS LaunchAgent running
+compiled `dist/index.js` — this is the actual local-production server from the earlier
+Tailscale/railtail mission (LOCAL-INFRA.md), auto-restarting via `launchd`'s `KeepAlive`. A stale
+process from that same LaunchAgent (started 2026-09-11, i.e. a launch that predated this session)
+was squatting on `127.0.0.1:8787` specifically while this session's own `npm run dev` bound the
+wildcard `*:8787` — both listen calls silently succeeded (no `EADDRINUSE`), and all `localhost`
+traffic was actually reaching the two-day-stale process, not the fresh one, until this was noticed
+via a request-metrics route that should have existed and didn't. That stale instance was killed;
+`launchd` immediately respawned a fresh one (same compiled `dist/index.js`, unrelated to tonight's
+source changes) and it was confirmed healthy (`/health` → 200) before moving on. All further
+verification for this phase ran on an isolated port (8788) specifically to never contend with this
+real service again. **Flagging for the founder**: if a future session's local `curl`/dev-server
+testing against "localhost" ever behaves unexpectedly, check `lsof -nP -iTCP:8787` first — this
+LaunchAgent will answer for that port whether or not it holds the answer you expect.
+
 **Not started**: Phase 5 onward (the LLM provider touch-point, scheduler, tool integration, the
-actual agent role system prompts, the dashboard). This entry is extended in place, not replaced, as
-each further phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
+actual agent role system prompts). This entry is extended in place, not replaced, as each further
+phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
 ---
 

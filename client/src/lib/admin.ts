@@ -86,3 +86,116 @@ export async function fetchAdminErrors(
   const res = await authFetch(`/api/admin/errors?page=${page}`);
   return parseOrThrow(res);
 }
+
+// Multi-agent engineering dashboard (docs/AI_AGENT_SYSTEM_ARCHITECTURE.md §8) — see
+// server/src/routes/admin.ts's own comment on why this is admin-only. Shapes mirror
+// agentSessionStore.ts/agentRegistry.ts/sessionEventBus.ts's server-side types exactly; duplicated
+// here (not imported) since client and server don't share a types package in this codebase.
+export type AgentSessionStatus = "planning" | "running" | "paused" | "completed" | "cancelled" | "failed";
+
+export interface AgentSessionSummary {
+  id: string;
+  userId: string;
+  objective: string;
+  status: AgentSessionStatus;
+  maxSessionTimeMs: number | null;
+  maxTokenBudget: number | null;
+  maxCost: number | null;
+  maxAgentCount: number | null;
+  maxConcurrentAgents: number | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export type AgentTaskStatus =
+  | "pending"
+  | "ready"
+  | "queued"
+  | "running"
+  | "blocked"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface AgentTaskRow {
+  id: string;
+  sessionId: string;
+  agentId: string | null;
+  title: string;
+  description: string | null;
+  dependsOn: string[];
+  status: AgentTaskStatus;
+  priority: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  result: unknown;
+  createdAt: string;
+}
+
+export type AgentRowStatus =
+  | "idle"
+  | "planning"
+  | "working"
+  | "waiting"
+  | "blocked"
+  | "reviewing"
+  | "auditing"
+  | "failed"
+  | "completed"
+  | "cancelled";
+
+export interface AgentRow {
+  id: string;
+  sessionId: string;
+  role: string;
+  displayName: string;
+  modelProvider: string | null;
+  modelId: string | null;
+  status: AgentRowStatus;
+  capabilities: string[];
+  permissions: string[];
+  currentTaskId: string | null;
+  tokensUsed: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SessionMemoryEntryRow {
+  sessionId: string;
+  key: string;
+  value: unknown;
+  updatedAt: string;
+  updatedByAgentId: string | null;
+}
+
+export interface SessionEventRow {
+  id: number;
+  sessionId: string;
+  agentId: string | null;
+  taskId: string | null;
+  type: string;
+  payload: unknown;
+  createdAt: string;
+}
+
+export async function fetchAgentSessions(): Promise<AgentSessionSummary[]> {
+  const res = await authFetch("/api/admin/agent-sessions");
+  const data = await parseOrThrow(res);
+  return data.sessions;
+}
+
+export async function fetchAgentSessionDetail(id: string): Promise<{
+  session: AgentSessionSummary;
+  agents: AgentRow[];
+  tasks: AgentTaskRow[];
+  memory: SessionMemoryEntryRow[];
+}> {
+  const res = await authFetch(`/api/admin/agent-sessions/${id}`);
+  return parseOrThrow(res);
+}
+
+export async function fetchAgentSessionEvents(id: string, afterId = 0): Promise<SessionEventRow[]> {
+  const res = await authFetch(`/api/admin/agent-sessions/${id}/events?after=${afterId}`);
+  const data = await parseOrThrow(res);
+  return data.events;
+}
