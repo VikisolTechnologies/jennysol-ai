@@ -1168,6 +1168,65 @@ says so explicitly rather than blurring the two.
 
 ---
 
+### 46. Multi-Agent Orchestration — Session Data Model (Phase 1 of docs/AI_AGENT_IMPLEMENTATION_PLAN.md)
+
+**Status: VERIFIED — schema live, store module tested (11/11), full suite green (436/436), zero
+implementation beyond this started.**
+
+New SQLite tables, same `CREATE TABLE IF NOT EXISTS` convention as everything else in `db/index.ts`,
+generalizing the existing `agent_runs`/`agent_events` pattern from one chat turn to a whole
+multi-agent session (see `docs/AI_AGENT_SYSTEM_ARCHITECTURE.md` §5 for the full design rationale):
+
+- `agent_sessions` — one row per multi-agent session (`planning|running|paused|completed|cancelled|failed`),
+  with hard budget caps (`max_session_time_ms`, `max_token_budget`, `max_cost`, `max_agent_count`,
+  `max_concurrent_agents`) the Phase 6 Resource Manager will enforce. Deliberately **not** named
+  `sessions` — that name is already the auth-session table (`services/auth/sessions.ts`); grepped
+  every raw `sessions` reference in `server/src` before closing this phase to confirm zero collision.
+- `session_memory` — one row per top-level `SessionMemory` key (`session_id, key` composite PK), not
+  one JSON blob, so one agent can update one section without a read-modify-write race on the whole
+  object.
+- `agents` — a logical agent: one row, no model loaded and no process started until a scheduler
+  (Phase 6, not built yet) grants it an execution slot. `current_task_id`/`tokens_used` tracked per
+  row.
+- `agent_tasks` — the task DAG. `depends_on` is a JSON array of other `agent_tasks.id` values (edges);
+  readiness resolution and cycle detection are Phase 3, not this phase — this phase only stores the
+  edges as given.
+- `agent_session_events` — generalizes `agent_events`' append-only/replay-by-id pattern to session
+  scope; the sole source of truth the Phase 13 live dashboard will ever render from. Writer/reader
+  functions are Phase 4, not built yet — only the table exists so far.
+- `file_locks`, `user_decisions` — tables only; CRUD lands in Phase 7 and Phase 14 respectively.
+
+`server/src/services/agentSessionStore.ts` (new) mirrors `agentRunStore.ts`'s exact shape for the
+three pieces Phase 1 actually owns: session create/read/list/status, `session_memory` get/set/list,
+and `agent_tasks` create/read/list/status — every read scoped by owner (`getSession(userId, id)`) or
+by session (`getTask(sessionId, taskId)`) the same way `agentRunStore.getRun(userId, runId)` already
+is, proven by an explicit cross-session-leakage test, not assumed from the WHERE clause alone.
+
+**Two real bugs found by running the tests, not assumed away:**
+1. `listSessionsForUser`/`listTasksForSession` ordered by `created_at` (`datetime('now')`, second
+   resolution) alone — two rows created within the same second sorted arbitrarily. Fixed with a
+   `rowid` tiebreaker (SQLite's own monotonic insertion-order column, free on every rowid table).
+2. `updateTaskStatus`'s test passed a fake `agentId` that didn't exist in `agents` — `agent_tasks.agent_id`
+   has a real FK to `agents(id)` (`foreign_keys` pragma is `ON` for this whole DB), so the write
+   correctly rejected it. Not a bug in the store — fixed the test to insert a real `agents` row
+   first, the same way `agentRunStore.test.ts` inserts a real user/conversation row rather than
+   faking one.
+
+**Also corrected in this pass** (found by inspection before Phase 7 needed it, not assumed):
+`docs/AI_AGENT_SYSTEM_ARCHITECTURE.md` §2 previously claimed `toolRegistry.ts`/`pendingActions.ts`/
+`agentAuditLog.ts` were directly reusable for internal agent tool calls. They're hard-wired to
+`ProductIdentity` (Arena-style external callers, per ADR-002) — `client/src/pages/Agents.tsx`'s own
+existing comment already said reusing them internally would be exactly the cross-boundary shortcut
+this codebase guards against elsewhere. Corrected both architecture and plan docs: Phase 7 builds a
+small, new `agentToolRegistry.ts` keyed by `(sessionId, agentId)` instead, reusing only the
+`redactSecrets()` function, not the cross-product table/approval map.
+
+**Not started**: everything from Phase 2 onward (agent registry, task DAG resolution, event bus,
+scheduler, tool integration, the actual agent roles, the dashboard). This entry will be extended,
+not replaced, as each phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
+
+---
+
 ## PHASE 5 — Automatic Gap Analysis
 
 ### EXECUTIVE SUMMARY

@@ -20,6 +20,19 @@ runs short — a working 4-role session (Orchestrator, Architect, Coder, QA) wit
 real events, and a real dashboard proves the whole architecture; the other 10 roles are additive
 from there, not a prerequisite.
 
+**Sequencing decision (build order vs. phase numbers)**: per standing doctrine, the visible surface
+gets built before the machinery behind it — but Phase 13 deliberately deferred the *live* dashboard
+until real events exist to render, specifically so the UI is never built against invented data
+(VIKISOL-BUILD-DOCTRINE.md §1/§3: "never fabricate activity"). Both are honored by splitting Phase
+13 in two instead of picking one: the dashboard **shell** (layout, design system, `Agents.tsx`/
+`Tasks.tsx` page structure, session/agent/task card components, empty states) is pulled forward to
+right after Phase 1, as soon as there's a real (honestly-empty) `agent_sessions` table to query — it
+renders "no active session" truthfully rather than a mock. Each phase from 2 onward that adds a real
+event type wires that event into the already-built shell immediately, so the UI is never mocked and
+never waits until Phase 13 to exist. Phase 13's remaining scope is only the parts that need many
+phases' worth of real traffic to test properly (reconnect/replay under load, the full activity-feed
+filter set, screenshots of a real Phase-12-scale session).
+
 ---
 
 ## Phase 1 — Session data model
@@ -171,21 +184,26 @@ cloud-routed tasks change the real achievable concurrency).
 
 ## Phase 7 — Tool system integration
 
-**Build**: nothing new in `toolRegistry.ts`/`pendingActions.ts` (already solid) — this phase wires
-an agent's *declared* `permissions` (Phase 2) to real tool access: file read/write tools gated by
-`file_locks` (architecture doc §7), command-execution tools, and a first real WRITE-tier flow
-(propose→approve→execute) exercised by an actual agent task, not a test fixture standing in for one.
+**Build**: a new, small `agentToolRegistry.ts` — **not** `toolRegistry.ts`/`pendingActions.ts`,
+corrected in the architecture doc §2 after inspection showed those are hard-wired to
+`ProductIdentity` for Arena-style external callers; reusing them here would mean faking a product
+identity for an internal agent, the exact cross-boundary shortcut this codebase already guards
+against. The new module implements the same READ/WRITE-tier + propose→approve→execute *shape*, keyed
+by `(sessionId, agentId)` + the `agents.permissions` field (Phase 2) instead: file read/write tools
+gated by `file_locks` (architecture doc §7), command-execution tools, and a first real WRITE-tier
+flow exercised by an actual agent task, not a test fixture standing in for one.
 
-**Builds on**: `toolRegistry.ts`, `pendingActions.ts`, `agentAuditLog.ts` — reused unmodified.
+**Builds on**: `agents.permissions` (Phase 2), `file_locks` (Phase 1). Reuses only
+`redactSecrets()` (the function) from the cross-product path, not its table or approval map.
 
 **Test**: two agents both requesting a lock on the same file — one gets it, the other transitions to
 `WAIT` (a real, visible status, not a silent block) and acquires it the moment the first releases —
 this is the literal test of the founding directive's own §12 requirement ("never allow silent
 overwriting").
 
-**Audit/review**: every tool call an agent makes must produce a real `agent_audit_log` row via the
-*existing* mechanism — confirm this is actually true for the new agent-task path, not just the
-product-connector path it was built for.
+**Audit/review**: every tool call an agent makes must produce a real `agent_session_events` row of
+type `tool.exec.*` — confirm this holds for every tool path added in this phase, and that no such
+event ever reaches `agent_audit_log` (that table stays cross-product-only, per the corrected §2).
 
 **Document**: the exact locking state machine (`UNLOCKED → held by agent → {released | requested by
 another agent → WAIT → transferred}`).

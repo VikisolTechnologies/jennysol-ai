@@ -45,10 +45,25 @@ and the UI to watch it. That's four-to-six genuinely new subsystems, not a rewri
 **Reused directly, no changes:**
 - The entire model/provider/router layer. An agent's "LLM call" is a call to `routeChatCompletion()`
   with a capability hint, exactly as today.
-- `toolRegistry.ts` / `pendingActions.ts` / `agentAuditLog.ts`. An agent's tool access is scoped
-  exactly the way a product connector's is today — no new permission model needed, the existing
-  READ/WRITE tier + approval flow already *is* the permission system section 11 asks for.
 - SQLite as the durability layer. No Postgres, no Redis — see §4 for why.
+- `redactSecrets()` (from `memoryScope.ts`) for scrubbing captured tool output before it's ever
+  written to an event row — the function, not the table it's used for elsewhere.
+
+**Correction (found by inspection before Phase 7, not assumed): `toolRegistry.ts` / `pendingActions.ts`
+/ `agentAuditLog.ts` are NOT reusable for internal agent tool calls.** All three are hard-wired to
+`ProductIdentity` (product + externalUserId + tenantId) — built specifically for an *external*
+product (Arena) calling *into* JennySol, per ADR-002. `Agents.tsx`'s own existing source comment
+already says this plainly: bridging JennySol's own internal execution into that system would be new
+cross-boundary architecture, which is exactly the Arena-boundary rule this whole engagement has held
+to elsewhere. Making an internal agent masquerade as a `ProductIdentity` to reuse these modules would
+be that same mistake. **The correction**: internal agent tool access (Phase 7) gets its own small,
+new `agentToolRegistry.ts` — keyed by `(sessionId, agentId)` and the `agents.permissions` field
+(Phase 2), not by product identity — implementing the same READ/WRITE-tier + propose/approve/execute
+*shape* as `pendingActions.ts` because that shape is sound, but as new, parallel code, not a shared
+module with the cross-product path. `agent_audit_log` (the table) stays exclusively for cross-product
+traffic; internal tool calls are logged as `agent_session_events` rows of type `tool.exec.*` instead
+(§8), which is what the rest of this document already assumed — only the "reuse toolRegistry.ts
+itself" claim above was wrong, not the eventing design.
 
 **Reused as a pattern, generalized:**
 - `agentRunStore.ts` + `runBus.ts` + `runCancellation.ts`: today this is "one durable row + one

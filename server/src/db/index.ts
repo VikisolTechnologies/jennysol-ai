@@ -172,6 +172,123 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_agent_audit_log_correlation ON agent_audit_log(correlation_id);
   CREATE INDEX IF NOT EXISTS idx_agent_audit_log_identity ON agent_audit_log(product, external_user_id, tenant_id);
   CREATE INDEX IF NOT EXISTS idx_agent_audit_log_created_at ON agent_audit_log(created_at);
+
+  -- Multi-agent orchestration (docs/AI_AGENT_SYSTEM_ARCHITECTURE.md §5). Named agent_sessions, not
+  -- sessions — that name is already taken by the auth-session table above; this is a deliberately
+  -- separate, session-scoped analog of agent_runs, not an extension of it (one agent_sessions row
+  -- can spawn many agent_tasks, each of which runs like an agent_run does today).
+  CREATE TABLE IF NOT EXISTS agent_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    objective TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'planning',
+    max_session_time_ms INTEGER,
+    max_token_budget INTEGER,
+    max_cost REAL,
+    max_agent_count INTEGER,
+    max_concurrent_agents INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_sessions_user_status ON agent_sessions(user_id, status);
+
+  -- One row per top-level SessionMemory field (requirements, constraints, architecture, decisions,
+  -- current_plan, changed_files, tests, audit_results, open_questions, ...), not one giant JSON
+  -- blob — lets one agent update one section without a read-modify-write race on the whole object,
+  -- and makes "what changed and when" (updated_by_agent_id/updated_at) a real query instead of a
+  -- diff against history nobody kept.
+  CREATE TABLE IF NOT EXISTS session_memory (
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_by_agent_id TEXT,
+    PRIMARY KEY (session_id, key)
+  );
+
+  -- A logical agent: one SQLite row, no model loaded and no process started until a scheduler
+  -- (Phase 6) actually grants it an execution slot for a task. This is the literal mechanism behind
+  -- "many logical agents, few concurrent model executions" (architecture doc §6) — creating 50 of
+  -- these costs 50 row-writes, nothing else.
+  CREATE TABLE IF NOT EXISTS agents (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    model_provider TEXT,
+    model_id TEXT,
+    status TEXT NOT NULL DEFAULT 'idle',
+    capabilities TEXT,
+    permissions TEXT,
+    current_task_id TEXT,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_agents_session ON agents(session_id);
+
+  -- The task DAG. depends_on is a JSON array of other agent_tasks.id values (edges); a task becomes
+  -- 'ready' only once every id in depends_on is 'completed' (Phase 3's readyTasks(), a plain
+  -- topological check on this table — no separate graph library).
+  CREATE TABLE IF NOT EXISTS agent_tasks (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    depends_on TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'pending',
+    priority INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT,
+    completed_at TEXT,
+    result TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_tasks_session_status ON agent_tasks(session_id, status);
+  CREATE INDEX IF NOT EXISTS idx_agent_tasks_agent ON agent_tasks(agent_id);
+
+  -- Generalizes agent_events' proven append-only/replay-by-id pattern from run scope to session
+  -- scope. This table is the ONLY source of truth the live dashboard (Phase 13) ever renders from —
+  -- see architecture doc §3's "fake autonomy" defense and §8.
+  CREATE TABLE IF NOT EXISTS agent_session_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+    task_id TEXT REFERENCES agent_tasks(id) ON DELETE SET NULL,
+    type TEXT NOT NULL,
+    payload TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_agent_session_events_session ON agent_session_events(session_id, id);
+
+  -- Phase 1 of code isolation (architecture doc §7): a WRITE-tier file tool must hold this lock
+  -- before writing a path; a second agent requesting a held lock gets a real WAIT status, never a
+  -- silent overwrite. released_at IS NULL means currently held.
+  CREATE TABLE IF NOT EXISTS file_locks (
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    acquired_at TEXT NOT NULL DEFAULT (datetime('now')),
+    released_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_file_locks_session_path ON file_locks(session_id, file_path);
+
+  -- The human-steering queue (architecture doc §10). A CRITICAL-impact inbound message creates one
+  -- of these and pauses every agent_task that transitively depends on the affected area; answering
+  -- it (status -> 'answered') is what the scheduler's next tick checks before unblocking those tasks.
+  CREATE TABLE IF NOT EXISTS user_decisions (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    options TEXT,
+    impact TEXT NOT NULL DEFAULT 'low',
+    affected_agents TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    answer TEXT,
+    answered_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_decisions_session_status ON user_decisions(session_id, status);
 `);
 
 // Pre-auth deployments already have `documents`/`conversations` tables without a
