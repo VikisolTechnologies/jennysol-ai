@@ -1412,9 +1412,57 @@ by loosening what they'd expose in production:
 deliberate check (as done here), not wired into routine CI-style runs, to avoid contending with real
 production traffic for the one local concurrency slot.
 
-**Not started**: Phase 6 onward (the Scheduler/Resource Manager, tool integration, the actual agent
-role system prompts). This entry is extended in place, not replaced, as each further phase lands —
-see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
+#### Phase 6 — Scheduler + Resource Manager
+
+**Status: VERIFIED — 8/8 tests pass, full suite 476/477 (1 correctly-skipped live test unaffected),
+tsc clean.**
+
+`server/src/services/agentScheduler.ts` (new): `tick(sessionId, executor?)` — one iteration of the
+Scheduler loop (architecture doc §6): find `readyTasks()` (Phase 3) with an agent already assigned,
+ask the Resource Manager for a slot, and only once granted, transition the task `pending -> running`
+and dispatch it (default `executor` is the real `runAgentTask`, injectable for tests). The Resource
+Manager itself is a global (not per-session) counter — the real constraint it protects
+(`HardwareProfile.maxConcurrentLocalRuns`, today 1 on this Mac) is machine-wide, the same reasoning
+`providers/ollama.ts`'s own existing gate already uses, generalized here to arbitrate every
+agent-task execution rather than just Ollama's.
+
+**Proven, not assumed, with a controllable executor that reports real-time concurrency** (not a
+count asserted after the fact): 5 ready tasks against a 2-slot limit dispatch exactly 2, the other 3
+stay genuinely `pending`; a slot freeing up is picked up by the next-highest-priority remaining task
+on the very next tick; two different sessions correctly compete for the *same* global slot pool
+(one session taking the only slot leaves nothing for the other, regardless of which asked first).
+Priority ordering (`priority` desc, then FIFO) and the "no agent assigned yet -> never dispatched"
+boundary (agent assignment stays Phase 9's job) are both tested directly.
+
+**Real budget enforcement, and one honestly-unenforced field:**
+- `max_session_time_ms` and `max_token_budget` are enforced for real, computed from actual data
+  (real elapsed wall-clock time since `created_at`; the real sum of `agents.tokens_used`) — a session
+  over either limit stops granting slots and transitions to `paused` with a real
+  `session.status_changed` event (`reason: "budget_exceeded:tokens"` or `"...time"`), tested to fire
+  exactly once, not once per tick.
+- **`max_cost` is accepted and stored (Phase 1's schema) but NOT enforced.** No $/token pricing table
+  exists anywhere in this codebase (confirmed by inspection — `COST-BASELINE.md` tracks token counts
+  and fallback rates, not real prices). Inventing a number here would be exactly the kind of guessed
+  figure this engagement has avoided everywhere else. Recorded as a real, open gap for whenever real
+  cost tracking is built, not silently skipped.
+
+**Real measured number, and the scope decision behind it** (this phase's own documentation
+requirement): on this Mac (`m1_16gb` profile), the real, current concurrency ceiling is **1** —
+confirmed by `getHardwareProfile().maxConcurrentLocalRuns`, unchanged from the existing,
+already-tuned value. This scheduler applies that same single number as the admission bound for
+**every** task regardless of whether it will ultimately route to a local or cloud model — a
+deliberate simplification, not an oversight: which provider a task's call will actually use is only
+resolved inside `routeChatCompletion()` at call time (chain fallback, live health), so the Scheduler
+cannot know in advance which of a batch of ready tasks will be cloud-routed and could safely run with
+higher real concurrency. The safe, conservative choice made here is one global bound sized to the
+most constrained resource (local); the plan's own text anticipated this exact question ("cloud-routed
+tasks change the real achievable concurrency") — splitting the pool by provider is real future work,
+not required to prove out this phase's core claim, and is flagged here rather than built
+speculatively ahead of a real multi-role session (Phase 9) that would actually exercise it.
+
+**Not started**: Phase 7 onward (tool system integration, code execution, the actual agent role
+system prompts). This entry is extended in place, not replaced, as each further phase lands — see
+`docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
 ---
 
