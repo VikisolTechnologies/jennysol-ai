@@ -8,7 +8,7 @@ import { needsCurrentInfo } from "../currentInfo.js";
 // verification pass. Re-verify with `ollama show <tag>` before trusting
 // memoryRequirementGb for a model added later.
 export type Provider = "gemini" | "deepseek" | "ollama";
-export type TaskCapability = "general" | "coding" | "reasoning" | "currentInfoSummarization" | "embedding";
+export type TaskCapability = "general" | "coding" | "reasoning" | "currentInfoSummarization" | "embedding" | "trivial";
 
 export interface ModelEntry {
   provider: Provider;
@@ -96,7 +96,12 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     modelId: "qwen3:4b",
     displayName: "Qwen3 4B",
     localOrCloud: "local",
-    capabilities: ["general", "currentInfoSummarization"],
+    // "trivial" added per JENNYSOL-CONTINUE.md Phase 3 — this is the
+    // dedicated small/fast tier a short, low-stakes message should reach;
+    // previously nothing ever routed here, since classifyTask() had no
+    // "trivial" signal and every non-coding/reasoning/current-info message
+    // fell to plain "general", which always outranks this model on quality.
+    capabilities: ["general", "currentInfoSummarization", "trivial"],
     supportsToolCalling: true,
     supportsStreaming: true,
     contextWindow: 256_000,
@@ -242,18 +247,39 @@ export function findModel(provider: Provider, modelId: string): ModelEntry | und
   return MODEL_REGISTRY.find((m) => m.provider === provider && m.modelId === modelId);
 }
 
-// Deliberately narrow: two real, cheaply-detectable signals (does this need
-// current info, does this look like a coding request), everything else
-// falls to "general". A broader classifier (hard reasoning vs. simple,
-// vision, etc.) would need real signal this app doesn't have yet — see
-// modelRouter.ts's own comment on why capability-scored routing stays
-// bounded to what's actually detectable rather than invented.
+// Deliberately narrow: cheaply-detectable signals only, everything else
+// falls to "general". A broader classifier (vision, etc.) would need real
+// signal this app doesn't have yet — see modelRouter.ts's own comment on
+// why capability-scored routing stays bounded to what's actually
+// detectable rather than invented.
 const CODING_PATTERN =
   /```|\b(function|class \w+|component|refactor|debug(ging)?|stack ?trace|regex|algorithm|compile|syntax error|write (a|an|some) (script|function|program|code)|css|sql query|api endpoint|typescript|javascript|python script)\b/i;
 
+// JENNYSOL-CONTINUE.md Phase 3: classifyTask() previously had NO signal for
+// "reasoning" at all — every message fell through to "general" or "coding"
+// regardless of content, so a reasoning-tagged model could never be reached
+// by real chat traffic no matter what pickOllamaModel() did with it. This
+// follows the exact same style already established for CODING_PATTERN
+// above and needsCurrentInfo() (currentInfo.ts) — a same-kind heuristic,
+// not a new architectural approach — matched against explicit
+// reasoning-request language rather than topic keywords, to keep false
+// positives (an ordinary question landing on the slower reasoning model
+// for no reason) low.
+const REASONING_PATTERN =
+  /\b(step[ -]by[ -]step|reason(ing)? through|think through|prove that|walk me through your reasoning|chain of thought|solve this (logic )?puzzle|explain your reasoning|logically deduce)\b/i;
+
+// A short message that didn't match anything more specific above (current
+// info, reasoning, coding all get first refusal — order matters here) has
+// no real need for the higher-quality "capable" tier's extra latency. Word
+// count, not character count, since "no", "thanks!", and "sounds good" are
+// all genuinely trivial at very different lengths.
+const TRIVIAL_MAX_WORDS = 6;
+
 export function classifyTask(message: string): TaskCapability {
   if (needsCurrentInfo(message)) return "currentInfoSummarization";
+  if (REASONING_PATTERN.test(message)) return "reasoning";
   if (CODING_PATTERN.test(message)) return "coding";
+  if (message.trim().split(/\s+/).filter(Boolean).length <= TRIVIAL_MAX_WORDS) return "trivial";
   return "general";
 }
 
@@ -267,9 +293,30 @@ export function classifyTask(message: string): TaskCapability {
 const QUALITY_RANK: Record<ModelEntry["qualityClass"], number> = { frontier: 2, capable: 1, basic: 0 };
 const LATENCY_RANK: Record<ModelEntry["latencyClass"], number> = { fast: 2, medium: 1, slow: 0 };
 
+// JENNYSOL-CONTINUE.md Phase 3, the real bug: qwen3:8b's own capabilities
+// list includes "reasoning" alongside "general" (it's a real, if lesser,
+// reasoning performer) — so it was ALWAYS a candidate for a "reasoning"
+// request too, and once quality tied against deepseek-r1:7b (both
+// "capable"), the latency tie-break picked qwen3:8b every time, since a
+// generalist tuned for fast chat naturally outranks a model built to spend
+// time thinking. Confirmed live before this fix: pickOllamaModel("reasoning")
+// returned qwen3:8b, never deepseek-r1:7b, no matter what. A model that
+// doesn't also claim "general" is, by construction, a dedicated specialist
+// for whatever it does claim — this tier makes a real specialist always
+// outrank a generalist that merely also lists the same capability, before
+// quality/latency ever get a vote. No-op for capability === "general"
+// itself: every general-capable entry trivially includes "general", so
+// they all tie here and fall through to quality/latency exactly as before.
+function specificityRank(entry: ModelEntry): number {
+  return entry.capabilities.includes("general") ? 0 : 1;
+}
+
 function bestOf(candidates: ModelEntry[]): ModelEntry | undefined {
   return [...candidates].sort(
-    (a, b) => QUALITY_RANK[b.qualityClass] - QUALITY_RANK[a.qualityClass] || LATENCY_RANK[b.latencyClass] - LATENCY_RANK[a.latencyClass]
+    (a, b) =>
+      specificityRank(b) - specificityRank(a) ||
+      QUALITY_RANK[b.qualityClass] - QUALITY_RANK[a.qualityClass] ||
+      LATENCY_RANK[b.latencyClass] - LATENCY_RANK[a.latencyClass]
   )[0];
 }
 
