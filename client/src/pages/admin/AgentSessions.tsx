@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Bot, Clock } from "lucide-react";
-import { fetchAgentSessions, type AgentSessionSummary } from "../../lib/admin";
+import { Link, useNavigate } from "react-router-dom";
+import { Bot, Clock, Loader2, Send } from "lucide-react";
+import { fetchAgentSessions, startAgentSession, type AgentSessionSummary } from "../../lib/admin";
 
 const STATUS_STYLES: Record<string, string> = {
   planning: "bg-neutral-100 text-neutral-500 dark:bg-white/5 dark:text-neutral-400",
@@ -13,14 +13,33 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 export function AgentSessions() {
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState<AgentSessionSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [objective, setObjective] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAgentSessions()
       .then(setSessions)
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load sessions"));
   }, []);
+
+  async function handleStart(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = objective.trim();
+    if (!trimmed || starting) return;
+    setStarting(true);
+    setStartError(null);
+    try {
+      const session = await startAgentSession(trimmed);
+      navigate(`/admin/agent-sessions/${session.id}`);
+    } catch (err) {
+      setStartError(err instanceof Error ? err.message : "Could not start session");
+      setStarting(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -33,6 +52,34 @@ export function AgentSessions() {
         </p>
       </div>
 
+      <form
+        onSubmit={handleStart}
+        className="flex flex-col gap-2.5 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-white/5 sm:flex-row sm:items-start"
+      >
+        <div className="flex-1">
+          <label htmlFor="agent-objective" className="sr-only">
+            Objective
+          </label>
+          <textarea
+            id="agent-objective"
+            rows={2}
+            value={objective}
+            onChange={(e) => setObjective(e.target.value)}
+            placeholder="Describe a real, small objective — e.g. &ldquo;Add a health-check endpoint that returns the build version&rdquo;"
+            className="w-full resize-none rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 outline-none placeholder:text-neutral-400 focus:border-brand-400 dark:border-white/10 dark:bg-transparent dark:text-neutral-100"
+          />
+          {startError && <p className="mt-1.5 text-xs text-rose-500">{startError}</p>}
+        </div>
+        <button
+          type="submit"
+          disabled={!objective.trim() || starting}
+          className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50 sm:py-2.5"
+        >
+          {starting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+          Start session
+        </button>
+      </form>
+
       {error && <p className="text-sm text-rose-500">{error}</p>}
       {!error && !sessions && <p className="text-sm text-neutral-400">Loading…</p>}
 
@@ -40,10 +87,8 @@ export function AgentSessions() {
         <div className="flex items-start gap-2.5 rounded-xl border border-dashed border-neutral-300 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-white/15 dark:bg-white/5 dark:text-neutral-300">
           <Bot size={16} className="mt-0.5 shrink-0" />
           <span>
-            No engineering sessions yet — this is honest, not a stub. Starting a real session needs the
-            Orchestrator role (Phase 9 of the implementation plan), which isn't built yet. This page and the
-            data model behind it (Phases 1-4) are real and live; it will start showing sessions the moment one
-            can actually be created.
+            No engineering sessions yet — this is honest, not a stub. Describe an objective above to start a
+            real one.
           </span>
         </div>
       )}

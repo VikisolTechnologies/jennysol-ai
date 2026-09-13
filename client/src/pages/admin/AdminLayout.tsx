@@ -1,11 +1,12 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Bot, LayoutDashboard, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bot, LayoutDashboard, ShieldCheck, Users } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/admin/users", label: "Users", icon: Users, end: false },
   { to: "/admin/errors", label: "Errors", icon: AlertTriangle, end: false },
   { to: "/admin/agent-sessions", label: "Agent sessions", icon: Bot, end: false },
+  { to: "/admin/agent-approvals", label: "Approval queue", icon: ShieldCheck, end: false },
 ];
 
 export function AdminLayout() {

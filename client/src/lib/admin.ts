@@ -113,6 +113,7 @@ export type AgentTaskStatus =
   | "queued"
   | "running"
   | "blocked"
+  | "awaiting_approval"
   | "completed"
   | "failed"
   | "cancelled";
@@ -198,4 +199,99 @@ export async function fetchAgentSessionEvents(id: string, afterId = 0): Promise<
   const res = await authFetch(`/api/admin/agent-sessions/${id}/events?after=${afterId}`);
   const data = await parseOrThrow(res);
   return data.events;
+}
+
+// Stage A of JENNYSOL-AGENTS-UI-FIRST.md: the real "start a session" route landed in
+// agentSessionRunner.ts/admin.ts — this is its client. Returns as soon as the session row exists;
+// decomposition and execution continue server-side (see the route's own comment).
+export async function startAgentSession(objective: string): Promise<AgentSessionSummary> {
+  const res = await authFetch("/api/admin/agent-sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ objective }),
+  });
+  const data = await parseOrThrow(res);
+  return data.session;
+}
+
+export async function pauseAgentSession(id: string): Promise<void> {
+  await parseOrThrow(await authFetch(`/api/admin/agent-sessions/${id}/pause`, { method: "POST" }));
+}
+export async function resumeAgentSession(id: string): Promise<void> {
+  await parseOrThrow(await authFetch(`/api/admin/agent-sessions/${id}/resume`, { method: "POST" }));
+}
+export async function cancelAgentSession(id: string): Promise<void> {
+  await parseOrThrow(await authFetch(`/api/admin/agent-sessions/${id}/cancel`, { method: "POST" }));
+}
+export async function killAgent(sessionId: string, agentId: string): Promise<void> {
+  await parseOrThrow(await authFetch(`/api/admin/agent-sessions/${sessionId}/agents/${agentId}/kill`, { method: "POST" }));
+}
+
+// Stage B — the approval queue. A pending action's `args` are already redacted server-side
+// (agentToolRegistry.ts's proposeAgentAction — redactSecrets before the event/action is ever
+// stored), so this is safe to render as-is, not a raw internal payload.
+export interface PendingAgentActionRow {
+  id: string;
+  sessionId: string;
+  agentId: string;
+  toolName: "file.write" | "exec.command";
+  args: Record<string, unknown>;
+  createdAt: number;
+}
+
+export async function fetchPendingActions(sessionId?: string): Promise<PendingAgentActionRow[]> {
+  const qs = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  const res = await authFetch(`/api/admin/agent-actions/pending${qs}`);
+  const data = await parseOrThrow(res);
+  return data.actions;
+}
+
+export async function approveAgentAction(actionId: string): Promise<void> {
+  await parseOrThrow(await authFetch(`/api/admin/agent-actions/${actionId}/approve`, { method: "POST" }));
+}
+export async function rejectAgentAction(actionId: string): Promise<void> {
+  await parseOrThrow(await authFetch(`/api/admin/agent-actions/${actionId}/reject`, { method: "POST" }));
+}
+
+// Stage A §2.1 — live event stream, client side. Not the native EventSource API: this app's auth is
+// a Bearer token on a custom header (see authFetch), which EventSource cannot attach, so this
+// mirrors api.ts's own sendChatMessage fetch+reader SSE parsing exactly rather than introducing a
+// second streaming mechanism. Resolves when the stream ends (server closes it) or `signal` aborts —
+// the caller owns reconnect policy, matching how ChatWindow owns recovery for the chat stream.
+export async function streamAgentSessionEvents(
+  sessionId: string,
+  afterId: number,
+  onEvent: (event: SessionEventRow) => void,
+  signal: AbortSignal
+): Promise<void> {
+  const res = await authFetch(`/api/admin/agent-sessions/${sessionId}/stream?after=${afterId}`, { signal });
+  if (!res.ok) throw new Error(`Stream failed (${res.status})`);
+  if (!res.body) throw new Error("No response body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    let done: boolean, value: Uint8Array | undefined;
+    try {
+      ({ done, value } = await reader.read());
+    } catch (err) {
+      if (signal.aborted) return;
+      throw err;
+    }
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue; // skips the ": heartbeat" comment lines
+      try {
+        onEvent(JSON.parse(line.slice(6)));
+      } catch {
+        // a partial/trailing chunk split across two reads — ignore, matches sendChatMessage's own
+        // tolerance for the same class of boundary artifact
+      }
+    }
+  }
 }

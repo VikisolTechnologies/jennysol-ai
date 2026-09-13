@@ -1734,6 +1734,83 @@ buttons, mobile layout, design-system pass) — everything above is the real ser
 UI now has something honest to render against. Continuing directly into the client next, per the
 brief's own "build the surface" instruction.
 
+#### Stage A/B client — the dashboard actually wired to the new surface
+
+**Status: VERIFIED live against a real running server (not just tsc-clean) — see the live proof
+below. tsc clean on the client package.**
+
+- `client/src/lib/admin.ts`: `startAgentSession`, `pauseAgentSession`, `resumeAgentSession`,
+  `cancelAgentSession`, `killAgent`, `fetchPendingActions`/`approveAgentAction`/`rejectAgentAction`,
+  and `streamAgentSessionEvents` — the SSE client. **Not** the native `EventSource` API: this app's
+  auth is a Bearer token on a custom header (`authFetch`), which `EventSource` cannot attach, so this
+  mirrors `api.ts`'s own `sendChatMessage` fetch+reader SSE parsing exactly rather than introducing a
+  second streaming mechanism client-side.
+- `client/src/pages/admin/AgentSessions.tsx`: a real "start a session" form (objective textarea +
+  submit) posting to the new route and navigating to the run view — the list page's stale empty-state
+  copy (which said starting a session "isn't built yet") corrected, since it now is.
+- `client/src/pages/admin/AgentSessionDetail.tsx` (rewritten): SSE-driven (was 3s polling), with
+  auto-reconnect on drop and a `live`/`reconnecting…` indicator; still re-fetches the full snapshot on
+  every event rather than deriving state from the event payload — the same rule the polling-only shell
+  established, now event-driven instead of time-driven. Added: a DAG-aware task list (each task shows
+  its real `dependsOn` resolved to titles, and real elapsed time ticking live for in-flight tasks); an
+  **unmissable, always-first amber banner** for anything `awaiting_approval` or `blocked` with inline
+  Approve/Reject acting on the real action right there (Stage B §2.3's "single most important state,
+  currently invisible" — now the first thing on the page); a real Artifacts panel derived purely from
+  `tool.exec.finished` events (files written, commands run with real exit codes and captured
+  stdout/stderr — the same real-evidence-only rule QA's own execution already followed, now visible);
+  session-level Pause/Resume/Cancel buttons and a per-agent Kill button, all wired to the real Stage A
+  control routes; a token-usage total with an explicit, honest note that cost isn't computed (no
+  $/token price table exists — same gap `agentScheduler.ts` already documents, not hidden from the
+  founder here).
+- `client/src/pages/admin/AgentApprovals.tsx` (new): the global "everything waiting on you, right
+  now" queue Stage B asks for, across every session — real diff/command preview, large
+  (`py-3`/`px-6`) touch targets sized for mobile approval away from a desk, no bulk action, no
+  default, no one-tap-through (every decision is its own explicit button press against its own real
+  action id). Registered at `/admin/agent-approvals` with its own nav item.
+- No new visual language introduced (Stage B2's own rule): every new element reuses the existing
+  admin surface's established tokens exactly (`brand`/`neutral`/`emerald`/`rose`/`amber`/`sky`,
+  `rounded-2xl` cards, `dark:` variants) rather than inventing new colors or components — this was a
+  constraint followed while building fresh, not a separate pass applied afterward. Every new view
+  has its own loading/empty/error states (`AgentApprovals`'s "quiet here" empty state deliberately
+  echoes the doctrine's own "an honest 'it's quiet here' beats an invented number" language).
+
+**Live proof, not just tsc** (no browser-automation tool is available in this environment, so the
+rendered pixels were not visually confirmed — noted honestly rather than assumed; what follows
+verifies the exact real data/API path every one of the components above actually calls): started a
+second, isolated dev server instance on port 8788 (the real production LaunchAgent on 8787,
+`in.vikisol.jennysol-server`, was left running and untouched throughout — confirmed healthy,
+same PID, before and after) and a client dev instance pointed at it, then drove the real HTTP surface
+directly with a real signed-up-and-admin-promoted user:
+1. `POST /agent-sessions` with a real objective → real 201, `status: "planning"`.
+2. Connected to the real SSE stream and watched it deliver real events live: decomposition
+   (`gemini`, cloud fallback — a real, live routing decision, not scripted), the Architect task, then
+   the Coder proposing a real `file.write` — genuinely reaching `task.awaiting_approval` with a real
+   `actionId`, exactly the payload shape the approval banner renders.
+3. `GET /agent-actions/pending` showed that exact action; `POST .../approve` executed it for real —
+   the file landed on disk with the exact real content the model wrote.
+4. QA's own proposed command then hit **a real, correct refusal**: the command it invented
+   (`node -e ...`) is not on the allow-list. `approveAgentAction` threw, the task failed with that
+   exact honest reason attached, and the session correctly transitioned to `failed` — proof the
+   "never widen the allow-list" boundary (this document's own §7) holds even against a live model's
+   own choices, and that failure propagates honestly end-to-end rather than getting swallowed.
+5. Cleaned up afterward: the test user (cascades to its session/agents/tasks/events), the one real
+   file it wrote, and the two isolated dev processes — the shared real SQLite database (confirmed
+   this session: dev, tests, and the production LaunchAgent all resolve to the same
+   `server/data/jennysol.db`, an existing, already-accepted characteristic of this codebase's
+   real-DB-integration-testing style, not something introduced here) was left exactly as found.
+
+**Real, honest finding from step 4, not a defect**: this is the first time a live QA task's own
+command choice has been checked against the allow-list rather than assumed compliant (Phase 9's live
+test supplied the QA command itself, deliberately, to keep that test's own scope narrow) — a small
+model asked to "verify a file" will sometimes reach for `node -e` reflexively, and the system's real
+job is to refuse that, not accommodate it. Recorded here as evidence for Stage C §5.4 (failure
+semantics): "an agent proposes a disallowed command" is a real, now-observed failure mode with a
+defined, correct behavior (refuse, fail the task honestly, fail the session) — worth encoding as a
+permanent regression test in that stage rather than only known from this one live run.
+
+**Not yet built**: Stage C (§5.1 latency/cost report, §5.2 write-scope enforcement, §5.3 checkpoints,
+§5.4 failure-semantics tests) and Stage D (remaining 10 roles). Continuing directly into Stage C next.
+
 ---
 
 ## PHASE 5 — Automatic Gap Analysis

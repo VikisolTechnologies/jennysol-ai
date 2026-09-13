@@ -27,6 +27,7 @@ const AgentSessions = lazy(() => import("./pages/admin/AgentSessions").then((m) 
 const AgentSessionDetail = lazy(() =>
   import("./pages/admin/AgentSessionDetail").then((m) => ({ default: m.AgentSessionDetail }))
 );
+const AgentApprovals = lazy(() => import("./pages/admin/AgentApprovals").then((m) => ({ default: m.AgentApprovals })));
 const AccountLayout = lazy(() => import("./pages/account/AccountLayout").then((m) => ({ default: m.AccountLayout })));
 const AccountProfile = lazy(() => import("./pages/account/AccountProfile").then((m) => ({ default: m.AccountProfile })));
 const AccountSecurity = lazy(() => import("./pages/account/AccountSecurity").then((m) => ({ default: m.AccountSecurity })));
@@ -131,6 +132,7 @@ export default function App() {
           <Route path="errors" element={<AdminErrors />} />
           <Route path="agent-sessions" element={<AgentSessions />} />
           <Route path="agent-sessions/:id" element={<AgentSessionDetail />} />
+          <Route path="agent-approvals" element={<AgentApprovals />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
