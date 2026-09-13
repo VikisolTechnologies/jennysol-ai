@@ -1500,9 +1500,54 @@ traffic.
 dynamic import, since the workspace root is resolved once at that module's own load time; a
 `beforeAll()` hook would run too late to affect it (caught while first writing this test).
 
-**Not started**: Phase 8 onward (the actual command-execution tool, output capture, the agent role
-system prompts). This entry is extended in place, not replaced, as each further phase lands — see
-`docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
+#### Phase 8 — Code execution (command running, output capture)
+
+**Status: VERIFIED — 8 (command tool) + 2 (propose/approve integration) = 10 new tests, full suite
+502/503 (1 correctly-skipped live test unaffected), tsc clean.**
+
+`server/src/services/agentCommandTool.ts` (new): `executeCommand(sessionId, agentId, cwd, command,
+args)` — real process execution via `execFile` with an argv array, **never** a shell string, so
+shell-metacharacter injection has no grammar to exploit (tested directly: an argument containing
+`"; id; echo pwned"` is passed to npm as one inert literal string, not interpreted). Routed through
+the exact same `proposeAgentAction`/`approveAgentAction` gate as `file.write`
+(`agentToolRegistry.ts`, extended this phase) — a command is at least as consequential as a file
+write and gets the identical approval discipline.
+
+**The exact allow-list/bounding rules** (this phase's own documentation requirement, a real security
+surface per the founding directive's §36/§37):
+- **Binary + first-subcommand allow-list**, not a blocklist: `npm` → `test`/`run`/`install`/`ci`/
+  `--version`; `node` → `--version`. Anything else (a different binary, or an allowed binary with an
+  unlisted subcommand) is refused before a process is ever spawned.
+- **cwd confined to the same `WORKSPACE_ROOT`** every file tool respects (`agentWorkspace.ts`,
+  extracted out of `agentToolRegistry.ts` this phase into its own module so both tools enforce one
+  shared boundary rather than two copies that could drift).
+- **Hard bounds**: 30s wall-clock timeout, 100KB captured-output cap per stream (truncated, flagged
+  `stdoutTruncated`/`stderrTruncated`, never silently cut with no indication).
+- **A real non-zero exit (a failing test suite) resolves normally** with the real exit code — it is
+  not thrown as a JS error. Only a genuine execution failure (unknown binary, timeout) leaves
+  `exitCode: null`. Tested directly: a fixture whose `npm test` exits 1 comes back as a normal,
+  inspectable result, not a caught exception.
+
+**A real gap found by reading the redaction utility's actual code before trusting it — not assumed,
+per this phase's own explicit audit instruction ("don't just trust the redaction utility works here
+because it works elsewhere")**: `memoryScope.ts`'s `redactSecrets()` only replaces a **string value**
+when the **entire** string is a bare JWT-shaped token — it does nothing for a secret embedded inside
+a larger blob (a `.env`-style `KEY=value` line, an `Authorization: Bearer ...` line buried in real
+command output). Using it as-is on captured stdout/stderr would have been exactly the false
+confidence this instruction warned against. **Fix**: a new, purpose-built `redactOutputText()`
+inside `agentCommandTool.ts` — substring-level scrubbing (a secret-labeled line's value, any
+JWT-shaped substring anywhere in the text) applied specifically to command output, leaving
+`memoryScope.ts` itself unmodified since its existing callers all pass structured objects and are
+unaffected. Verified directly: a fixture command that echoes a fake `API_KEY=sk-fake-secret-...`
+comes back with the value replaced with `[redacted]` in both the returned result and the real
+`tool.exec.finished` event payload (which now includes captured stdout/stderr, redacted and
+size-bounded, since architecture doc §8's dashboard design renders the command panel directly from
+this event — added after noticing the original draft omitted it, which would have made the
+redaction test meaningless since there'd have been nothing in the event to redact).
+
+**Not started**: Phase 9 onward (the actual agent role system prompts — Orchestrator, Architect,
+Coder, QA — and the first real end-to-end session). This entry is extended in place, not replaced,
+as each further phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
 ---
 

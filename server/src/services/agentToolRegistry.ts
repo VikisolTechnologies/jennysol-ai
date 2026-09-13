@@ -13,28 +13,14 @@ import { getAgent, hasPermission } from "./agentRegistry.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
 import { requestLock, releaseLock } from "./agentFileLocks.js";
 import { redactSecrets } from "./memoryScope.js";
+import { resolveInWorkspace, AgentWorkspaceError } from "./agentWorkspace.js";
+import { executeCommand } from "./agentCommandTool.js";
 
 export class AgentToolError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AgentToolError";
   }
-}
-
-// Every file tool is confined to this root — resolved once, at module load, from this file's own
-// location (server/src/services/ -> repo root, 3 levels up), the same import.meta.dirname-relative
-// pattern db/index.ts already uses for its data directory. An autonomous agent's write tool escaping
-// the repo entirely (via "../../../etc/passwd"-style traversal, or a stray absolute path) is exactly
-// the kind of real security surface the founding directive's §36/§37 call out — bounded here
-// structurally, not by convention. Overridable via AGENT_WORKSPACE_ROOT for tests only.
-const WORKSPACE_ROOT = path.resolve(process.env.AGENT_WORKSPACE_ROOT || path.resolve(import.meta.dirname, "../../.."));
-
-function resolveInWorkspace(filePath: string): string {
-  const resolved = path.resolve(WORKSPACE_ROOT, filePath);
-  if (resolved !== WORKSPACE_ROOT && !resolved.startsWith(WORKSPACE_ROOT + path.sep)) {
-    throw new AgentToolError(`Path "${filePath}" escapes the agent workspace root — refused`);
-  }
-  return resolved;
 }
 
 function requirePermission(sessionId: string, agentId: string, permission: Parameters<typeof hasPermission>[1]) {
@@ -46,10 +32,21 @@ function requirePermission(sessionId: string, agentId: string, permission: Param
   return agent;
 }
 
+// Re-wraps the shared workspace boundary's own error type as this module's public AgentToolError,
+// so callers of this file's exports only ever need to catch one error class.
+function safeResolveInWorkspace(inputPath: string): string {
+  try {
+    return resolveInWorkspace(inputPath);
+  } catch (err) {
+    if (err instanceof AgentWorkspaceError) throw new AgentToolError(err.message);
+    throw err;
+  }
+}
+
 // READ tier — executes immediately (ADR-004), same as every READ tool elsewhere in this codebase.
 export async function readFile(sessionId: string, agentId: string, filePath: string): Promise<string> {
   requirePermission(sessionId, agentId, "file:read");
-  const resolved = resolveInWorkspace(filePath);
+  const resolved = safeResolveInWorkspace(filePath);
   appendSessionEvent({ sessionId, agentId, type: "tool.exec.started", payload: { tool: "file.read", filePath } });
   try {
     const content = await fs.readFile(resolved, "utf8");
@@ -75,7 +72,7 @@ export async function readFile(sessionId: string, agentId: string, filePath: str
 // The actual write — module-private on purpose. The only public way to reach this is
 // approveAgentAction(), never a direct call, so a WRITE can never bypass propose/approve (ADR-004).
 async function executeFileWrite(sessionId: string, agentId: string, filePath: string, content: string): Promise<void> {
-  const resolved = resolveInWorkspace(filePath);
+  const resolved = safeResolveInWorkspace(filePath);
   const { outcome, granted } = requestLock(sessionId, filePath, agentId);
   if (outcome === "wait") await granted;
 
@@ -103,7 +100,7 @@ async function executeFileWrite(sessionId: string, agentId: string, filePath: st
   }
 }
 
-export type AgentToolName = "file.write";
+export type AgentToolName = "file.write" | "exec.command";
 
 export interface PendingAgentAction {
   id: string;
@@ -127,6 +124,7 @@ export function proposeAgentAction(
   args: Record<string, unknown>
 ): PendingAgentAction {
   if (toolName === "file.write") requirePermission(sessionId, agentId, "file:write");
+  if (toolName === "exec.command") requirePermission(sessionId, agentId, "exec:command");
   const action: PendingAgentAction = { id: randomUUID(), sessionId, agentId, toolName, args, createdAt: Date.now() };
   pendingActions.set(action.id, action);
   appendSessionEvent({
@@ -138,7 +136,11 @@ export function proposeAgentAction(
   return action;
 }
 
-export async function approveAgentAction(actionId: string): Promise<void> {
+// Returns the tool's own result where there is one worth returning (exec.command's exit
+// code/output — a caller, typically an agent task, needs this to decide what happened) and
+// undefined otherwise (file.write has nothing more to say than "it happened," already visible via
+// the real events it wrote).
+export async function approveAgentAction(actionId: string): Promise<unknown> {
   const action = pendingActions.get(actionId);
   if (!action) throw new AgentToolError("No such pending action (already used, rejected, or expired)");
   pendingActions.delete(actionId);
@@ -153,7 +155,16 @@ export async function approveAgentAction(actionId: string): Promise<void> {
       action.args.filePath as string,
       action.args.content as string
     );
-    return;
+    return undefined;
+  }
+  if (action.toolName === "exec.command") {
+    return executeCommand(
+      action.sessionId,
+      action.agentId,
+      (action.args.cwd as string) ?? ".",
+      action.args.command as string,
+      (action.args.args as string[]) ?? []
+    );
   }
   throw new AgentToolError(`Unknown tool "${action.toolName}"`);
 }

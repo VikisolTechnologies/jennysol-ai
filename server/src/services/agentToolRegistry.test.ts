@@ -155,6 +155,27 @@ describe("agentToolRegistry", () => {
     });
   });
 
+  describe("exec.command — routed through the same propose/approve gate as file.write", () => {
+    it("proposeAgentAction/approveAgentAction actually runs a real command and returns its result", async () => {
+      const agent = spawnAgent(sessionId, "coder"); // coder has exec:command by default
+      const action = proposeAgentAction(sessionId, agent.id, "exec.command", {
+        cwd: ".",
+        command: "npm",
+        args: ["--version"],
+      });
+      const result = (await approveAgentAction(action.id)) as { exitCode: number | null; stdout: string };
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim().length).toBeGreaterThan(0);
+    }, 15_000);
+
+    it("refuses to even propose a command for an agent without exec:command permission", () => {
+      const agent = spawnAgent(sessionId, "coder", { permissions: ["file:read"] });
+      expect(() =>
+        proposeAgentAction(sessionId, agent.id, "exec.command", { cwd: ".", command: "npm", args: ["--version"] })
+      ).toThrow(AgentToolError);
+    });
+  });
+
   describe("audit boundary — internal agent tool calls never reach the cross-product audit log", () => {
     it("a real file write inserts zero rows into agent_audit_log — the whole table, not just one query shape", async () => {
       const before = (db.prepare("SELECT COUNT(*) as c FROM agent_audit_log").get() as { c: number }).c;
