@@ -1376,9 +1376,45 @@ real service again. **Flagging for the founder**: if a future session's local `c
 testing against "localhost" ever behaves unexpectedly, check `lsof -nP -iTCP:8787` first — this
 LaunchAgent will answer for that port whether or not it holds the answer you expect.
 
-**Not started**: Phase 5 onward (the LLM provider touch-point, scheduler, tool integration, the
-actual agent role system prompts). This entry is extended in place, not replaced, as each further
-phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
+#### Phase 5 — LLM provider abstraction touch-point
+
+**Status: VERIFIED — 4 mocked tests + 1 genuinely live, unmocked test against this Mac's real local
+Ollama, all passing. Full suite 468/469 (1 correctly skipped when Ollama isn't reachable — see
+below). tsc clean.**
+
+`server/src/services/agentTaskRunner.ts` (new): `runAgentTask(sessionId, taskId)` — exactly the one
+integration function this phase calls for. Nothing new in the provider layer; it assembles a system
+prompt from the agent's declared memory read-scope (`MEMORY_READ_SCOPE`, this phase's own
+documentation deliverable — a table of which `session_memory` keys each of the 14 roles reads) and
+calls the *existing* `routeChatCompletion()`, the same function every chat message already goes
+through. Writes real `task.started`/`task.completed`/`task.failed` events and updates task/agent
+status accordingly. A failed/all-providers-unavailable call marks the task `failed` with the real
+error attached (tested directly, not assumed) — never silently retried or swallowed.
+
+**The live-fire test** (this phase's own stated bar — "the first phase with something genuinely
+worth a live-fire test"): unmocked, real network call to this Mac's actual local Ollama instance,
+gated behind a runtime reachability check (`describe.skipIf`) so it participates when deliberately
+pointed at a reachable Ollama and skips loudly (with a console warning naming the URL it tried)
+everywhere else — including plain `npm test`, since `OLLAMA_BASE_URL` isn't exported to the shell by
+default. Two real things surfaced while getting this test to pass, both handled honestly rather than
+by loosening what they'd expose in production:
+- **Cold-start latency really did exceed the 2500ms local budget**, twice in a row, on this actual
+  Mac while writing this test. This is not a new bug — it's the same already-documented,
+  already-decided tradeoff from the earlier local-cutover work (production has a live keep-warm
+  prober specifically because of this; an isolated one-off test process doesn't). The test widens
+  `LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS` to 20s **for its own process only**, restored immediately after,
+  with a comment explaining why re-litigating that production number isn't this test's job.
+- Confirmed live: once actually warm, real first-token latency was 373ms then 211ms — consistent
+  with the number this codebase already had on record.
+
+**Noted, not acted on**: this live test shares the same single real Ollama instance as the actual
+`in.vikisol.jennysol-server` LaunchAgent (§ above) — running it is only safe as an occasional,
+deliberate check (as done here), not wired into routine CI-style runs, to avoid contending with real
+production traffic for the one local concurrency slot.
+
+**Not started**: Phase 6 onward (the Scheduler/Resource Manager, tool integration, the actual agent
+role system prompts). This entry is extended in place, not replaced, as each further phase lands —
+see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
 ---
 
