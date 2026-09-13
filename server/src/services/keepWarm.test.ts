@@ -10,6 +10,7 @@ vi.mock("./modelRouter.js", () => ({
 
 import { ollamaProvider, isOllamaAvailable } from "./providers/ollama.js";
 import { getProviderRouteStatus } from "./modelRouter.js";
+import { isHealthy, recordFailure, __resetHealthForTests } from "./providerHealth.js";
 import { __testing } from "./keepWarm.js";
 
 const originalEnv = { ...process.env };
@@ -91,5 +92,29 @@ describe("keepWarm.tick", () => {
     await __testing.tick();
 
     expect(ollamaProvider.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  // Phase 2.5: keep-warm IS the background circuit-breaker probe — its own
+  // real results must drive the same breaker real user requests do.
+  it("is the background probe that clears an open circuit breaker on a real successful ping", async () => {
+    __resetHealthForTests();
+    recordFailure("ollama", "auth"); // trips the breaker
+    expect(isHealthy("ollama")).toBe(false);
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+
+    await __testing.tick();
+
+    expect(isHealthy("ollama")).toBe(true);
+  });
+
+  it("feeds a real ping failure into the same breaker real user requests use", async () => {
+    __resetHealthForTests();
+    const err = Object.assign(new Error("nope"), { status: 401 });
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockRejectedValue(err);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await __testing.tick();
+
+    expect(isHealthy("ollama")).toBe(false); // auth-kind failure trips on the first occurrence
   });
 });

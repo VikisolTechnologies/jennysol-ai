@@ -83,10 +83,28 @@ export function isHealthy(name: string): boolean {
 
 export function recordSuccess(name: string): void {
   const s = getStats(name);
+  const wasInCooldown = s.cooldownUntil !== null;
   s.successCount++;
   s.consecutiveFailures = 0;
   s.lastSuccess = Date.now();
   s.cooldownUntil = null;
+  // Phase 2.5 (JENNYSOL-LOCAL-CUTOVER.md): explicit open/close transition
+  // logging — previously silent, so there was no way to tell from logs
+  // alone when a provider actually recovered vs. just happened to succeed
+  // while never having tripped in the first place.
+  if (wasInCooldown) {
+    console.log(JSON.stringify({ event: "circuit_breaker", provider: name, transition: "closed" }));
+  }
+}
+
+// Only logs on the actual transition into cooldown, not on every failure
+// that happens to occur while already in one (e.g. a second auth failure
+// during an existing 1h auth cooldown) — one line per real open, not spam.
+function logOpenIfNew(name: string, previousCooldownUntil: number | null): void {
+  const wasAlreadyOpen = previousCooldownUntil !== null && Date.now() < previousCooldownUntil;
+  if (!wasAlreadyOpen) {
+    console.warn(JSON.stringify({ event: "circuit_breaker", provider: name, transition: "open" }));
+  }
 }
 
 export function recordFailure(name: string, kind: ErrorKind): void {
@@ -102,14 +120,17 @@ export function recordFailure(name: string, kind: ErrorKind): void {
   else s.countOther++;
 
   if (kind === "auth") {
+    logOpenIfNew(name, s.cooldownUntil);
     s.cooldownUntil = Date.now() + AUTH_COOLDOWN_MS;
     return;
   }
   if (kind === "quota") {
+    logOpenIfNew(name, s.cooldownUntil);
     s.cooldownUntil = Date.now() + QUOTA_COOLDOWN_MS;
     return;
   }
   if (s.consecutiveFailures >= CONSECUTIVE_FAILURES_TO_TRIP) {
+    logOpenIfNew(name, s.cooldownUntil);
     s.cooldownUntil = Date.now() + TRANSIENT_COOLDOWN_MS;
   }
 }

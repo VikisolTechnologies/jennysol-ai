@@ -1,6 +1,8 @@
 import { ollamaProvider, isOllamaAvailable } from "./providers/ollama.js";
 import { pickOllamaModel } from "./models/modelRegistry.js";
 import { getProviderRouteStatus } from "./modelRouter.js";
+import { recordSuccess, recordFailure } from "./providerHealth.js";
+import { classifyError, affectsProviderHealth } from "./retryClassifier.js";
 
 // JENNYSOL-LOCAL-CUTOVER.md Phase 2.1: a real cold-load measurement this
 // session found ~2.2s just to load a model into memory — real risk against
@@ -48,6 +50,10 @@ async function tick(): Promise<void> {
     // recordRequest() at all (only chatRunner.ts does), so it structurally
     // cannot pollute those numbers regardless of the log tag.
     console.log(JSON.stringify({ event: "keep_warm", model, ok: true, totalMs: Date.now() - startedAt }));
+    // Phase 2.5: this IS the background circuit-breaker probe — a real
+    // successful ping clears an open breaker without a real user request
+    // having to be the one that discovers recovery (and pays for it).
+    recordSuccess("ollama");
   } catch (err) {
     // The earliest real signal that this Mac (or the tunnel to it) has
     // dropped off — surfaced as its own log line specifically so it's easy
@@ -61,6 +67,12 @@ async function tick(): Promise<void> {
         error: err instanceof Error ? err.message : String(err),
       })
     );
+    // Same classification real user-request failures go through — an
+    // at_capacity bump from colliding with real concurrent traffic (this
+    // Mac allows only 1 concurrent local run) correctly does NOT count
+    // against health, same as it wouldn't for a real request.
+    const kind = classifyError(err);
+    if (affectsProviderHealth(kind)) recordFailure("ollama", kind);
   }
 }
 

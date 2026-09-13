@@ -8,6 +8,7 @@ describe("providerHealth circuit breaker", () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("starts healthy for a provider that's never been seen", () => {
@@ -87,5 +88,46 @@ describe("providerHealth circuit breaker", () => {
     expect(snap.gemini.successCount).toBe(1);
     expect(snap.gemini.count503).toBe(1);
     expect(snap.gemini.healthy).toBe(true);
+  });
+
+  // Phase 2.5 (JENNYSOL-LOCAL-CUTOVER.md): "log open and close transitions"
+  // — previously silent, so there was no way to tell from logs alone when a
+  // breaker actually tripped or recovered.
+  describe("open/close transition logging", () => {
+    it("logs exactly once when the breaker actually trips, not on every failure leading up to it", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      recordFailure("ollama", "503");
+      recordFailure("ollama", "503");
+      expect(warnSpy).not.toHaveBeenCalled(); // still under the trip threshold
+      recordFailure("ollama", "503");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(warnSpy.mock.calls[0][0] as string)).toMatchObject({
+        event: "circuit_breaker",
+        provider: "ollama",
+        transition: "open",
+      });
+    });
+
+    it("does not re-log open on a further failure while already tripped", () => {
+      recordFailure("ollama", "auth"); // trips immediately
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      recordFailure("ollama", "auth"); // still within the same open cooldown
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it("logs closed only when a success actually clears an open breaker, not on an ordinary success", () => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      recordSuccess("ollama"); // never tripped — nothing to close
+      expect(logSpy).not.toHaveBeenCalled();
+
+      recordFailure("ollama", "auth"); // trips it
+      recordSuccess("ollama"); // background probe (Phase 2.1's keep-warm) recovers it
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(logSpy.mock.calls[0][0] as string)).toMatchObject({
+        event: "circuit_breaker",
+        provider: "ollama",
+        transition: "closed",
+      });
+    });
   });
 });
