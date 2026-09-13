@@ -22,7 +22,7 @@ export async function streamOpenAiCompatible(
   opts?: StreamOptions
 ): Promise<void> {
   if (opts?.tools?.length && opts.onToolCall) {
-    return attemptWithTools(url, headers, model, systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal, opts.onUsage);
+    return attemptWithTools(url, headers, model, systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal, opts.onUsage, opts.onActivity);
   }
 
   const res = await fetch(url, {
@@ -66,6 +66,7 @@ export async function streamOpenAiCompatible(
     for (const line of lines) {
       const payload = line.replace(/^data: /, "").trim();
       if (!payload || payload === "[DONE]") continue;
+      opts?.onActivity?.();
       const parsed = JSON.parse(payload);
       const delta = parsed?.choices?.[0]?.delta?.content;
       if (delta) {
@@ -125,7 +126,8 @@ async function attemptWithTools(
   tools: ToolDefinition[],
   onToolCall: ToolCallHandler,
   signal?: AbortSignal,
-  onUsage?: (usage: TokenUsage) => void
+  onUsage?: (usage: TokenUsage) => void,
+  onActivity?: () => void
 ): Promise<void> {
   // OpenAI-shaped message history this loop grows round to round — starts
   // from the same plain (role, content) turns as the non-tool path, then
@@ -175,6 +177,7 @@ async function attemptWithTools(
       for (const line of lines) {
         const payload = line.replace(/^data: /, "").trim();
         if (!payload || payload === "[DONE]") continue;
+        onActivity?.();
         const parsed = JSON.parse(payload);
         if (parsed?.usage) {
           anyRealUsage = true;

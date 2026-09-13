@@ -154,7 +154,8 @@ async function attemptWithTools(
   tools: ToolDefinition[],
   onToolCall: ToolCallHandler,
   signal?: AbortSignal,
-  onUsage?: (usage: TokenUsage) => void
+  onUsage?: (usage: TokenUsage) => void,
+  onActivity?: () => void
 ): Promise<void> {
   const contents: Content[] = history.map((h) => ({
     role: h.role === "assistant" ? "model" : "user",
@@ -199,6 +200,7 @@ async function attemptWithTools(
     // the round finishes below.
     let roundUsage: { promptTokenCount?: number; candidatesTokenCount?: number } | undefined;
     for await (const chunk of stream) {
+      onActivity?.();
       const text = chunk.text;
       if (text) onDelta(text);
       const chunkParts = chunk.candidates?.[0]?.content?.parts;
@@ -247,7 +249,7 @@ async function attemptWithTools(
 export const geminiProvider: LlmProvider = {
   async streamChatCompletion(systemPrompt, history, onDelta, onWebSources, opts) {
     if (opts?.tools?.length && opts.onToolCall) {
-      return attemptWithTools(systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal, opts.onUsage);
+      return attemptWithTools(systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal, opts.onUsage, opts.onActivity);
     }
 
     const lastUserMessage = [...history].reverse().find((h) => h.role === "user")?.content ?? "";
@@ -278,6 +280,7 @@ export const geminiProvider: LlmProvider = {
       );
       let grounding: unknown;
       for await (const chunk of stream) {
+        opts?.onActivity?.();
         const text = chunk.text;
         if (text) {
           deltaHandler(text);

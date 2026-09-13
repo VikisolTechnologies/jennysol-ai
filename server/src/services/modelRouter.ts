@@ -167,7 +167,17 @@ export interface RouteResult {
 // Railway deployment updates via an env var + redeploy anyway, and reading
 // it live (instead of baking it into a module-level constant) is what makes
 // it possible to unit-test both values without spawning a second process.
-function firstTokenTimeoutMs(isPrimary: boolean): number {
+// Local (Ollama) gets its own, much tighter budget than either cloud tier —
+// deliberately possible now that the timer above measures activity (any
+// signal at all, reasoning included) rather than real content: confirmed
+// live, a locally-run model's first reasoning token arrives in ~300ms
+// whether the model is warm or "thinking," so 2.5s is a genuinely generous
+// liveness check, not an aggressive one. Total generation time (including a
+// long thinking phase) is bounded only by cancellation, same as any other
+// provider — this budget exists purely to catch a hung/unreachable Ollama
+// fast, per JENNYSOL-LOCAL-CUTOVER.md Phase 2.3.
+function firstTokenTimeoutMs(entry: ProviderEntry, isPrimary: boolean): number {
+  if (entry.name === "ollama") return Number(process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS) || 2_500;
   if (isPrimary) return Number(process.env.LLM_FIRST_TOKEN_TIMEOUT_MS) || 10_000;
   return Number(process.env.LLM_FALLBACK_FIRST_TOKEN_TIMEOUT_MS) || 6_000;
 }
@@ -217,12 +227,21 @@ function attemptWithTimeout(
   const startedAt = Date.now();
   let deltasSent = 0;
   let firstTokenMs: number | null = null;
+  // Deliberately separate from firstTokenMs: a "thinking"-mode model (Qwen3's
+  // default) streams reasoning-trace deltas well before any real content —
+  // confirmed live, ~300ms for the first reasoning token vs. ~7s for first
+  // real content on qwen3:8b. onDelta only ever sees real content, so without
+  // this, the timeout below can only ever measure "time to real content,"
+  // which would falsely call a model that's actively thinking dead. This
+  // tracks "provider produced ANY signal at all" instead — the actual
+  // question a liveness timeout should be asking.
+  let activitySeen = false;
   let usage: TokenUsage | undefined;
   let settled = false;
 
   return new Promise<AttemptOutcome>((resolve, reject) => {
     const timer = setTimeout(() => {
-      if (firstTokenMs === null && !settled) {
+      if (!activitySeen && !settled) {
         settled = true;
         controller.abort();
         const err = new Error(`${entry.name} timed out waiting for first token (${timeoutMs}ms)`) as Error & {
@@ -232,6 +251,13 @@ function attemptWithTimeout(
         reject(err);
       }
     }, timeoutMs);
+
+    const markActivity = () => {
+      if (!activitySeen) {
+        activitySeen = true;
+        clearTimeout(timer);
+      }
+    };
 
     // Run-scoped cancellation (see runCancellation.ts / chatRunner.ts) — a
     // *different* signal from the timeout controller above, so cancelling
@@ -265,9 +291,9 @@ function attemptWithTimeout(
     }
 
     const wrappedOnDelta = (text: string) => {
+      markActivity();
       if (firstTokenMs === null) {
         firstTokenMs = Date.now() - startedAt;
-        clearTimeout(timer);
       }
       deltasSent++;
       if (!settled) onDelta(text);
@@ -282,6 +308,7 @@ function attemptWithTimeout(
         onUsage: (u) => {
           usage = u;
         },
+        onActivity: markActivity,
       })
       .then(() => {
         if (!settled) {
@@ -505,7 +532,7 @@ export async function routeChatCompletion(
         history,
         onDelta,
         onWebSources,
-        firstTokenTimeoutMs(i === 0),
+        firstTokenTimeoutMs(entry, i === 0),
         model,
         outerSignal,
         tools,

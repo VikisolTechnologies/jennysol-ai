@@ -334,6 +334,57 @@ describe("first-token timeout (aggressive failover)", () => {
     await expect(resultPromise).rejects.toBeInstanceOf(AllProvidersUnavailableError);
     expect(deepseekProvider.streamChatCompletion).toHaveBeenCalledTimes(1);
   });
+
+  it("does not time out a locally-run 'thinking' model that emits reasoning activity before real content", async () => {
+    // Regression guard for the exact gap JENNYSOL-LOCAL-CUTOVER.md Phase 2.3
+    // called out: Qwen3's default thinking mode streams reasoning-trace
+    // deltas (onActivity) well before any real content (onDelta) — confirmed
+    // live, ~300ms vs. ~7s on qwen3:8b. Ollama's own tight local budget
+    // (LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS, default 2.5s) must be satisfied by
+    // that early activity, not require real content within it.
+    process.env.LLM_PROVIDER_CHAIN = "ollama";
+    process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS = "2500";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_sp, _h, onDelta: (t: string) => void, _onWebSources, opts) => {
+        opts?.onActivity?.(); // reasoning-trace token, at ~0ms
+        await new Promise((r) => setTimeout(r, 4000)); // well past the 2.5s local budget
+        onDelta("the real answer"); // real content, at ~4000ms
+      }
+    );
+
+    const onDelta = vi.fn();
+    const resultPromise = routeChatCompletion("sys", [], onDelta, undefined, "general");
+    await vi.advanceTimersByTimeAsync(4001);
+    const result = await resultPromise;
+
+    expect(result.providerUsed).toBe("ollama");
+    expect(result.fellBack).toBe(false);
+    expect(onDelta).toHaveBeenCalledWith("the real answer");
+    // firstTokenMs still means "real content," not "any activity" — the two
+    // are deliberately different measurements for different purposes.
+    expect(result.firstTokenMs).toBeGreaterThanOrEqual(4000);
+  });
+
+  it("DOES time out a local model that produces no activity at all within its tight budget", async () => {
+    process.env.LLM_PROVIDER_CHAIN = "ollama,gemini";
+    process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS = "2500";
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}));
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(streamsText("from gemini"));
+
+    const onDelta = vi.fn();
+    const resultPromise = routeChatCompletion("sys", [], onDelta, undefined, "general");
+    await vi.advanceTimersByTimeAsync(2501);
+    const result = await resultPromise;
+
+    expect(result.providerUsed).toBe("gemini");
+    expect(result.fellBack).toBe(true);
+    expect(result.attempts).toEqual([{ name: "ollama", reason: "timeout" }]);
+  });
 });
 
 describe("run-scoped cancellation", () => {
