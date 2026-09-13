@@ -6,7 +6,7 @@
 import type { ChatTurn } from "./llmProvider.js";
 import { routeChatCompletion, AllProvidersUnavailableError } from "./modelRouter.js";
 import * as sessionStore from "./agentSessionStore.js";
-import { getAgent, updateAgentStatus, ROLE_CATALOG, type AgentRole } from "./agentRegistry.js";
+import { getAgent, updateAgentStatus, ROLE_CATALOG, type AgentRole, type Agent } from "./agentRegistry.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
 
 export class AgentTaskError extends Error {
@@ -39,22 +39,37 @@ export const MEMORY_READ_SCOPE: Record<AgentRole, string[]> = {
   final_judge: ["requirements", "current_plan", "audit_results", "tests", "changed_files"],
 };
 
+function appendMemoryBlock(prompt: string, memoryContext: Record<string, unknown>): string {
+  if (Object.keys(memoryContext).length === 0) return prompt;
+  return `${prompt}\n\nRelevant session memory:\n${JSON.stringify(memoryContext, null, 2)}`;
+}
+
 function assembleSystemPrompt(role: AgentRole, memoryContext: Record<string, unknown>): string {
   const def = ROLE_CATALOG[role];
-  const memoryBlock =
-    Object.keys(memoryContext).length > 0
-      ? `\n\nRelevant session memory:\n${JSON.stringify(memoryContext, null, 2)}`
-      : "";
-  return (
+  return appendMemoryBlock(
     `You are the ${def.displayName} agent in a multi-agent engineering session. ` +
-    `Complete the assigned task using only the context provided.${memoryBlock}`
+      `Complete the assigned task using only the context provided.`,
+    memoryContext
   );
+}
+
+export interface RunAgentTaskOptions {
+  // Phase 9: a role-specific prompt (agentRolePrompts.ts) replacing the generic one-liner below —
+  // the memory-context block is still appended by this function either way, so a role's declared
+  // read-scope stays the single source of what context assembly means, regardless of which prompt
+  // text precedes it.
+  systemPromptOverride?: string;
+  // Runs AFTER a successful model call but BEFORE the task/agent are marked "completed" — a
+  // role-specific post-processing step (Phase 9: Architect writes to session_memory, Coder parses
+  // the response and proposes a real file write). Throwing here fails the task with the real error,
+  // exactly like a provider failure — post-processing is not a best-effort afterthought.
+  onComplete?: (fullText: string, ctx: { agent: Agent; task: sessionStore.AgentTask }) => Promise<void>;
 }
 
 // Requires task.agentId already set (assigning a task to an agent is the Scheduler's job, Phase 6 —
 // this phase is deliberately just the one-task/one-agent integration point, tested directly rather
 // than through a scheduling loop that doesn't exist yet).
-export async function runAgentTask(sessionId: string, taskId: string): Promise<void> {
+export async function runAgentTask(sessionId: string, taskId: string, options?: RunAgentTaskOptions): Promise<void> {
   const task = sessionStore.getTask(sessionId, taskId);
   if (!task) throw new AgentTaskError(`Task ${taskId} not found in session ${sessionId}`);
   if (!task.agentId) throw new AgentTaskError(`Task ${taskId} has no agent assigned yet`);
@@ -67,7 +82,9 @@ export async function runAgentTask(sessionId: string, taskId: string): Promise<v
     if (entry) memoryContext[key] = entry.value;
   }
 
-  const systemPrompt = assembleSystemPrompt(agent.role, memoryContext);
+  const systemPrompt = options?.systemPromptOverride
+    ? appendMemoryBlock(options.systemPromptOverride, memoryContext)
+    : assembleSystemPrompt(agent.role, memoryContext);
   const history: ChatTurn[] = [
     { role: "user", content: task.description ? `${task.title}\n\n${task.description}` : task.title },
   ];
@@ -87,6 +104,10 @@ export async function runAgentTask(sessionId: string, taskId: string): Promise<v
       undefined,
       agent.capabilities[0] ?? "general"
     );
+
+    if (options?.onComplete) {
+      await options.onComplete(fullText, { agent, task });
+    }
 
     sessionStore.updateTaskStatus(sessionId, taskId, "completed", {
       result: { response: fullText, provider: result.providerUsed },
