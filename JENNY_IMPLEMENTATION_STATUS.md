@@ -1269,9 +1269,42 @@ Role -> capability -> default-permission table (this phase's documentation deliv
 | visual_qa | general | file:read, exec:command |
 | final_judge | reasoning | memory:write_any |
 
-**Not started**: Phase 3 onward (task DAG resolution, event bus, scheduler, tool integration, the
-actual agent role system prompts, the dashboard). This entry is extended in place, not replaced, as
-each further phase lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
+#### Phase 3 — Task DAG
+
+**Status: VERIFIED — 13/13 tests pass, full suite green (456/456), tsc clean.**
+
+`server/src/services/agentTaskDag.ts` (new): `createTask` (single, existence-checked),
+`createTaskBatch` (atomic multi-task insert with real cycle detection), `readyTasks(sessionId)`
+(pure, read-only).
+
+Real design decisions made and recorded here, not deferred silently (this phase's own documentation
+requirement):
+
+- **"ready" is a computed label, never a persisted status value.** `readyTasks()` reads currently-
+  persisted rows and returns 'pending' tasks whose every dependency is 'completed' — nothing writes
+  'ready' into `agent_tasks.status`. The Phase 6 Scheduler calls this each tick and writes 'queued'
+  directly the moment it actually grants a slot. This is what keeps the function genuinely
+  side-effect-free rather than a status that goes stale the instant a sibling task completes.
+- **A task with a failed/cancelled dependency blocks forever, silently, on purpose — for now.** It's
+  simply never returned by `readyTasks()` and is not auto-failed itself. Reopening it is the Phase
+  11/12 correction-task mechanism's job (a new corrective `agent_tasks` row), out of this phase's
+  scope — recorded now so it's a decision, not a gap discovered later.
+- **Cycle detection is a batch-level concern, not a single-insert concern**, and this is structural,
+  not a shortcut: `agent_tasks.id` is always server-generated at insert time, so a single new task
+  can only ever add a new sink to an already-valid DAG — it cannot complete a cycle. Real cycle risk
+  only exists when several not-yet-persisted tasks reference each other within one batch (exactly
+  the Orchestrator's own decompose-into-many-tasks-at-once case, Phase 9) — `createTaskBatch()` runs
+  Kahn's algorithm over the batch's local ids and rejects the *entire* batch (nothing partially
+  inserted) on any cycle, self-dependency, or reference to an unknown id.
+
+Tested directly against the founding directive's own §9 worked example as a literal fixture
+(TASK-006 depending on TASK-004+TASK-005; TASK-012 depending on six upstream tasks), plus explicit
+self-dependency, 2-node cycle, 3-node cycle, and unknown-reference rejection cases — each asserting
+the whole batch inserts nothing, not just that the throw happens.
+
+**Not started**: Phase 4 onward (event bus, scheduler, tool integration, the actual agent role
+system prompts, the dashboard). This entry is extended in place, not replaced, as each further phase
+lands — see `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
 ---
 
