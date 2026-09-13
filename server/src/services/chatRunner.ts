@@ -18,6 +18,7 @@ import * as runStore from "./agentRunStore.js";
 import { publish } from "./runBus.js";
 import { registerRun, unregisterRun } from "./runCancellation.js";
 import { recordRequest } from "./requestMetrics.js";
+import { maybeShadowToOllama } from "./shadowTraffic.js";
 
 function emit(runId: string, type: string, payload?: unknown): runStore.AgentEvent {
   const event = runStore.appendEvent(runId, type, payload);
@@ -368,6 +369,15 @@ export async function executeChatRun(
     ]);
 
     logTiming(runId, requestId, userId, routeResult, timings, context);
+
+    // Phase 5 (JENNYSOL-LOCAL-CUTOVER.md): fire-and-forget, after the real
+    // response is already fully sent and persisted above — cannot affect
+    // what the user saw or how long it took, no matter how long this takes
+    // or whether it fails. See shadowTraffic.ts for the sampling/gating.
+    maybeShadowToOllama(systemPrompt, context.turns, classifyTask(message), {
+      provider: routeResult.providerUsed,
+      totalMs: timings.completedAt - timings.startedAt,
+    });
   } catch (err) {
     if ((err as { code?: string })?.code === "cancelled") {
       // Not a failure — the user asked this specific run to stop. Whatever
