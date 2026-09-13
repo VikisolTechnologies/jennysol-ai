@@ -2,6 +2,7 @@ import "dotenv/config";
 import { app } from "./app.js";
 import { noProviderConfigured } from "./services/llm.js";
 import { warmUpGemini } from "./services/providers/gemini.js";
+import { startKeepWarm } from "./services/keepWarm.js";
 import { logError } from "./services/errorLog.js";
 import { deleteExpiredSessions } from "./services/auth/sessions.js";
 import "./db/index.js";
@@ -16,6 +17,13 @@ if (noProviderConfigured()) {
 // ~15s grounding-availability probe (see warmUpGemini's own comment) never
 // runs concurrently with a real user's first request.
 warmUpGemini();
+
+// Phase 2.1 (JENNYSOL-LOCAL-CUTOVER.md): keeps the local model resident so
+// the tight 2.5s local-provider timeout (Phase 2.3) isn't racing a cold
+// load on top of normal thinking-mode latency. No-ops entirely on a
+// deployment where Ollama isn't in the active chain (Railway today) — see
+// keepWarm.ts.
+startKeepWarm();
 
 // Sweeps sessions already past expires_at — safe by construction (see
 // deleteExpiredSessions' own comment), never touches anything still
