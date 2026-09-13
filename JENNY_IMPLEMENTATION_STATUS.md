@@ -1620,6 +1620,120 @@ remaining 10 specialist roles and full QA pipeline, the dashboard, human steerin
 integration). This entry is extended in place, not replaced, as each further phase lands — see
 `docs/AI_AGENT_IMPLEMENTATION_PLAN.md` for the full order.
 
+#### Re-plan: JENNYSOL-AGENTS-UI-FIRST.md supersedes the Phase 10-15 ordering
+
+Before continuing, a second brief (`JENNYSOL-AGENTS-UI-FIRST.md`) reordered everything after Phase 9
+into Stages A-D — observability and a real human control surface *before* more roles, not after
+(rationale: all three Phase 9 findings were only caught by a human reading a trace of a *four*-role
+run; ten more roles without a live surface would be undebuggable). This supersedes the old Phase
+10-15 order but covers the same ground: Stage A/B ≈ old Phase 13/14 pulled forward, Stage C ≈ old
+Phase 10/11, Stage D ≈ old Phase 12. Adopted as stated, no scope removed — see that file for the
+full brief. From here, entries are titled by Stage, not Phase number.
+
+**Pre-flight (the brief's own §1, before any new work)**: confirmed `f16d6b1` pushed and
+`origin/main` matched (no local-only work). The brief's "name the 2 failing tests" was, on
+inspection, imprecise: the suite reports 2 **skipped** tests, not failing ones — both are
+`describe.skipIf(!ollamaReachable)` live-model tests (`agentTaskRunner.test.ts`,
+`agentOrchestrator.test.ts`) that skip honestly when this Mac's local Ollama daemon isn't running,
+which it wasn't at session start. Started it for real and re-ran both live tests to verify rather
+than trust a skip: both passed in isolation (agentOrchestrator's full 4-role live E2E: 136s cold,
+72s once warm). One real, honest finding surfaced doing this: running the *full* suite concurrently
+with a freshly-started Ollama daemon, `agentTaskRunner.test.ts`'s live test missed even its widened
+20s test-only budget on one call (timeout, then `AllProvidersUnavailableError` since that test
+deliberately runs `ollama`-only, no cloud fallback) — confirmed transient by re-running the same
+test alone immediately after (2.78s, passed). Real evidence for Stage C §5.1's latency question, not
+a bug: under concurrent load this Mac's local inference latency is genuinely inconsistent enough to
+occasionally exceed a 20s budget on a task that normally finishes in seconds. Recorded here rather
+than papered over by widening the timeout further.
+
+#### Stage A/B (partial) — the real gap found first: nothing drove a session end-to-end
+
+**Status: VERIFIED — 540 tests (25 new: 9 + 5 + 9 new files, 2 new rejection-path tests in
+agentOrchestrator.test.ts), tsc clean both packages, full suite green.** Before writing any dashboard
+code, inspecting the actual system for what "watch a live run" would even show turned up a real,
+load-bearing gap the brief didn't anticipate: **nothing before this stage could actually run a
+session end-to-end outside of a test manually calling `runRoleTask` task-by-task.** Phase 6's
+Scheduler and Phase 9's roles had never been wired together, and no route existed to start a session
+at all. Building the dashboard on top of that would have meant either faking activity (forbidden) or
+building UI with nothing real to render. Closed first, as its own real finding, not silently folded
+into "just add SSE":
+
+- `server/src/services/agentSessionRunner.ts` (new): `driveSession(sessionId, executor?)` — the
+  missing loop. Ticks the Scheduler (`agentScheduler.tick`) with the role-aware executor
+  (`runRoleTask`, Phase 9) repeatedly until every task is terminal (session marked
+  completed/failed accordingly) or the session is paused (idle-polls) or cancelled (returns).
+  `activeRunners` guards against two competing loops for one session. Fire-and-forget, same shape as
+  `chatRunner`'s `executeChatRun`.
+- **A second, more serious real gap found while building this loop**: `agentOrchestrator.ts`'s
+  Coder/QA branches were **self-approving** every WRITE/exec action — `proposeAgentAction()` then
+  immediately `approveAgentAction()` in the same code path, with nothing external ever actually
+  deciding anything. The propose/approve *shape* (ADR-004) existed; the human was never actually in
+  the loop. This is precisely what Stage B calls "a control surface is a safety control" — fixed at
+  the root, not papered over in the dashboard: `agentToolRegistry.ts` gained
+  `awaitApprovalDecision(actionId)`, a promise created and stored **at propose time** (not lazily on
+  first await — see the real race this avoided, below), resolved only by a later, real
+  `approveAgentAction`/`rejectAgentAction` call or the action's own now-actively-enforced TTL
+  (a `setTimeout`, not just a lazily-checked timestamp — a proposal nobody ever decides on now fails
+  honestly instead of hanging a task forever). `agentOrchestrator.ts`'s Coder/QA branches now
+  propose, mark the task `awaiting_approval` (new `AgentTaskStatus`/`task.awaiting_approval` event —
+  a real, distinct, dashboard-visible state, not folded into "running"), and really wait.
+- **Real bug caught writing the first rejection test, not assumed away**: `rejectAgentAction` has no
+  internal `await`, so a listener reacting to the same event tick it fires in — as this stage's own
+  test helper, and in principle a very fast real approval-queue client, does — could call it *before*
+  `awaitApprovalDecision` had registered a waiter, permanently missing the one resolution and hanging
+  the task until the 5-minute TTL. Root-caused and fixed for real: the decision promise is now
+  created inside `proposeAgentAction` itself, before its event is ever emitted, so it always exists
+  by the time anything could possibly react — no ordering assumption left to rely on.
+- **The ESM static-import-hoisting bug (caught 3 times this session already) recurred a 4th time**,
+  self-inflicted debugging this exact issue: a temporary `console.log` diagnostic revealed a real
+  file write landed in the actual repo root (`/ping.js`) instead of the test's tmp workspace, because
+  my own new `import { approveAgentAction } from "./agentToolRegistry.js"` in
+  `agentOrchestrator.test.ts` was a **static** top-of-file import, hoisted above that file's
+  `AGENT_WORKSPACE_ROOT` assignment. Fixed by moving it into the file's existing dynamic-import
+  block. The stray `ping.js` this produced was confirmed harmless (content/timestamp matched the
+  debug run exactly, untracked, unreferenced) and deleted. Recorded again because this is now a
+  4-for-4 pattern worth a permanent rule, not a one-off: **any new import in any agent test file that
+  transitively touches `agentWorkspace.ts` (currently: `agentToolRegistry.ts`, `agentCommandTool.ts`,
+  `agentOrchestrator.ts`) must be dynamic, after the env var assignment, full stop — never add a
+  static import "just this once."**
+- `server/src/services/agentSessionControl.ts` (new): `pauseSession`, `resumeSession`,
+  `cancelSession`, `killAgent` — real, durable transitions Stage B's own definition of done requires
+  ("cancel cleanly: locks released, partial state recorded, no orphaned agents"; "kill one agent
+  without tearing down the whole DAG"). Cancel/kill reject that scope's pending actions
+  (`agentToolRegistry.ts` gained `rejectAllPendingActionsForSession`/`rejectPendingActionsForAgent`)
+  and release its file locks (`agentFileLocks.ts` gained `releaseAllLocksForSession`/
+  `releaseLocksHeldByAgent`) — a killed agent's sibling tasks/locks/pending actions are provably
+  untouched (tested directly). `agentScheduler.tick()` also now refuses to dispatch into a
+  paused/cancelled/terminal session directly (not just relying on the driver loop's own check) —
+  the Scheduler stays the sole authority on pending→running transitions, per its own header comment.
+- `server/src/routes/admin.ts`: `POST /agent-sessions` (the real "start a session" route — returns
+  as soon as the session row exists, then `decomposeObjective` + `driveSession` run in the
+  background, same fire-and-forget shape as chat), `POST /agent-sessions/:id/{pause,resume,cancel}`,
+  `POST /agent-sessions/:id/agents/:agentId/kill`, `GET /agent-actions/pending` (optionally
+  `?sessionId=`), `POST /agent-actions/:id/{approve,reject}`, and `GET /agent-sessions/:id/stream`
+  (Stage A §2.1's live SSE feed — same header/heartbeat/unsubscribe-on-close shape as `chat.ts`'s
+  existing SSE route, replaying `?after=` before subscribing live so a reconnecting client never
+  misses an event; transport only, no new domain logic, per the brief's own framing).
+- New tests: `agentSessionControl.test.ts` (9), `agentSessionRunner.test.ts` (5, using a controllable
+  fake executor exactly like `agentScheduler.test.ts`'s own convention — proves the loop completes a
+  real dependency chain, marks failure correctly, respects pause without touching state, stops
+  immediately on cancel, and never runs two competing loops for one session),
+  `routes/adminAgentSessions.http.test.ts` (9, real HTTP layer via `supertest` against the real
+  `app.ts` — the same gap-closing rationale `httpRoutes.test.ts` documents: a route can wire auth or
+  validation wrong even when the service underneath is correct, and only an HTTP-layer test catches
+  that. Covers 401/403/400 gating, real background decomposition observed via polling, real
+  pause/resume/cancel transitions, real kill-one-agent-not-its-sibling, and the approval queue
+  actually writing/blocking a real file through real HTTP calls). Plus 2 new rejection-path unit
+  tests in `agentOrchestrator.test.ts` (coder write rejected → task fails, file never written; QA
+  command rejected → task fails, command never runs) and the live E2E test updated to act as its own
+  "human" via the real event bus rather than self-approving.
+
+**Not yet built (this stage continues)**: the actual dashboard UI wiring to this new surface (SSE
+consumption, the run view's DAG/artifact rendering, the approval queue UI, pause/resume/cancel/kill
+buttons, mobile layout, design-system pass) — everything above is the real server-side surface the
+UI now has something honest to render against. Continuing directly into the client next, per the
+brief's own "build the surface" instruction.
+
 ---
 
 ## PHASE 5 — Automatic Gap Analysis

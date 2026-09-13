@@ -103,6 +103,26 @@ export function isLocked(sessionId: string, filePath: string): boolean {
   return currentHolder(sessionId, filePath) !== null;
 }
 
+// Stage B of JENNYSOL-AGENTS-UI-FIRST.md: "Cancel a run cleanly: locks released." Releases every
+// currently-held lock in the session through the same releaseLock() path a normal release uses
+// (including promoting the next waiter, if any) — cancelling a session must never leave a lock
+// silently held forever.
+export function releaseAllLocksForSession(sessionId: string): void {
+  const rows = db
+    .prepare(`SELECT file_path, agent_id FROM file_locks WHERE session_id = ? AND released_at IS NULL`)
+    .all(sessionId) as { file_path: string; agent_id: string }[];
+  for (const row of rows) releaseLock(sessionId, row.file_path, row.agent_id);
+}
+
+// Stage B: "Kill a single agent without tearing down the whole DAG" — only that agent's own held
+// locks are released, so a sibling agent's unrelated locks are untouched.
+export function releaseLocksHeldByAgent(sessionId: string, agentId: string): void {
+  const rows = db
+    .prepare(`SELECT file_path FROM file_locks WHERE session_id = ? AND agent_id = ? AND released_at IS NULL`)
+    .all(sessionId, agentId) as { file_path: string }[];
+  for (const row of rows) releaseLock(sessionId, row.file_path, agentId);
+}
+
 // Test-only escape hatch, matching the established convention elsewhere in this codebase.
 export function __clearWaitersForTests(): void {
   waiters.clear();

@@ -71,18 +71,24 @@ export async function tick(
 ): Promise<TickResult> {
   const session = sessionStore.getSessionUnscoped(sessionId);
   if (!session) return { dispatched: [], pausedForBudget: null };
+  // Stage B of JENNYSOL-AGENTS-UI-FIRST.md: a human pause/cancel must actually stop dispatch, not
+  // just be a label the driver loop happens to also check — this is the Scheduler's own job as the
+  // sole authority on pending -> running transitions (this file's own header comment).
+  if (session.status === "paused" || session.status === "cancelled" || session.status === "completed" || session.status === "failed") {
+    return { dispatched: [], pausedForBudget: null };
+  }
 
   const agentsTokensUsed = listAgentsForSession(sessionId).reduce((sum, a) => sum + a.tokensUsed, 0);
   const budgetHit = budgetExceeded(session, agentsTokensUsed);
   if (budgetHit) {
-    if (session.status !== "paused") {
-      sessionStore.updateSessionStatus(sessionId, "paused");
-      appendSessionEvent({
-        sessionId,
-        type: "session.status_changed",
-        payload: { status: "paused", reason: `budget_exceeded:${budgetHit}` },
-      });
-    }
+    // session.status is already narrowed to "planning" | "running" here (the guard above returns
+    // early for every other status), so it can never already be "paused" at this point.
+    sessionStore.updateSessionStatus(sessionId, "paused");
+    appendSessionEvent({
+      sessionId,
+      type: "session.status_changed",
+      payload: { status: "paused", reason: `budget_exceeded:${budgetHit}` },
+    });
     return { dispatched: [], pausedForBudget: budgetHit };
   }
 

@@ -15,6 +15,7 @@ export type AgentTaskStatus =
   | "queued"
   | "running"
   | "blocked"
+  | "awaiting_approval"
   | "completed"
   | "failed"
   | "cancelled";

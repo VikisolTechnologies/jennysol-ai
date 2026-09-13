@@ -6,7 +6,7 @@ import path from "node:path";
 import { db } from "../db/index.js";
 import * as sessionStore from "./agentSessionStore.js";
 import { listAgentsForSession } from "./agentRegistry.js";
-import { getSessionEventsAfter } from "./sessionEventBus.js";
+import { getSessionEventsAfter, subscribeToSession } from "./sessionEventBus.js";
 
 // Isolated real fixture directory — coder/qa role executors write and run real things.
 // AGENT_WORKSPACE_ROOT must be set before any of this suite's real modules are imported.
@@ -28,8 +28,28 @@ vi.mock("./modelRouter.js", async (importOriginal) => {
 const { routeChatCompletion } = await import("./modelRouter.js");
 type RouteResult = Awaited<ReturnType<typeof routeChatCompletion>>;
 const { decomposeObjective, runRoleTask, OrchestratorError } = await import("./agentOrchestrator.js");
+const { approveAgentAction, rejectAgentAction } = await import("./agentToolRegistry.js");
 
 const mockRoute = routeChatCompletion as unknown as ReturnType<typeof vi.fn>;
+
+// Stage B of JENNYSOL-AGENTS-UI-FIRST.md made the coder/qa propose/approve gate genuinely
+// asynchronous — runRoleTask now really waits for a human decision instead of approving its own
+// proposal. These tests simulate that human via the real event bus (the same one the real admin
+// approval-queue route listens on) rather than bypassing the gate: as soon as a real
+// "pending_approval" event is observed for the session, immediately approve or reject the real
+// action id it names. This exercises the actual propose -> wait -> decide -> resume path, not a
+// shortcut around it.
+function autoDecideNextAction(sessionId: string, decision: "approve" | "reject" = "approve"): () => void {
+  const unsubscribe = subscribeToSession(sessionId, (event) => {
+    const payload = event.payload as { status?: string; actionId?: string } | null;
+    if (event.type === "tool.exec.started" && payload?.status === "pending_approval" && payload.actionId) {
+      unsubscribe();
+      if (decision === "approve") approveAgentAction(payload.actionId).catch(() => {});
+      else rejectAgentAction(payload.actionId);
+    }
+  });
+  return unsubscribe;
+}
 
 function mockReturning(text: string) {
   mockRoute.mockImplementation(async (_sys: string, _hist: unknown, onDelta: (t: string) => void) => {
@@ -142,6 +162,7 @@ describe("agentOrchestrator", () => {
       const task = sessionStore.createTask({ sessionId, title: "Write ping.js" });
       sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
       mockReturning(JSON.stringify({ filePath: "ping.js", content: "module.exports = () => 'pong';" }));
+      autoDecideNextAction(sessionId, "approve");
 
       await runRoleTask(sessionId, task.id);
 
@@ -150,6 +171,22 @@ describe("agentOrchestrator", () => {
       expect(written).toBe("module.exports = () => 'pong';");
       expect(sessionStore.getMemory(sessionId, "changed_files")?.value).toEqual(["ping.js"]);
       expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+    });
+
+    it("rejects a proposed file write for real: the task fails and the file is never written", async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "coder");
+      const task = sessionStore.createTask({ sessionId, title: "Write rejected.js" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockReturning(JSON.stringify({ filePath: "rejected.js", content: "should never land on disk" }));
+      autoDecideNextAction(sessionId, "reject");
+
+      await expect(runRoleTask(sessionId, task.id)).rejects.toThrow();
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
+      expect(sessionStore.getMemory(sessionId, "changed_files")).toBeNull();
+
+      const fs = await import("node:fs/promises");
+      await expect(fs.access(path.join(tmpRoot, "rejected.js"))).rejects.toThrow();
     });
 
     it("fails the task honestly when the coder's output isn't valid {filePath, content} JSON", async () => {
@@ -181,6 +218,7 @@ describe("agentOrchestrator", () => {
         description: JSON.stringify({ cwd: "qa-pass", command: "npm", args: ["test"] }),
       });
       sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      autoDecideNextAction(sessionId, "approve");
 
       await runRoleTask(sessionId, task.id);
 
@@ -198,9 +236,29 @@ describe("agentOrchestrator", () => {
         description: JSON.stringify({ cwd: "qa-fail", command: "npm", args: ["test"] }),
       });
       sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      autoDecideNextAction(sessionId, "approve");
 
       await expect(runRoleTask(sessionId, task.id)).rejects.toThrow();
       expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
+    }, 15_000);
+
+    it("rejects a proposed command for real: it never runs, and the task fails", async () => {
+      makeFixture("qa-rejected", "touch should-never-run.txt");
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "qa");
+      const task = sessionStore.createTask({
+        sessionId,
+        title: "Verify",
+        description: JSON.stringify({ cwd: "qa-rejected", command: "npm", args: ["test"] }),
+      });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      autoDecideNextAction(sessionId, "reject");
+
+      await expect(runRoleTask(sessionId, task.id)).rejects.toThrow();
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
+
+      const fs = await import("node:fs/promises");
+      await expect(fs.access(path.join(tmpRoot, "qa-rejected", "should-never-run.txt"))).rejects.toThrow();
     }, 15_000);
 
     it("fails honestly when the task's description isn't a valid command spec", async () => {
@@ -246,8 +304,26 @@ describe.skipIf(!ollamaReachable)("Phase 9 live end-to-end — real Orchestrator
     const freshRegistry = await import("./agentRegistry.js");
     const freshDag = await import("./agentTaskDag.js");
     const freshOrchestrator = await import("./agentOrchestrator.js");
+    const freshBus = await import("./sessionEventBus.js");
+    const freshTools = await import("./agentToolRegistry.js");
     const { isOllamaAvailable } = await import("./providers/ollama.js");
     const fs = await import("node:fs/promises");
+
+    // Same real-human-simulation helper as the mocked tests above, bound to THIS test's own fresh
+    // module registry (vi.resetModules() means the statically-imported subscribeToSession/
+    // approveAgentAction at the top of this file are a *different* module instance with its own,
+    // separate in-memory pendingActions/event-bus state — using those here would silently do
+    // nothing).
+    function freshAutoApprove(sessionId: string): () => void {
+      const unsubscribe = freshBus.subscribeToSession(sessionId, (event) => {
+        const payload = event.payload as { status?: string; actionId?: string } | null;
+        if (event.type === "tool.exec.started" && payload?.status === "pending_approval" && payload.actionId) {
+          unsubscribe();
+          freshTools.approveAgentAction(payload.actionId).catch(() => {});
+        }
+      });
+      return unsubscribe;
+    }
 
     const deadline = Date.now() + 5000;
     while (!isOllamaAvailable() && Date.now() < deadline) {
@@ -299,7 +375,12 @@ describe.skipIf(!ollamaReachable)("Phase 9 live end-to-end — real Orchestrator
           .filter((t) => t.agentId && freshRegistry.getAgent(realSession.id, t.agentId)?.role !== "qa");
         if (ready.length === 0) break;
         for (const task of ready) {
+          // Re-armed per task: a coder task proposes a real file.write that now genuinely waits for
+          // this "human" to decide (Stage B) — an architect task proposes nothing, so this just sits
+          // idle and unsubscribes harmlessly right after.
+          const unsubscribe = freshAutoApprove(realSession.id);
           await freshOrchestrator.runRoleTask(realSession.id, task.id);
+          unsubscribe();
         }
       }
 
@@ -328,6 +409,7 @@ describe.skipIf(!ollamaReachable)("Phase 9 live end-to-end — real Orchestrator
         description: JSON.stringify({ cwd: ".", command: "npm", args: ["test"] }),
       });
       freshSessionStore.updateTaskStatus(realSession.id, qaTask.id, "pending", { agentId: qaAgent.id });
+      const unsubscribeQa = freshAutoApprove(realSession.id);
       // QA's own real command execution is what this assertion is actually about — a real,
       // deterministic exit code reflecting whatever the Coder's real (unpredictable) output
       // actually was, not a guarantee that a small local model always writes fully correct code on
@@ -336,6 +418,7 @@ describe.skipIf(!ollamaReachable)("Phase 9 live end-to-end — real Orchestrator
       // happened rather than assuming success or treating a real, honestly-reported FAIL as a test
       // infrastructure failure.
       await freshOrchestrator.runRoleTask(realSession.id, qaTask.id).catch(() => {});
+      unsubscribeQa();
 
       const finishedQa = freshSessionStore.getTask(realSession.id, qaTask.id)!;
       const qaExitCode = (finishedQa.result as { exitCode?: number | null } | null)?.exitCode;

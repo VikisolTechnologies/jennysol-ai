@@ -117,6 +117,49 @@ export interface PendingAgentAction {
 const ACTION_TTL_MS = 5 * 60 * 1000;
 const pendingActions = new Map<string, PendingAgentAction>();
 
+// Stage B of JENNYSOL-AGENTS-UI-FIRST.md ("a control surface is a safety control"): a real human
+// decision point. Before this, the only caller of approveAgentAction was the same code path that
+// just called proposeAgentAction — the propose/approve *shape* existed but nothing outside the agent
+// itself ever actually decided anything. A role executor that needs a real decision registers a
+// waiter here and awaits it; only the admin approval-queue route (a human clicking Approve/Reject) or
+// this action's own TTL expiry ever resolves it.
+export interface ApprovalDecision {
+  approved: boolean;
+  result?: unknown;
+  error?: string;
+}
+// The decision promise is created and stored at PROPOSE time, not lazily whenever a caller first
+// awaits it — deliberately. rejectAgentAction has no internal await at all, so if a caller (real or,
+// as found writing this stage's own tests, a fast synchronous test double reacting to the very same
+// event tick) rejects before a role executor's own `await awaitApprovalDecision(id)` line runs, a
+// lazily-created promise would already have missed its one resolution and hang forever. Creating the
+// promise here, before proposeAgentAction's event is even emitted, means it always already exists by
+// the time anything could possibly react to that event — no ordering assumption needed.
+interface WaiterEntry {
+  resolve: (decision: ApprovalDecision) => void;
+  promise: Promise<ApprovalDecision>;
+}
+const approvalWaiters = new Map<string, WaiterEntry>();
+
+function resolveWaiter(actionId: string, decision: ApprovalDecision): void {
+  const entry = approvalWaiters.get(actionId);
+  if (!entry) return;
+  approvalWaiters.delete(actionId);
+  entry.resolve(decision);
+}
+
+// Returns the same promise proposeAgentAction already created for this action id — resolves only
+// when a human (via approveAgentAction/rejectAgentAction) or this action's own TTL timer decides,
+// never on its own. A role executor calls this right after proposeAgentAction instead of approving
+// its own proposal.
+export function awaitApprovalDecision(actionId: string): Promise<ApprovalDecision> {
+  const entry = approvalWaiters.get(actionId);
+  if (!entry) {
+    return Promise.resolve({ approved: false, error: "No pending decision for this action" });
+  }
+  return entry.promise;
+}
+
 export function proposeAgentAction(
   sessionId: string,
   agentId: string,
@@ -127,46 +170,83 @@ export function proposeAgentAction(
   if (toolName === "exec.command") requirePermission(sessionId, agentId, "exec:command");
   const action: PendingAgentAction = { id: randomUUID(), sessionId, agentId, toolName, args, createdAt: Date.now() };
   pendingActions.set(action.id, action);
+  let resolveFn!: (decision: ApprovalDecision) => void;
+  const promise = new Promise<ApprovalDecision>((resolve) => {
+    resolveFn = resolve;
+  });
+  approvalWaiters.set(action.id, { resolve: resolveFn, promise });
   appendSessionEvent({
     sessionId,
     agentId,
     type: "tool.exec.started",
     payload: { tool: toolName, status: "pending_approval", actionId: action.id, args: redactSecrets(args) },
   });
+  // Real, active expiry — not just a lazily-checked timestamp. Without this, a proposal nobody ever
+  // approves or rejects would leave awaitApprovalDecision's promise (and the task awaiting it)
+  // hanging forever instead of failing honestly.
+  setTimeout(() => {
+    if (!pendingActions.has(action.id)) return; // already approved/rejected
+    pendingActions.delete(action.id);
+    appendSessionEvent({
+      sessionId,
+      agentId,
+      type: "tool.exec.finished",
+      payload: { tool: toolName, actionId: action.id, ok: false, expired: true },
+    });
+    resolveWaiter(action.id, { approved: false, error: "Action expired without a decision" });
+  }, ACTION_TTL_MS).unref();
   return action;
+}
+
+export function listPendingActions(sessionId?: string): PendingAgentAction[] {
+  const all = [...pendingActions.values()].sort((a, b) => a.createdAt - b.createdAt);
+  return sessionId ? all.filter((a) => a.sessionId === sessionId) : all;
 }
 
 // Returns the tool's own result where there is one worth returning (exec.command's exit
 // code/output — a caller, typically an agent task, needs this to decide what happened) and
 // undefined otherwise (file.write has nothing more to say than "it happened," already visible via
-// the real events it wrote).
+// the real events it wrote). Also the thing that resolves a waiter registered via
+// awaitApprovalDecision, if one exists — the two calling conventions (a caller that awaits this
+// function's own return directly, and a caller that awaits awaitApprovalDecision from elsewhere)
+// both work off the exact same execution path.
 export async function approveAgentAction(actionId: string): Promise<unknown> {
   const action = pendingActions.get(actionId);
   if (!action) throw new AgentToolError("No such pending action (already used, rejected, or expired)");
   pendingActions.delete(actionId);
   if (Date.now() - action.createdAt > ACTION_TTL_MS) {
-    throw new AgentToolError("This action has expired");
+    const err = new AgentToolError("This action has expired");
+    resolveWaiter(actionId, { approved: false, error: err.message });
+    throw err;
   }
 
-  if (action.toolName === "file.write") {
-    await executeFileWrite(
-      action.sessionId,
-      action.agentId,
-      action.args.filePath as string,
-      action.args.content as string
-    );
-    return undefined;
+  try {
+    let result: unknown;
+    if (action.toolName === "file.write") {
+      await executeFileWrite(
+        action.sessionId,
+        action.agentId,
+        action.args.filePath as string,
+        action.args.content as string
+      );
+      result = undefined;
+    } else if (action.toolName === "exec.command") {
+      result = await executeCommand(
+        action.sessionId,
+        action.agentId,
+        (action.args.cwd as string) ?? ".",
+        action.args.command as string,
+        (action.args.args as string[]) ?? []
+      );
+    } else {
+      throw new AgentToolError(`Unknown tool "${action.toolName}"`);
+    }
+    resolveWaiter(actionId, { approved: true, result });
+    return result;
+  } catch (err) {
+    resolveWaiter(actionId, { approved: false, error: err instanceof Error ? err.message : String(err) });
+    throw err;
   }
-  if (action.toolName === "exec.command") {
-    return executeCommand(
-      action.sessionId,
-      action.agentId,
-      (action.args.cwd as string) ?? ".",
-      action.args.command as string,
-      (action.args.args as string[]) ?? []
-    );
-  }
-  throw new AgentToolError(`Unknown tool "${action.toolName}"`);
 }
 
 export function rejectAgentAction(actionId: string): void {
@@ -179,8 +259,25 @@ export function rejectAgentAction(actionId: string): void {
     type: "tool.exec.finished",
     payload: { tool: action.toolName, actionId, ok: false, rejected: true },
   });
+  resolveWaiter(actionId, { approved: false });
+}
+
+// Stage B: cancelling a session/killing an agent must not leave a pending approval dangling forever
+// — everything of theirs in the queue is rejected for real (real event, real waiter resolution),
+// not just forgotten.
+export function rejectAllPendingActionsForSession(sessionId: string): void {
+  for (const action of [...pendingActions.values()]) {
+    if (action.sessionId === sessionId) rejectAgentAction(action.id);
+  }
+}
+
+export function rejectPendingActionsForAgent(sessionId: string, agentId: string): void {
+  for (const action of [...pendingActions.values()]) {
+    if (action.sessionId === sessionId && action.agentId === agentId) rejectAgentAction(action.id);
+  }
 }
 
 export function __clearPendingAgentActionsForTests(): void {
   pendingActions.clear();
+  approvalWaiters.clear();
 }

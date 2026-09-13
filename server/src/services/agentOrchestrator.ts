@@ -13,7 +13,7 @@ import type { AgentTask } from "./agentSessionStore.js";
 import { spawnAgent, getAgent, updateAgentStatus, type Agent } from "./agentRegistry.js";
 import { createTaskBatch, type TaskDraft } from "./agentTaskDag.js";
 import { runAgentTask } from "./agentTaskRunner.js";
-import { proposeAgentAction, approveAgentAction } from "./agentToolRegistry.js";
+import { proposeAgentAction, awaitApprovalDecision } from "./agentToolRegistry.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
 import { extractJson } from "./agentJsonExtract.js";
 import { ORCHESTRATOR_SYSTEM_PROMPT, ARCHITECT_SYSTEM_PROMPT, CODER_SYSTEM_PROMPT } from "./agentRolePrompts.js";
@@ -162,7 +162,22 @@ async function runQaTask(sessionId: string, taskId: string, task: AgentTask, age
   let result: { exitCode: number | null };
   try {
     const action = proposeAgentAction(sessionId, agent.id, "exec.command", spec);
-    result = (await approveAgentAction(action.id)) as { exitCode: number | null };
+    sessionStore.updateTaskStatus(sessionId, taskId, "awaiting_approval");
+    appendSessionEvent({
+      sessionId,
+      agentId: agent.id,
+      taskId,
+      type: "task.awaiting_approval",
+      payload: { actionId: action.id, tool: "exec.command", command: spec.command, args: spec.args },
+    });
+    // Stage B: a real human decision, not a self-approval — this promise only resolves when the
+    // admin approval-queue route (or this action's own TTL) actually decides. See
+    // agentToolRegistry.ts's awaitApprovalDecision.
+    const decision = await awaitApprovalDecision(action.id);
+    if (!decision.approved) {
+      throw new Error(`QA command was rejected${decision.error ? `: ${decision.error}` : ""}`);
+    }
+    result = decision.result as { exitCode: number | null };
   } catch (err) {
     fail(sessionId, taskId, agent.id, err instanceof Error ? err.message : String(err));
   }
@@ -211,7 +226,21 @@ export async function runRoleTask(sessionId: string, taskId: string): Promise<vo
           filePath: parsed.filePath,
           content: parsed.content,
         });
-        await approveAgentAction(action.id);
+        sessionStore.updateTaskStatus(sessionId, ctx.task.id, "awaiting_approval");
+        appendSessionEvent({
+          sessionId,
+          agentId: ctx.agent.id,
+          taskId: ctx.task.id,
+          type: "task.awaiting_approval",
+          payload: { actionId: action.id, tool: "file.write", filePath: parsed.filePath },
+        });
+        // Stage B: real human decision — see the identical note in runQaTask above.
+        const decision = await awaitApprovalDecision(action.id);
+        if (!decision.approved) {
+          throw new OrchestratorError(
+            `File write for task "${ctx.task.title}" was rejected${decision.error ? `: ${decision.error}` : ""}`
+          );
+        }
         const existing = sessionStore.getMemory(sessionId, "changed_files");
         const files = Array.isArray(existing?.value) ? (existing!.value as string[]) : [];
         sessionStore.setMemory(sessionId, "changed_files", [...files, parsed.filePath], ctx.agent.id);

@@ -9,9 +9,14 @@ import { getHealthSnapshot } from "../services/providerHealth.js";
 import { getHardwareSnapshot } from "../services/models/hardwareProfile.js";
 import { listInstalledOllamaModels } from "../services/providers/ollama.js";
 import { getMetricsSummary } from "../services/requestMetrics.js";
-import { getSessionUnscoped, listAllSessions, listMemory, listTasksForSession } from "../services/agentSessionStore.js";
+import { getSessionUnscoped, listAllSessions, listMemory, listTasksForSession, createSession, updateSessionStatus } from "../services/agentSessionStore.js";
 import { listAgentsForSession } from "../services/agentRegistry.js";
-import { getSessionEventsAfter } from "../services/sessionEventBus.js";
+import { getSessionEventsAfter, subscribeToSession, type SessionEvent } from "../services/sessionEventBus.js";
+import { appendSessionEvent } from "../services/sessionEventBus.js";
+import { decomposeObjective } from "../services/agentOrchestrator.js";
+import { driveSession } from "../services/agentSessionRunner.js";
+import { pauseSession, resumeSession, cancelSession, killAgent, SessionControlError } from "../services/agentSessionControl.js";
+import { listPendingActions, approveAgentAction, rejectAgentAction, AgentToolError } from "../services/agentToolRegistry.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireAdmin);
@@ -100,11 +105,115 @@ adminRouter.get("/users/:id/conversations/:conversationId", (req, res) => {
 // design (see agentSessionStore.ts's getSessionUnscoped/listAllSessions doc comment): this is a
 // founder-facing tool for watching AI-engineering sessions that build JennySol itself, not a
 // consumer feature, so it lives under /api/admin (already requireAuth+requireAdmin above), not a
-// route a regular signed-in user can reach. Read-only for now — no phase before 9 (real agent
-// roles) can actually produce a session worth creating, so there is deliberately no "start a
-// session" route yet; an empty list here is honest, not a stub.
+// route a regular signed-in user can reach.
 adminRouter.get("/agent-sessions", (_req, res) => {
   res.json({ sessions: listAllSessions() });
+});
+
+const startSessionSchema = z.object({ objective: z.string().trim().min(1).max(4000) });
+
+// Stage A of JENNYSOL-AGENTS-UI-FIRST.md — the real "start a session" route that didn't exist before
+// this stage (Phase 9 proved the roles work; nothing before this route could actually kick a real
+// objective off through the real API). Returns as soon as the session row exists (a plain SQLite
+// write) — decomposition (a real LLM call) and execution both continue in the background, the same
+// fire-and-forget shape chatRunner.ts already uses, so a slow or even-failed decomposition never
+// makes this request hang.
+adminRouter.post("/agent-sessions", (req, res) => {
+  const parsed = startSessionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request" });
+    return;
+  }
+  const session = createSession({ userId: req.userId!, objective: parsed.data.objective });
+  res.status(201).json({ session });
+
+  decomposeObjective(session.id, parsed.data.objective)
+    .then(() => {
+      updateSessionStatus(session.id, "running");
+      appendSessionEvent({ sessionId: session.id, type: "session.status_changed", payload: { status: "running" } });
+      driveSession(session.id).catch(() => {
+        // driveSession's own loop already records every real failure as a real event before
+        // returning — this catch exists only so an unexpected throw from the loop itself never
+        // becomes an unhandled rejection.
+      });
+    })
+    .catch(() => {
+      // decomposeObjective already recorded the real task.failed event and failed the orchestrator
+      // agent (agentOrchestrator.ts) — this only propagates that honest outcome to the session's own
+      // status so the dashboard's session list doesn't show a permanently "planning" session.
+      updateSessionStatus(session.id, "failed");
+      appendSessionEvent({
+        sessionId: session.id,
+        type: "session.status_changed",
+        payload: { status: "failed", reason: "decomposition_failed" },
+      });
+    });
+});
+
+// Stage B — pause/resume/cancel a whole session, or kill one agent within it. Every one of these is
+// a real, durable state transition (agentSessionControl.ts) the Scheduler and driver loop already
+// respect; none of this is a UI-only label.
+adminRouter.post("/agent-sessions/:id/pause", (req, res) => {
+  try {
+    pauseSession(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err instanceof SessionControlError ? 400 : 500).json({ error: err instanceof Error ? err.message : "Could not pause" });
+  }
+});
+
+adminRouter.post("/agent-sessions/:id/resume", (req, res) => {
+  try {
+    resumeSession(req.params.id);
+    driveSession(req.params.id).catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err instanceof SessionControlError ? 400 : 500).json({ error: err instanceof Error ? err.message : "Could not resume" });
+  }
+});
+
+adminRouter.post("/agent-sessions/:id/cancel", (req, res) => {
+  try {
+    cancelSession(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err instanceof SessionControlError ? 400 : 500).json({ error: err instanceof Error ? err.message : "Could not cancel" });
+  }
+});
+
+adminRouter.post("/agent-sessions/:id/agents/:agentId/kill", (req, res) => {
+  try {
+    killAgent(req.params.id, req.params.agentId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err instanceof SessionControlError ? 400 : 500).json({ error: err instanceof Error ? err.message : "Could not kill agent" });
+  }
+});
+
+// Stage B — the approval queue. `sessionId` optional so this doubles as one global queue across
+// every in-flight session (the founder-facing "everything waiting on me, right now" view) and a
+// per-session filter on the run detail page.
+adminRouter.get("/agent-actions/pending", (req, res) => {
+  const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : undefined;
+  res.json({ actions: listPendingActions(sessionId) });
+});
+
+adminRouter.post("/agent-actions/:id/approve", async (req, res) => {
+  try {
+    const result = await approveAgentAction(req.params.id);
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(err instanceof AgentToolError ? 400 : 500).json({ error: err instanceof Error ? err.message : "Could not approve" });
+  }
+});
+
+adminRouter.post("/agent-actions/:id/reject", (req, res) => {
+  try {
+    rejectAgentAction(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err instanceof AgentToolError ? 400 : 500).json({ error: err instanceof Error ? err.message : "Could not reject" });
+  }
 });
 
 adminRouter.get("/agent-sessions/:id", (req, res) => {
@@ -130,6 +239,49 @@ adminRouter.get("/agent-sessions/:id/events", (req, res) => {
   }
   const after = Number(req.query.after) || 0;
   res.json({ events: getSessionEventsAfter(session.id, after) });
+});
+
+// Stage A — live event stream. Same SSE shape as chat.ts's own route (headers, heartbeat,
+// unsubscribe-on-close): transport and rendering only, no new domain logic — the events themselves
+// already exist (sessionEventBus.ts, Phase 4). Replays anything after `?after=` before subscribing
+// live, so a client that connects mid-run (or reconnects after a drop) never misses an event between
+// its last known id and this connection's subscribe() call.
+adminRouter.get("/agent-sessions/:id/stream", (req, res) => {
+  const session = getSessionUnscoped(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  let closed = false;
+  function write(event: SessionEvent) {
+    if (closed) return;
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      closed = true;
+    }
+  }
+
+  const after = Number(req.query.after) || 0;
+  for (const event of getSessionEventsAfter(session.id, after)) write(event);
+
+  const unsubscribe = subscribeToSession(session.id, write);
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(": heartbeat\n\n");
+  }, 15000);
+
+  req.on("close", () => {
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
 });
 
 const errorsQuerySchema = z.object({ page: z.coerce.number().int().min(1).default(1) });
