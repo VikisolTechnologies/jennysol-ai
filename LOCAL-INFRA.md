@@ -174,3 +174,17 @@ other service on this Mac listening on `*` (confirmed live: macOS's own `Control
 5000/7000, `rapportd` — both standard macOS services, not anything JennySol introduced) is reachable
 from the local Wi-Fi/LAN. **Syam action, unchanged from the prior session's finding:** enable it via
 System Settings → Network → Firewall.
+
+### One practical side-effect of the Tailscale-only rebind, found while writing this section
+
+The plain `ollama` CLI (`ollama list`, `ollama pull`, etc.) defaults to `127.0.0.1:11434` when no
+`OLLAMA_HOST` is set — since Ollama now only listens on the Tailscale address, bare `ollama`
+commands on this Mac fail with "could not connect to ollama server" until `OLLAMA_HOST` is set
+explicitly for that shell session, e.g.:
+
+```
+OLLAMA_HOST=100.70.199.75:11434 ollama list
+```
+
+Not a bug — the correct, intended consequence of the security fix — but worth knowing before
+assuming a bare `ollama` command failing means the service itself is down.

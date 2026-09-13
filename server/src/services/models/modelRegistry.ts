@@ -200,27 +200,14 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     requiresDedicatedServer: false,
     enabled: true,
   },
-  {
-    provider: "ollama",
-    // Registered and license-verified, but NOT currently wired into RAG — the live embedding
-    // pipeline (server/src/services/embeddings.ts) uses a separate in-process ONNX model
-    // (Xenova/all-MiniLM-L6-v2 via @huggingface/transformers), unrelated to Ollama. This entry
-    // exists for the router/CLI surface (`npm run models`) and future use, not active RAG traffic.
-    modelId: "nomic-embed-text",
-    displayName: "Nomic Embed Text",
-    localOrCloud: "local",
-    capabilities: ["embedding"],
-    supportsToolCalling: false,
-    supportsStreaming: false,
-    contextWindow: 8_192,
-    memoryRequirementGb: 0.5,
-    costClass: "free",
-    latencyClass: "fast",
-    qualityClass: "capable",
-    license: "Apache 2.0",
-    requiresDedicatedServer: false,
-    enabled: true,
-  },
+  // A nomic-embed-text (Ollama) entry lived here previously — removed
+  // (JENNYSOL-CONTINUE.md Phase 6: "remove the dormant Ollama nomic
+  // embedding path so nobody rediscovers it as a live option later").
+  // The real, active RAG embedding pipeline is server/src/services/
+  // embeddings.ts (Xenova/all-MiniLM-L6-v2, in-process ONNX, unrelated to
+  // Ollama) — this entry was never wired into it and no code path ever
+  // selected it. Confirmed via `ollama list` it was never actually pulled
+  // on this Mac in the first place — nothing to clean up on disk.
 
   // ---- Reserved for the dedicated RTX 5060 Ti server — do not select on
   // the M1 profile even if someone flips `enabled: true` by hand; fitsHardware()
