@@ -497,6 +497,116 @@ describe("hedging (LLM_HEDGE_ENABLED)", () => {
 
     expect(result).toMatchObject({ providerUsed: "gemini", hedged: false });
   });
+
+  // Phase 2.0 of JENNYSOL-LOCAL-CUTOVER.md: hedge-path parity with the
+  // sequential path — model selection, usage, and warm/cold state must all
+  // be real here too, not just on the non-hedged path.
+  it("selects a real Ollama model and reports its usage/warm state when Ollama wins the hedge", async () => {
+    process.env.LLM_PROVIDER_CHAIN = "ollama,gemini";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider, wasModelWarm } = await import("./providers/ollama.js");
+    (wasModelWarm as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_sp, _h, onDelta: (t: string) => void, _onWebSources, opts) => {
+        expect(opts?.model).toBe("qwen3:8b"); // the real registry pick for "general", not a hardcoded default
+        onDelta("from ollama");
+        opts?.onUsage?.({ promptTokens: 5, completionTokens: 2, estimated: false });
+      }
+    );
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}));
+
+    const result = await routeChatCompletion("sys", [], vi.fn());
+
+    expect(result).toMatchObject({
+      providerUsed: "ollama",
+      model: "qwen3:8b",
+      wasWarm: true,
+      usage: { promptTokens: 5, completionTokens: 2, estimated: false },
+    });
+  });
+
+  it("does not start the hedge's secondary arm while the primary shows activity (e.g. thinking-mode reasoning) even without real content yet", async () => {
+    // Same class of bug as attemptWithTimeout's old content-only timeout,
+    // now fixed here too: a local model that's actively "thinking" (only
+    // onActivity fires, never onDelta) must not trigger a redundant,
+    // costly hedge against the cloud fallback.
+    process.env.LLM_PROVIDER_CHAIN = "ollama,gemini";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    (await import("./providers/ollama.js")).ollamaProvider.streamChatCompletion = vi.fn(
+      async (_sp, _h, onDelta: (t: string) => void, _onWebSources, opts) => {
+        opts?.onActivity?.(); // reasoning-trace activity, well before the hedge delay
+        await new Promise((r) => setTimeout(r, 5000)); // stays "thinking" past the hedge delay
+        onDelta("real answer, eventually");
+      }
+    );
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(streamsText("should not run"));
+
+    const onDelta = vi.fn();
+    const resultPromise = routeChatCompletion("sys", [], onDelta);
+    await vi.advanceTimersByTimeAsync(701); // past the 700ms hedge delay
+    expect(geminiProvider.streamChatCompletion).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(4300);
+    const result = await resultPromise;
+    expect(result.providerUsed).toBe("ollama");
+    expect(onDelta).toHaveBeenCalledWith("real answer, eventually");
+  });
+
+  it("does not resolve until the winning arm's own generation actually finishes, not on its first chunk", async () => {
+    // Regression guard for a real bug found while adding hedge-path parity:
+    // resolving on first-token (the previous behavior) meant chatRunner.ts
+    // would persist the message and emit "done" while the winner was still
+    // mid-stream, truncating every hedged reply that streamed more than one
+    // chunk. streamsText() (used by the other tests here) only ever sends a
+    // single chunk, which is exactly why this never surfaced before.
+    let releaseSecondChunk!: () => void;
+    const secondChunkGate = new Promise<void>((resolve) => {
+      releaseSecondChunk = resolve;
+    });
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_sp, _h, onDelta: (t: string) => void) => {
+        onDelta("chunk one");
+        await secondChunkGate;
+        onDelta("chunk two");
+      }
+    );
+    (deepseekProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}));
+
+    const onDelta = vi.fn();
+    const resultPromise = routeChatCompletion("sys", [], onDelta);
+    let settled = false;
+    resultPromise.then(() => (settled = true));
+
+    // First chunk streamed live already (the real perceived-latency benefit,
+    // unrelated to promise resolution) — but the promise must NOT have
+    // resolved yet just because of it.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onDelta).toHaveBeenCalledWith("chunk one");
+    expect(settled).toBe(false);
+
+    releaseSecondChunk();
+    const result = await resultPromise;
+    expect(settled).toBe(true);
+    expect(onDelta).toHaveBeenCalledWith("chunk two");
+    expect(result.providerUsed).toBe("gemini");
+  });
+
+  it("surfaces an error (does not silently swallow it) when the winning arm fails after already streaming content", async () => {
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_sp, _h, onDelta: (t: string) => void) => {
+        onDelta("partial answer");
+        throw new Error("connection dropped mid-stream");
+      }
+    );
+    (deepseekProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(() => new Promise(() => {}));
+
+    const onDelta = vi.fn();
+    const resultPromise = routeChatCompletion("sys", [], onDelta);
+    resultPromise.catch(() => {});
+
+    await expect(resultPromise).rejects.toThrow("connection dropped mid-stream");
+    expect(onDelta).toHaveBeenCalledWith("partial answer");
+  });
 });
 
 // M6 (Arena connector gateway): proves routeChatCompletion — the function every real caller

@@ -336,31 +336,34 @@ function errorKind(err: unknown): ErrorKind {
 }
 
 // Races `primary` against `secondary`, starting `secondary` only if
-// `primary` hasn't produced a first token within `hedgeDelayMs`. Whichever
-// produces a first token first "wins" and its stream is what the caller
-// sees; the loser is aborted client-side (best-effort — see the note on
-// AbortSignal in gemini.ts: this stops us from waiting on or relaying the
-// loser's output, but per the provider SDKs' own documentation does not
-// guarantee the upstream request itself is cancelled/unbilled).
-// Resolves the instant a winner's first token arrives — deliberately does
-// NOT wait for that winning arm to finish generating, and does NOT wait for
-// the losing arm at all. Waiting on either would defeat hedging's entire
-// purpose (perceived latency): if the winner is fast but the loser takes
-// longer to error out or finish, blocking the return on both settling would
-// make a "successful" hedge no faster than not hedging at all. The losing
-// arm keeps running (best-effort aborted, see the AbortSignal caveat on
-// gemini.ts) purely to update provider health bookkeeping in the
-// background; its output is discarded, never awaited.
+// `primary` hasn't shown any sign of life within `hedgeDelayMs`. Whichever
+// produces real content first "wins": its content streams to the caller's
+// onDelta live, in real time, as it arrives (this is what actually gives
+// hedging its perceived-latency benefit — completely independent of when
+// this function's own returned promise resolves). The loser is aborted
+// client-side (best-effort — see the note on AbortSignal in gemini.ts: this
+// stops us from waiting on or relaying the loser's output, but per the
+// provider SDKs' own documentation does not guarantee the upstream request
+// itself is cancelled/unbilled).
 //
-// Known limitation: if the WINNING arm fails partway through, after having
-// already streamed some of its reply, that failure has no way to propagate
-// back through this function's already-resolved promise — this mirrors the
-// non-hedge path's "don't stitch two providers' output together" guard
-// conceptually, but here the failure is currently swallowed rather than
-// surfaced to the caller. This only matters once hedging is enabled with a
-// second real provider configured (today's production is Gemini-only, so
-// it's inert) and is documented rather than silently shipped as if solved —
-// see JENNY_IMPLEMENTATION_STATUS.md.
+// This function's own PROMISE resolves only once the winning arm's
+// generation actually finishes — matching the sequential path's semantics
+// exactly (JENNYSOL-LOCAL-CUTOVER.md Phase 2.0's hedge-parity requirement).
+// An earlier version resolved on the winner's first token instead, on the
+// theory that waiting would cost perceived latency — that reasoning
+// conflated two different things: the user already sees content as it
+// streams (unaffected by this promise), but resolving early made
+// chatRunner.ts persist the message and emit "done" while the winner was
+// still mid-generation, truncating every hedged reply to whatever had
+// streamed by the time the race was decided. Never hit real production
+// traffic (hedging defaults off), caught here specifically because Phase
+// 2.0 requires exercising this path for real before Phase 2.4 turns it on.
+//
+// If the winning arm fails AFTER already streaming some content, that's
+// surfaced as a rejection (same "don't stitch two providers' output
+// together" guard as the sequential path's `deltasSentHere > 0` check) —
+// the caller has already shown the user a partial reply; silently trying
+// something else would risk a second, disconnected answer on top of it.
 function runHedgedPair(
   primary: ProviderEntry,
   secondary: ProviderEntry,
@@ -375,8 +378,17 @@ function runHedgedPair(
   const attempts: { name: string; reason: string }[] = [];
   const controllers = new Map<string, AbortController>();
 
-  return new Promise((resolvePair) => {
+  return new Promise((resolvePair, rejectPair) => {
     let winner: string | null = null;
+    // Deliberately distinct from `winner` — same reasoning as
+    // attemptWithTimeout's activitySeen: a "thinking"-mode local primary
+    // streams reasoning deltas (which never reach onDelta/wrappedOnDelta,
+    // only real content does) well before real content. Without this, the
+    // hedge timer would fire against an actively-thinking-but-alive primary
+    // exactly as falsely as the old first-token timeout used to — starting a
+    // redundant, costly cloud request against a primary that was never
+    // actually stuck.
+    let primaryActivitySeen = false;
     let armsStarted = 1;
     let armsSettled = 0;
     let hedgeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -389,6 +401,13 @@ function runHedgedPair(
       resolvePair(outcome);
     }
 
+    function finishWithError(err: unknown) {
+      if (finished) return;
+      finished = true;
+      if (hedgeTimer) clearTimeout(hedgeTimer);
+      rejectPair(err);
+    }
+
     function abortOthers(winnerName: string) {
       for (const [name, c] of controllers) if (name !== winnerName) c.abort();
     }
@@ -396,6 +415,13 @@ function runHedgedPair(
     function startArm(entry: ProviderEntry, isSecondary: boolean) {
       const controller = new AbortController();
       controllers.set(entry.name, controller);
+      // Parity with the sequential path: Ollama needs a chosen model and a
+      // pre-request warm/cold reading; cloud entries ignore both.
+      const model = entry.name === "ollama" ? pickOllamaModel(taskCapability)?.modelId : undefined;
+      const wasWarm = entry.name === "ollama" && model ? wasModelWarm(model) : undefined;
+      let usage: TokenUsage | undefined;
+      let deltasSentByThisArm = 0;
+
       const wrappedOnDelta = (text: string) => {
         if (winner === null) {
           winner = entry.name;
@@ -404,47 +430,79 @@ function runHedgedPair(
             `[router] ${entry.name} won hedge race` +
               (isSecondary ? ` (hedged after ${hedgeDelayMs}ms against ${primary.name})` : "")
           );
+          // Deliberately NOT resolved here — see this function's own doc
+          // comment. Winning only decides whose content streams live from
+          // here on; the promise itself resolves once this arm's own
+          // .then()/.catch() below actually fires, same as the sequential
+          // path waiting for streamChatCompletion to finish.
+        }
+        if (winner !== entry.name) return; // lost the race after starting — discard
+        deltasSentByThisArm++;
+        onDelta(text);
+      };
+      entry.provider
+        .streamChatCompletion(systemPrompt, history, wrappedOnDelta, onWebSources, {
+          signal: controller.signal,
+          model,
+          onUsage: (u) => {
+            usage = u;
+          },
+          onActivity: entry === primary ? () => (primaryActivitySeen = true) : undefined,
+        })
+        .then(() => {
+          if (winner !== entry.name) return; // a losing arm settling late — nothing to do
+          recordSuccess(entry.name);
           finish({
-            // Hedging is off by default and doesn't do per-request model
-            // selection or usage capture the way the sequential path does
-            // (see this function's own doc comment on known limitations) —
-            // taskCapability/attempts are real, usage/wasWarm are simply
-            // not collected on this path.
             result: {
               providerUsed: entry.name,
+              model,
               fellBack: entry.name !== primary.name,
               totalMs: Date.now() - routeStart,
               hedged: isSecondary,
               taskCapability,
               attempts: [...attempts],
+              usage,
+              wasWarm,
             },
             attempts,
           });
-        }
-        if (winner !== entry.name) return; // lost the race after starting — discard
-        onDelta(text);
-      };
-      entry.provider
-        .streamChatCompletion(systemPrompt, history, wrappedOnDelta, onWebSources, { signal: controller.signal })
-        .then(() => {
-          if (winner === entry.name) recordSuccess(entry.name);
         })
         .catch((error) => {
           const kind = errorKind(error);
           if (affectsProviderHealth(kind)) recordFailure(entry.name, kind);
+          if (winner === entry.name) {
+            // This arm won the race (already streaming to the user) and then
+            // failed before finishing — same "don't stitch two providers'
+            // output together" guard as the sequential path: once real
+            // content has streamed, silently trying something else risks a
+            // second, disconnected answer on top of what the user already
+            // saw. Only surface it as a hard failure if content actually
+            // streamed; otherwise fall through to the ordinary chain-continue
+            // behavior below.
+            if (deltasSentByThisArm > 0) {
+              finishWithError(Object.assign(error instanceof Error ? error : new Error(String(error)), { __deltasSent: deltasSentByThisArm }));
+              return;
+            }
+            finish({ result: null, attempts: [...attempts, { name: entry.name, reason: kind }] });
+            return;
+          }
           if (winner === null) {
             attempts.push({ name: entry.name, reason: kind });
             armsSettled++;
             if (armsSettled >= armsStarted) finish({ result: null, attempts });
           }
-          // else: this arm lost the race and failed afterward — expected,
-          // not logged as a real failure (see function-level comment).
+          // else: some OTHER arm won and this one lost, failing afterward —
+          // expected, not logged as a real failure (see function comment).
         });
     }
 
     startArm(primary, false);
     hedgeTimer = setTimeout(() => {
-      if (winner === null) {
+      // Checked here, not just at the top of this callback by coincidence —
+      // primaryActivitySeen can only have become true *during* this delay
+      // window, so re-reading it right before deciding is exactly the check
+      // that must happen at the deadline, not at scheduling time.
+      if (winner === null && !primaryActivitySeen) {
         armsStarted = 2;
         startArm(secondary, true);
       }
