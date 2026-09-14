@@ -30,7 +30,10 @@ import {
   UX_SYSTEM_PROMPT,
   PRODUCT_ANALYST_SYSTEM_PROMPT,
   FINAL_JUDGE_SYSTEM_PROMPT,
+  VISUAL_QA_SYSTEM_PROMPT,
 } from "./agentRolePrompts.js";
+import { captureFileScreenshot } from "./agentScreenshotTool.js";
+import { describeImage } from "./providers/ollamaVision.js";
 
 export class OrchestratorError extends Error {
   constructor(message: string) {
@@ -53,8 +56,11 @@ interface OrchestratorTaskSpec {
 // ROLE_EXECUTION in a later Stage D group is the only edit needed for the Orchestrator to be allowed
 // to actually assign it — a role can never be planned for before it has real execution logic behind
 // it (architecture doc §3's "do not fake autonomy").
+// "visual_qa" is a special case just like "qa" — real defect detection over a real screenshot
+// (agentScreenshotTool.ts + providers/ollamaVision.ts) needs the vision path, not runAgentTask's
+// text-only routeChatCompletion() call, so it can never live in ROLE_EXECUTION's text-only shapes.
 function assignableRoles(): AgentRole[] {
-  return [...(Object.keys(ROLE_EXECUTION) as AgentRole[]), "qa"];
+  return [...(Object.keys(ROLE_EXECUTION) as AgentRole[]), "qa", "visual_qa"];
 }
 
 function validateSpecs(value: unknown): OrchestratorTaskSpec[] {
@@ -220,6 +226,54 @@ async function runQaTask(sessionId: string, taskId: string, task: AgentTask, age
   if (!passed) throw new OrchestratorError(`QA check failed for task "${task.title}" (exit code ${result.exitCode})`);
 }
 
+// JENNYSOL-VISION-AND-IMAGERY.md Part A.4: Visual QA's own real-evidence path — a real screenshot
+// (agentScreenshotTool.ts) of a real file, inspected by the real vision model
+// (providers/ollamaVision.ts), never an LLM's own unverified claim about UI it was never shown. The
+// task's own `description` carries the workspace-relative file path to screenshot, produced by the
+// Orchestrator as part of its decomposition — mirroring QA's own description-carries-the-real-target
+// convention above.
+async function runVisualQaTask(sessionId: string, taskId: string, task: AgentTask, agent: Agent): Promise<void> {
+  sessionStore.updateTaskStatus(sessionId, taskId, "running", { agentId: agent.id });
+  updateAgentStatus(sessionId, agent.id, "working", { currentTaskId: taskId });
+  appendSessionEvent({ sessionId, agentId: agent.id, taskId, type: "task.started", payload: { title: task.title } });
+
+  const filePath = task.description?.trim();
+  if (!filePath) {
+    fail(sessionId, taskId, agent.id, `Visual QA task "${task.title}" has no file path in its description`);
+  }
+
+  let base64Png: string;
+  try {
+    const screenshot = await captureFileScreenshot(filePath);
+    base64Png = screenshot.base64Png;
+  } catch (err) {
+    fail(sessionId, taskId, agent.id, err instanceof Error ? err.message : String(err));
+  }
+
+  let verdict: string;
+  let findings: string[];
+  try {
+    const result = await describeImage(VISUAL_QA_SYSTEM_PROMPT, [base64Png]);
+    const parsed = extractJson(result.content) as Record<string, unknown>;
+    if (parsed.verdict !== "pass" && parsed.verdict !== "concerns") {
+      throw new Error(`Visual QA output for task "${task.title}" has an invalid or missing verdict`);
+    }
+    verdict = parsed.verdict;
+    findings = Array.isArray(parsed.findings) ? parsed.findings.filter((f): f is string => typeof f === "string") : [];
+  } catch (err) {
+    fail(sessionId, taskId, agent.id, err instanceof Error ? err.message : String(err));
+  }
+
+  const merged = mergeIntoSharedMemory(sessionId, "audit_results", agent.role, { verdict, findings });
+  writeSessionMemory(sessionId, agent.id, "audit_results", merged);
+
+  // The real screenshot lives in this task's own result — a deliberate storage decision
+  // (agentScreenshotTool.ts's own header comment), not a new asset-storage system.
+  sessionStore.updateTaskStatus(sessionId, taskId, "completed", { result: { verdict, findings, screenshotBase64: base64Png } });
+  updateAgentStatus(sessionId, agent.id, "completed", { currentTaskId: null });
+  appendSessionEvent({ sessionId, agentId: agent.id, taskId, type: "task.completed", payload: { verdict, findingsCount: findings.length } });
+}
+
 // Stage D of JENNYSOL-AGENTS-UI-FIRST.md: the role-config table replacing what were per-role
 // if-statements in runRoleTask below. Only 2 real execution shapes exist so far beyond QA's own
 // (architect's "write one prose note to a memory key" and coder's "propose one approved file
@@ -362,6 +416,9 @@ export async function runRoleTask(sessionId: string, taskId: string): Promise<vo
 
   if (agent.role === "qa") {
     return runQaTask(sessionId, taskId, task, agent);
+  }
+  if (agent.role === "visual_qa") {
+    return runVisualQaTask(sessionId, taskId, task, agent);
   }
 
   const config = ROLE_EXECUTION[agent.role];

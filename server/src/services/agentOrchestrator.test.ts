@@ -21,16 +21,25 @@ vi.mock("./modelRouter.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./modelRouter.js")>();
   return { ...actual, routeChatCompletion: vi.fn() };
 });
+// Real Playwright still captures the real screenshot for a visual_qa task (agentScreenshotTool.ts is
+// not mocked) — only the vision model call itself is, matching this whole file's "real file
+// operations, mocked LLM/model calls" convention.
+vi.mock("./providers/ollamaVision.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./providers/ollamaVision.js")>();
+  return { ...actual, describeImage: vi.fn() };
+});
 // Dynamic, not static — a static `import ... from "./agentOrchestrator.js"` is hoisted by the ESM
 // loader above the AGENT_WORKSPACE_ROOT assignment above, so agentWorkspace.ts would compute its
 // root from the wrong (real-repo) default before this test ever got a chance to override it. Same
 // bug class already caught once this session in agentToolRegistry.test.ts/agentCommandTool.test.ts.
 const { routeChatCompletion } = await import("./modelRouter.js");
 type RouteResult = Awaited<ReturnType<typeof routeChatCompletion>>;
+const { describeImage } = await import("./providers/ollamaVision.js");
 const { decomposeObjective, runRoleTask, OrchestratorError } = await import("./agentOrchestrator.js");
 const { approveAgentAction, rejectAgentAction } = await import("./agentToolRegistry.js");
 
 const mockRoute = routeChatCompletion as unknown as ReturnType<typeof vi.fn>;
+const mockDescribeImage = describeImage as unknown as ReturnType<typeof vi.fn>;
 
 // Stage B of JENNYSOL-AGENTS-UI-FIRST.md made the coder/qa propose/approve gate genuinely
 // asynchronous — runRoleTask now really waits for a human decision instead of approving its own
@@ -75,6 +84,7 @@ describe("agentOrchestrator", () => {
     userId = makeUser();
     sessionId = sessionStore.createSession({ userId, objective: "test" }).id;
     mockRoute.mockReset();
+    mockDescribeImage.mockReset();
   });
 
   afterEach(() => {
@@ -396,6 +406,54 @@ describe("agentOrchestrator", () => {
     });
   });
 
+  // JENNYSOL-VISION-AND-IMAGERY.md Part A.4: real screenshot (Playwright, not mocked — a fake
+  // screenshot would prove nothing), mocked vision model call (matches this file's own established
+  // convention for every other role's LLM call).
+  describe("runRoleTask — visual_qa (Part A.4)", () => {
+    it("captures a real screenshot of the file named in the task description and writes a real finding to audit_results", async () => {
+      writeFileSync(path.join(tmpRoot, "preview.html"), "<html><body><h1>Real UI</h1></body></html>");
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "visual_qa");
+      const task = sessionStore.createTask({ sessionId, title: "Review preview.html", description: "preview.html" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockDescribeImage.mockResolvedValue({ content: JSON.stringify({ verdict: "concerns", findings: ["heading is the only visible element"] }) });
+
+      await runRoleTask(sessionId, task.id);
+
+      // The real screenshot's actual bytes reached the (mocked) vision call — proof this task
+      // captured something real, not an empty/placeholder image.
+      const [, images] = mockDescribeImage.mock.calls[0];
+      expect(images[0].length).toBeGreaterThan(100);
+
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+      const auditResults = sessionStore.getMemory(sessionId, "audit_results")?.value as Record<string, unknown>;
+      expect(auditResults.visual_qa).toEqual({ verdict: "concerns", findings: ["heading is the only visible element"] });
+    }, 20_000);
+
+    it("fails honestly when the described file doesn't exist, rather than silently skipping the review", async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "visual_qa");
+      const task = sessionStore.createTask({ sessionId, title: "Review", description: "missing.html" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+
+      await expect(runRoleTask(sessionId, task.id)).rejects.toThrow(OrchestratorError);
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
+      expect(mockDescribeImage).not.toHaveBeenCalled();
+    });
+
+    it("fails honestly when the vision model's output has no valid verdict", async () => {
+      writeFileSync(path.join(tmpRoot, "preview2.html"), "<html><body>x</body></html>");
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "visual_qa");
+      const task = sessionStore.createTask({ sessionId, title: "Review", description: "preview2.html" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockDescribeImage.mockResolvedValue({ content: "not json at all" });
+
+      await expect(runRoleTask(sessionId, task.id)).rejects.toThrow(OrchestratorError);
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
+    }, 20_000);
+  });
+
   describe("decomposeObjective — Stage D role acceptance", () => {
     it("accepts the group-3 planning/judgment roles (ux/product_analyst/final_judge) in a real decomposition", async () => {
       mockReturning(
@@ -439,6 +497,19 @@ describe("agentOrchestrator", () => {
       expect(tasks).toHaveLength(4);
       const agents = listAgentsForSession(sessionId);
       expect(agents.map((a) => a.role).sort()).toEqual(["code_reviewer", "coder", "orchestrator", "performance", "security"]);
+    });
+
+    it("accepts the visual_qa role (Part A.4) in a real decomposition", async () => {
+      mockReturning(
+        JSON.stringify([
+          { localId: "T1", role: "ui", title: "Write the component" },
+          { localId: "T2", role: "visual_qa", title: "Review it visually", dependsOn: ["T1"] },
+        ])
+      );
+      const { tasks } = await decomposeObjective(sessionId, "x");
+      expect(tasks).toHaveLength(2);
+      const agents = listAgentsForSession(sessionId);
+      expect(agents.map((a) => a.role).sort()).toEqual(["orchestrator", "ui", "visual_qa"]);
     });
 
     it("still rejects a genuinely unknown role name, not just anything not in the original 4", async () => {

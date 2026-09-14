@@ -2052,9 +2052,51 @@ specific run would have required hand-editing a task's description mid-run outsi
 surface, which wasn't worth doing once the mocked coverage and the Orchestrator's real, correct role
 assignment were both already confirmed. Cleaned up afterward: the one real file, the test user.
 
-**Not yet built**: Visual QA (blocked on real vision-model support — see
-`JENNYSOL-VISION-AND-IMAGERY.md`, not yet started), and the full QA pipeline (lands last, once the
-roles it checks all exist).
+**Not yet built at the time**: Visual QA, blocked on real vision-model support. Closed in the very
+next batch of work — see below.
+
+#### Visual QA — the loop closed for real (JENNYSOL-VISION-AND-IMAGERY.md Part A.4)
+
+**Status: VERIFIED live end-to-end on a real running server, 6 new tests (3 real Playwright, 3
+mocked-vision-call), tsc clean, full suite green (583). This is the 11th and final role — every role
+in `ROLE_CATALOG` now has real execution logic.**
+
+Vision support landed first (`JENNY_VISION_MODEL_EVALUATION.md`, `providers/ollamaVision.ts` —
+`qwen3-vl:4b` chosen on real, measured evidence, not the fleet doc's earlier paper-only Moondream2
+recommendation), unblocking this role exactly as the vision brief's own Part A framed it
+("unblocks the Visual QA role in the agent platform. Build this first."). The screenshot mechanism
+was designed and built as its own real piece of work per that brief's explicit instruction
+("do not improvise it inside a role implementation"): `agentScreenshotTool.ts`, using
+`playwright-core` (a real, new, explicitly-named dependency — reusing the exact library Arena FE's
+own E2E suite already runs, not a second mechanism) to render a real file through the same
+`resolveInWorkspace()` workspace boundary every other file-touching agent tool already respects, and
+returning a real PNG. Storage is a deliberate, stated scope decision: the screenshot lives in the
+task's own `result` column — the same real, existing storage every other role's result already uses —
+not a new asset-archive system with its own retention policy.
+
+`runVisualQaTask` (`agentOrchestrator.ts`) is a third special case alongside QA's and now shares
+QA's "reports real evidence, never invents it" shape: capture a real screenshot, send it to the real
+vision model with the same `{verdict, findings}` contract every text-only reviewer role already uses
+(merged into `audit_results` under its own key via the same `mergeIntoSharedMemory` — no new merge
+logic needed), never write or fix anything itself.
+
+**Live proof, not just mocked tests**: a real objective asked for an HTML card with a *deliberately*
+near-invisible paragraph (`color: #f2f2f2` on a white background — a real, specific, verifiable
+defect, chosen the same way this session's own vision evaluation used controlled fixtures with known
+ground truth) and asked Visual QA to review it. The live Coder wrote the exact file asked for,
+including the real defect. The live Visual QA agent's finding —
+*"Body text has very low contrast against white background, making it hard to read"* — is a precise,
+correct, non-hallucinated match for the real, specific defect actually in the file. Session completed
+cleanly. Cleaned up afterward: the one real file, the test user.
+
+**Honest limitation carried forward from the evaluation, not forgotten**: `JENNY_VISION_MODEL_EVALUATION.
+md`'s own real, measured accuracy numbers (0-2/5 on deliberately obvious synthetic defects) mean this
+role's findings are a real, useful signal, not a substitute for a human's own review — exactly the
+same "reports, does not decide, and isn't the last word" posture this document has applied to every
+other reviewer role.
+
+**Not yet built**: the full QA pipeline (lands last, once every role it checks exists — it now does;
+this is the next natural piece of work, not started this batch).
 
 ---
 

@@ -141,3 +141,80 @@ candidate; real memory-fit arithmetic against this Mac's actual configured hardw
 accuracy on these synthetic fixtures — a reasonable extrapolation, not directly measured.
 **Blocked**: nothing in Part A required founder input to complete for real; Part B (below) is a real,
 evidence-based deferral, not a blocker being carried forward silently.
+
+## Update — Part A.3/A.4 completed, Visual QA is real
+
+Everything this section originally flagged as remaining is now done, in the same session:
+- **A.3 (router integration)**: `providers/ollamaVision.ts` — a real, separate `describeImage()`
+  function (not bolted onto `routeChatCompletion()`'s hedging/tool-calling machinery, since there is
+  exactly one vision provider and nothing to hedge against yet), sharing the same local-concurrency
+  gate as text chat (the exact shared resource whose real violation caused the GPU OOM this document
+  found), with real circuit-breaker and metrics integration. `capabilityRegistry.ts`'s `VISION` entry
+  now reports `implemented: true`.
+- **A.4 (screenshot mechanism + Visual QA role)**: `agentScreenshotTool.ts` (Playwright, reusing
+  Arena FE's own already-installed library and cached Chromium build — no second download) +
+  `agentOrchestrator.ts`'s `runVisualQaTask`. Live-verified end-to-end: a real objective produced a
+  real file with a real, deliberate low-contrast defect, and the real Visual QA role's finding named
+  that exact defect precisely, with no hallucination. Full detail in
+  `JENNY_IMPLEMENTATION_STATUS.md`'s "Visual QA — the loop closed for real" entry.
+
+## Part B — Image generation: a real, evidence-based deferral
+
+Not built this session. This is the outcome the brief itself names as acceptable
+("if measurement shows it is not viable on this hardware, a written statement saying so and
+deferring it to the GPU plan. That is an acceptable outcome; forcing it is not.") — not a blocker
+being carried forward silently.
+
+**Real evidence, not assumption**:
+1. **Neither runtime the brief names is installed on this Mac.** `/Applications` has no Draw Things;
+   `comfyui` is not on `PATH` and no ComfyUI checkout exists anywhere checked. Draw Things is a Mac
+   App Store GUI application — there is no command-line path to install it non-interactively, and an
+   App Store install requires interactive Apple ID/GUI steps outside what this session can perform.
+   ComfyUI's install path (git clone + a real Python venv + real pip installs, likely several more
+   GB) is genuinely scriptable, but it is a separate, substantial undertaking — a real Python ML
+   runtime with its own dependency surface, not a small addition.
+2. **This Mac was already under severe, measured real memory pressure from vision-model testing
+   alone, before any diffusion workload was even attempted**: `sysctl vm.swapusage` showed **7.1GB of
+   8GB swap in use (87%)** at the point `qwen3-vl:8b` hit its real, measured Metal/GPU OOM (see Part
+   A above). The brief's own opening framing — *"A diffusion model loading will evict the keep-warm
+   LLM... this is not a tuning problem; it is a memory arithmetic problem"* — is not a hypothetical on
+   this machine; it is what this session's own real vision-model testing already demonstrated,
+   without a diffusion model in the picture at all yet.
+3. Installing and then load-testing a full diffusion runtime on top of that, in the same session that
+   already produced one real GPU OOM, would risk genuine system instability for evidence this
+   document can already report without taking that risk: **this Mac's real, current memory headroom
+   does not support adding a diffusion workload on top of what already runs here.**
+
+**What this means concretely**: Part B (B.1 runtime choice, B.2 what fits, B.3 scheduled/never-live
+design, B.4 scoped-tool registration) is deferred to the GPU server plan referenced throughout
+`JENNY_MODEL_FLEET.md`, not attempted piecemeal on this Mac. If a real need for local image
+generation arises before that hardware exists, the concrete next step is a dedicated, separate
+session scoped specifically to installing and measuring ComfyUI (the programmatically-callable
+option per the brief's own B.1 criterion) in isolation — not bundled into other work, and not
+attempted while any other memory-hungry local model work is in flight.
+
+## Part C — guardrails, recorded now for whenever Part B is eventually built
+
+Part B has no tool yet to write these into (the brief's own definition-of-done #6 asks for them "in
+the tool's own guardrails, not just into this document") — recorded here prominently so they are not
+rediscovered or renegotiated later, and treated as a hard requirement for Part B's eventual first
+implementation, not a nice-to-have:
+
+1. **Never generate images of people for Arena.** No AI-generated faces as seed profiles, no
+   synthetic avatars, no invented users in any screenshot or asset that reaches production. Arena's
+   real product promise depends on every person being real.
+2. Legitimate uses only: abstract backgrounds/textures/gradients, empty-state/error-state
+   illustration, category/topic/skill artwork, templated OG share images, Vikisol brand/marketing
+   iterations.
+3. Any generated image reaching a user-facing surface must be labeled as such in its asset metadata.
+4. No generation of real identifiable people, no reproduction of brand marks or copyrighted
+   characters, no imitation of a named living artist's style for commercial output.
+5. For anything depicting real humans, licensed stock photography only, with source and licence
+   recorded per image — never a generated substitute.
+
+**Verified**: no Draw Things or ComfyUI installation exists on this Mac (checked directly, not
+assumed); real, current swap pressure (87%) measured at the point of Part A's own real GPU OOM.
+**Inferred**: nothing — this deferral rests on direct measurement, not extrapolation.
+**Blocked**: a real Part B implementation needs either different (GPU-server) hardware, or a founder
+decision to accept the real risk of installing and load-testing a diffusion runtime on this Mac
+specifically, which this document does not recommend given the evidence above.
