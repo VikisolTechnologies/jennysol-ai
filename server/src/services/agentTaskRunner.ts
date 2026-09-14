@@ -59,6 +59,15 @@ export interface RunAgentTaskOptions {
   // read-scope stays the single source of what context assembly means, regardless of which prompt
   // text precedes it.
   systemPromptOverride?: string;
+  // Stage D of JENNYSOL-AGENTS-UI-FIRST.md: runs BEFORE prompt assembly, its return value merged
+  // into the same memoryContext block MEMORY_READ_SCOPE already populates. Real need, not
+  // speculative: a review-shaped role (security/performance/code_reviewer) declares "changed_files"
+  // in its read scope, but that memory key only ever holds a list of *paths* — without this hook, a
+  // reviewer would see filenames and nothing else, and any "finding" it reported would be invented,
+  // not a real read of the code (exactly the fabrication this whole engagement has refused
+  // everywhere else). Lets a role read real file content (agentToolRegistry.ts's own READ-tier
+  // readFile, which executes immediately, ADR-004) before the model ever runs.
+  augmentContext?: (sessionId: string, agent: Agent) => Promise<Record<string, unknown>>;
   // Runs AFTER a successful model call but BEFORE the task/agent are marked "completed" — a
   // role-specific post-processing step (Phase 9: Architect writes to session_memory, Coder parses
   // the response and proposes a real file write). Throwing here fails the task with the real error,
@@ -80,6 +89,9 @@ export async function runAgentTask(sessionId: string, taskId: string, options?: 
   for (const key of MEMORY_READ_SCOPE[agent.role]) {
     const entry = sessionStore.getMemory(sessionId, key);
     if (entry) memoryContext[key] = entry.value;
+  }
+  if (options?.augmentContext) {
+    Object.assign(memoryContext, await options.augmentContext(sessionId, agent));
   }
 
   const systemPrompt = options?.systemPromptOverride

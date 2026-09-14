@@ -208,6 +208,50 @@ describe("agentOrchestrator", () => {
     });
   });
 
+  // Stage D group 1: backend/database/ui are mechanically identical to coder (agentOrchestrator.ts's
+  // shared ROLE_EXECUTION table) — one test each proves the table actually dispatches them for real,
+  // not just that the shared helper function works in isolation.
+  describe.each(["backend", "database", "ui"] as const)("runRoleTask — %s (Stage D group 1)", (role) => {
+    it(`performs a real, approved file write for the ${role} role, recording it in changed_files`, async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, role);
+      const task = sessionStore.createTask({ sessionId, title: `${role} writes a file` });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      const fileName = `${role}-output.txt`;
+      mockReturning(JSON.stringify({ filePath: fileName, content: `written by ${role}` }));
+      autoDecideNextAction(sessionId, "approve");
+
+      await runRoleTask(sessionId, task.id);
+
+      const fs = await import("node:fs/promises");
+      const written = await fs.readFile(path.join(tmpRoot, fileName), "utf8");
+      expect(written).toBe(`written by ${role}`);
+      expect(sessionStore.getMemory(sessionId, "changed_files")?.value).toEqual([fileName]);
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+    });
+  });
+
+  describe("decomposeObjective — Stage D role acceptance", () => {
+    it("accepts the group-1 specialist roles (backend/database/ui) in a real decomposition", async () => {
+      mockReturning(
+        JSON.stringify([
+          { localId: "T1", role: "backend", title: "Write the route" },
+          { localId: "T2", role: "database", title: "Write the migration" },
+          { localId: "T3", role: "ui", title: "Write the component" },
+        ])
+      );
+      const { tasks } = await decomposeObjective(sessionId, "x");
+      expect(tasks).toHaveLength(3);
+      const agents = listAgentsForSession(sessionId);
+      expect(agents.map((a) => a.role).sort()).toEqual(["backend", "database", "orchestrator", "ui"]);
+    });
+
+    it("still rejects a genuinely unknown role name, not just anything not in the original 4", async () => {
+      mockReturning(JSON.stringify([{ localId: "T1", role: "wizard", title: "x" }]));
+      await expect(decomposeObjective(sessionId, "x")).rejects.toThrow(OrchestratorError);
+    });
+  });
+
   describe("runRoleTask — qa (no LLM call at all)", () => {
     function makeFixture(name: string, testScript: string) {
       const dir = path.join(tmpRoot, name);

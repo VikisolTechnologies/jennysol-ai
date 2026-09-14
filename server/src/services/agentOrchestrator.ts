@@ -10,14 +10,21 @@ import type { ChatTurn } from "./llmProvider.js";
 import { routeChatCompletion } from "./modelRouter.js";
 import * as sessionStore from "./agentSessionStore.js";
 import type { AgentTask } from "./agentSessionStore.js";
-import { spawnAgent, getAgent, updateAgentStatus, type Agent } from "./agentRegistry.js";
+import { spawnAgent, getAgent, updateAgentStatus, type Agent, type AgentRole } from "./agentRegistry.js";
 import { createTaskBatch, type TaskDraft } from "./agentTaskDag.js";
 import { runAgentTask } from "./agentTaskRunner.js";
 import { proposeAgentAction, awaitApprovalDecision } from "./agentToolRegistry.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
 import { extractJson } from "./agentJsonExtract.js";
 import { writeSessionMemory } from "./agentMemoryWriteScope.js";
-import { ORCHESTRATOR_SYSTEM_PROMPT, ARCHITECT_SYSTEM_PROMPT, CODER_SYSTEM_PROMPT } from "./agentRolePrompts.js";
+import {
+  ORCHESTRATOR_SYSTEM_PROMPT,
+  ARCHITECT_SYSTEM_PROMPT,
+  CODER_SYSTEM_PROMPT,
+  BACKEND_SYSTEM_PROMPT,
+  DATABASE_SYSTEM_PROMPT,
+  UI_SYSTEM_PROMPT,
+} from "./agentRolePrompts.js";
 
 export class OrchestratorError extends Error {
   constructor(message: string) {
@@ -28,25 +35,36 @@ export class OrchestratorError extends Error {
 
 interface OrchestratorTaskSpec {
   localId: string;
-  role: "architect" | "coder" | "qa";
+  role: AgentRole;
   title: string;
   description?: string;
   dependsOn: string[];
 }
 
+// Single source of truth for "which roles can the Orchestrator actually assign work to" — every
+// role in ROLE_EXECUTION (defined further down, alongside runRoleTask) plus "qa" (handled specially,
+// no LLM call). Computed once, not hand-duplicated as a second string list here, so adding a role to
+// ROLE_EXECUTION in a later Stage D group is the only edit needed for the Orchestrator to be allowed
+// to actually assign it — a role can never be planned for before it has real execution logic behind
+// it (architecture doc §3's "do not fake autonomy").
+function assignableRoles(): AgentRole[] {
+  return [...(Object.keys(ROLE_EXECUTION) as AgentRole[]), "qa"];
+}
+
 function validateSpecs(value: unknown): OrchestratorTaskSpec[] {
   if (!Array.isArray(value)) throw new OrchestratorError("Orchestrator output was not a JSON array");
+  const allowed = assignableRoles();
   return value.map((v, i) => {
     if (typeof v !== "object" || v === null) throw new OrchestratorError(`Task ${i} in orchestrator output is not an object`);
     const obj = v as Record<string, unknown>;
     if (typeof obj.localId !== "string") throw new OrchestratorError(`Task ${i} is missing a string "localId"`);
-    if (obj.role !== "architect" && obj.role !== "coder" && obj.role !== "qa") {
-      throw new OrchestratorError(`Task "${obj.localId}" has invalid role "${String(obj.role)}" — must be architect/coder/qa`);
+    if (typeof obj.role !== "string" || !allowed.includes(obj.role as AgentRole)) {
+      throw new OrchestratorError(`Task "${obj.localId}" has invalid role "${String(obj.role)}" — must be one of ${allowed.join("/")}`);
     }
     if (typeof obj.title !== "string") throw new OrchestratorError(`Task "${obj.localId}" is missing a string "title"`);
     return {
       localId: obj.localId,
-      role: obj.role,
+      role: obj.role as AgentRole,
       title: obj.title,
       description: typeof obj.description === "string" ? obj.description : undefined,
       dependsOn: Array.isArray(obj.dependsOn) ? obj.dependsOn.filter((d): d is string => typeof d === "string") : [],
@@ -196,8 +214,57 @@ async function runQaTask(sessionId: string, taskId: string, task: AgentTask, age
   if (!passed) throw new OrchestratorError(`QA check failed for task "${task.title}" (exit code ${result.exitCode})`);
 }
 
+// Stage D of JENNYSOL-AGENTS-UI-FIRST.md: the role-config table replacing what were per-role
+// if-statements in runRoleTask below. Only 2 real execution shapes exist so far beyond QA's own
+// (architect's "write one prose note to a memory key" and coder's "propose one approved file
+// write") — backend/database/ui are mechanically identical to coder, so they're additional entries
+// in the same table, not new branches. A role with no entry here has a real permission/capability
+// row (agentRegistry.ts's ROLE_CATALOG) but no real execution logic yet — runRoleTask refuses it
+// honestly (below) rather than silently doing nothing, matching architecture doc §3's "do not fake
+// autonomy": the Orchestrator must never be allowed to hand work to a role that can't actually do it.
+type ProseMemoryRoleConfig = { kind: "prose-memory"; systemPrompt: string; memoryKey: string };
+type FileWriteRoleConfig = { kind: "file-write"; systemPrompt: string };
+type RoleExecutionConfig = ProseMemoryRoleConfig | FileWriteRoleConfig;
+
+const ROLE_EXECUTION: Partial<Record<AgentRole, RoleExecutionConfig>> = {
+  architect: { kind: "prose-memory", systemPrompt: ARCHITECT_SYSTEM_PROMPT, memoryKey: "architecture" },
+  coder: { kind: "file-write", systemPrompt: CODER_SYSTEM_PROMPT },
+  backend: { kind: "file-write", systemPrompt: BACKEND_SYSTEM_PROMPT },
+  database: { kind: "file-write", systemPrompt: DATABASE_SYSTEM_PROMPT },
+  ui: { kind: "file-write", systemPrompt: UI_SYSTEM_PROMPT },
+};
+
+async function runFileWriteCompletion(sessionId: string, roleName: string, fullText: string, ctx: { agent: Agent; task: AgentTask }): Promise<void> {
+  const parsed = extractJson(fullText) as Record<string, unknown>;
+  if (typeof parsed.filePath !== "string" || typeof parsed.content !== "string") {
+    throw new OrchestratorError(`${roleName} output for task "${ctx.task.title}" is missing filePath/content`);
+  }
+  const action = proposeAgentAction(sessionId, ctx.agent.id, "file.write", {
+    filePath: parsed.filePath,
+    content: parsed.content,
+  });
+  sessionStore.updateTaskStatus(sessionId, ctx.task.id, "awaiting_approval");
+  appendSessionEvent({
+    sessionId,
+    agentId: ctx.agent.id,
+    taskId: ctx.task.id,
+    type: "task.awaiting_approval",
+    payload: { actionId: action.id, tool: "file.write", filePath: parsed.filePath },
+  });
+  // Stage B: real human decision — see the identical note in runQaTask above.
+  const decision = await awaitApprovalDecision(action.id);
+  if (!decision.approved) {
+    throw new OrchestratorError(
+      `File write for task "${ctx.task.title}" was rejected${decision.error ? `: ${decision.error}` : ""}`
+    );
+  }
+  const existing = sessionStore.getMemory(sessionId, "changed_files");
+  const files = Array.isArray(existing?.value) ? (existing!.value as string[]) : [];
+  writeSessionMemory(sessionId, ctx.agent.id, "changed_files", [...files, parsed.filePath]);
+}
+
 // The one entry point Phase 6's Scheduler (or a direct test) calls per task — dispatches to the
-// right execution shape for whichever of the 4 roles owns this task.
+// right execution shape for whichever role owns this task.
 export async function runRoleTask(sessionId: string, taskId: string): Promise<void> {
   const task = sessionStore.getTask(sessionId, taskId);
   if (!task) throw new OrchestratorError(`Task ${taskId} not found in session ${sessionId}`);
@@ -209,43 +276,19 @@ export async function runRoleTask(sessionId: string, taskId: string): Promise<vo
     return runQaTask(sessionId, taskId, task, agent);
   }
 
-  const systemPromptOverride = agent.role === "architect" ? ARCHITECT_SYSTEM_PROMPT : agent.role === "coder" ? CODER_SYSTEM_PROMPT : undefined;
+  const config = ROLE_EXECUTION[agent.role];
+  if (!config) {
+    throw new OrchestratorError(`Role "${agent.role}" has no real execution logic implemented yet`);
+  }
 
   return runAgentTask(sessionId, taskId, {
-    systemPromptOverride,
+    systemPromptOverride: config.systemPrompt,
     onComplete: async (fullText, ctx) => {
-      if (ctx.agent.role === "architect") {
-        writeSessionMemory(sessionId, ctx.agent.id, "architecture", { note: fullText.trim() });
+      if (config.kind === "prose-memory") {
+        writeSessionMemory(sessionId, ctx.agent.id, config.memoryKey, { note: fullText.trim() });
         return;
       }
-      if (ctx.agent.role === "coder") {
-        const parsed = extractJson(fullText) as Record<string, unknown>;
-        if (typeof parsed.filePath !== "string" || typeof parsed.content !== "string") {
-          throw new OrchestratorError(`Coder output for task "${ctx.task.title}" is missing filePath/content`);
-        }
-        const action = proposeAgentAction(sessionId, ctx.agent.id, "file.write", {
-          filePath: parsed.filePath,
-          content: parsed.content,
-        });
-        sessionStore.updateTaskStatus(sessionId, ctx.task.id, "awaiting_approval");
-        appendSessionEvent({
-          sessionId,
-          agentId: ctx.agent.id,
-          taskId: ctx.task.id,
-          type: "task.awaiting_approval",
-          payload: { actionId: action.id, tool: "file.write", filePath: parsed.filePath },
-        });
-        // Stage B: real human decision — see the identical note in runQaTask above.
-        const decision = await awaitApprovalDecision(action.id);
-        if (!decision.approved) {
-          throw new OrchestratorError(
-            `File write for task "${ctx.task.title}" was rejected${decision.error ? `: ${decision.error}` : ""}`
-          );
-        }
-        const existing = sessionStore.getMemory(sessionId, "changed_files");
-        const files = Array.isArray(existing?.value) ? (existing!.value as string[]) : [];
-        writeSessionMemory(sessionId, ctx.agent.id, "changed_files", [...files, parsed.filePath]);
-      }
+      await runFileWriteCompletion(sessionId, agent.role, fullText, ctx);
     },
   });
 }

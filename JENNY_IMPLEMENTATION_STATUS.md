@@ -1945,6 +1945,41 @@ not all four needed new code, and this section says plainly which didn't rather 
 checkpoints, §5.4 failure semantics) — every item in the brief's own definition-of-done for this
 stage that is server/logic-facing is real, tested, and pushed. Continuing directly into Stage D.
 
+#### Stage D group 1 — backend, database, ui (the coder-shaped roles)
+
+**Status: VERIFIED live end-to-end on a real running server, 21 new tests, tsc clean, full suite
+green.**
+
+Refactored `runRoleTask`'s dispatch from per-role if-statements into a `ROLE_EXECUTION` table
+(`agentOrchestrator.ts`) before adding these three — backend/database/ui are mechanically identical
+to Coder (one `{filePath,content}` JSON, one real approved write), so they're additional table
+entries, not new branches. `assignableRoles()` is now the Orchestrator's single source of truth for
+which roles it may plan work for — computed from the same table, so a role the table doesn't yet
+cover can never be planned for (architecture doc §3's "do not fake autonomy": no role gets assigned
+work before it has real execution logic behind it). `agentRolePrompts.ts` gained `BACKEND_/DATABASE_/
+UI_SYSTEM_PROMPT` via one shared template (three near-identical prompt strings would drift apart over
+time otherwise) and `ORCHESTRATOR_SYSTEM_PROMPT` now names all three with guidance on when to use
+them over generic "coder."
+
+**Live proof, not just mocked tests** (isolated dev server, real signed-up admin user, production
+LaunchAgent on 8787 confirmed untouched throughout): a real objective ("create a backend route file
+and a database schema file for a notes list") really decomposed into `database`+`backend`+`qa` tasks
+— the live Orchestrator correctly chose the new specialist roles over generic "coder," unprompted by
+anything except the new prompt guidance. The `database` role wrote a real, correct SQL schema; the
+`backend` role wrote a real, working Express router with a sensible handler — both proposed through
+the real approval gate, both approved, both landed on disk exactly as approved. QA then proposed
+`node -e ...` for its own file-existence check — the **exact same real allow-list refusal already
+seen twice before this session** (Stage A/B's live verification, and this stage's own §5.1
+measurement run) — now a third independent live confirmation that the boundary holds regardless of
+which provider (this run used `gemini`, not local Ollama) or which objective produced the disallowed
+command. Cleaned up afterward: the two real files, the test user (cascades to its session).
+
+**Not yet built**: Stage D groups 2 (security/performance/code_reviewer — needs a new `augmentContext`
+capability, already scaffolded in `agentTaskRunner.ts` this batch but not yet wired to a real role) and
+3 (product_analyst/ux/final_judge), Visual QA (blocked on real vision-model support — see
+`JENNYSOL-VISION-AND-IMAGERY.md`, not yet started), and the full QA pipeline (lands last, once the
+roles it checks all exist).
+
 ---
 
 ## PHASE 5 — Automatic Gap Analysis
