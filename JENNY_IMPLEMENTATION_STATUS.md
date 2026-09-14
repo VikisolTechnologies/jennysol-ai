@@ -1811,7 +1811,7 @@ permanent regression test in that stage rather than only known from this one liv
 **Not yet built**: Stage C (§5.1 latency/cost report, §5.2 write-scope enforcement, §5.3 checkpoints,
 §5.4 failure-semantics tests) and Stage D (remaining 10 roles). Continuing directly into Stage C next.
 
-#### Stage C §5.1-§5.3 — latency/cost truth, write-scope enforcement, checkpoints
+#### Stage C — latency/cost truth, write-scope enforcement, checkpoints, failure semantics
 
 **Status: VERIFIED — 24 new tests, tsc clean both packages, full suite green (550; the 1 already-
 documented, environment-load-dependent live-model flake re-confirmed transient by re-running it alone
@@ -1902,9 +1902,48 @@ existed since Phase 4 but nothing had ever emitted it — every write now does.
    task-level one); a paused or already-terminal session is confirmed left exactly alone — a reboot
    must never silently resume a session a human deliberately paused.
 
-**Not yet built**: Stage C §5.4 (failure-semantics tests for the remaining named cases — timeout,
-loop, contradicting output) and Stage D (remaining 10 roles, added in groups of 2-3 per the brief's
-own explicit instruction, each verified end-to-end on the dashboard before the next group).
+**§5.4 — failure semantics, the four named cases, each with a defined behavior and a real test —
+not all four needed new code, and this section says plainly which didn't rather than padding it out:**
+
+1. **Malformed output** — already covered by real, pre-existing tests before this stage: the Coder
+   producing invalid `{filePath,content}` JSON, and QA receiving an unparseable command spec, both
+   fail the task honestly (`agentOrchestrator.test.ts`, existing). New this stage: **a disallowed
+   command survives even a real, human approval and still never runs** — the exact live finding from
+   this stage's own §5.1 measurement run and the earlier live-UI-verification session, now a
+   permanent regression test (`"refuses a disallowed command even when approved, and fails the task
+   with the real reason"`). This proves the allow-list boundary (this document's own §7, "never widen
+   the allow-list") holds independent of who or what approves the action.
+2. **Timeout** — already fully covered: `agentTaskRunner.test.ts`'s existing
+   `"marks the task failed with the real error attached"` test simulates exactly this
+   (`AllProvidersUnavailableError`, the real, observed shape every provider timeout eventually takes —
+   confirmed live twice this session, once in this stage's own §5.1 run). Every provider call already
+   carries its own bounded timeout (`LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS` locally, each cloud provider's
+   own network timeout) — a role task cannot hang indefinitely on a model call; no new code needed.
+3. **Loop** — two distinct real meanings, both already handled: a DAG-level cycle (two tasks
+   depending on each other) is rejected atomically at decompose time, already tested since Phase 3
+   (`"propagates a real cycle rejection from Phase 3's DAG"`). A single LLM call repeating/looping its
+   own output is bounded by each provider's own max-token configuration — a `modelRegistry.ts`/
+   provider-layer concern, unmodified and out of this stage's real scope. Explicitly **not** covered:
+   an agent stuck in an automatic retry loop — there is no automatic retry mechanism anywhere in this
+   system today (a failed task stays failed until a human retries it via §5.3's `retryTask`), so a
+   bounded-retry-count guard has nothing to guard yet. Flagged here, not silently assumed: **if any
+   future stage adds automatic retries, a max-attempt guard must be added at the same time**, not
+   asserted as already safe.
+4. **Contradicts another agent's work** — the real, concrete version of this in the current
+   architecture is QA's real command disagreeing with what Coder believed it produced, already tested
+   (`"fails the task on a real failing command's real exit code"`) and independently reconfirmed live
+   twice this session (the §5.1 measurement run's role/description mismatch, and the live-UI-
+   verification session's allow-list refusal). A different flavor — the Coder writing to a different
+   path than the objective implied — was Phase 9's own second live finding; it isn't separately
+   re-tested here because it's structurally regression-proof by construction, not by a special check:
+   `changed_files` memory always records whatever path the Coder actually used, never an assumed one,
+   so nothing downstream can silently disagree with reality.
+
+24 + 1 = 25 tests total for Stage C, full suite green, tsc clean both packages.
+
+**Stage C is now complete in full** (§5.1 latency/cost truth, §5.2 write-scope enforcement, §5.3
+checkpoints, §5.4 failure semantics) — every item in the brief's own definition-of-done for this
+stage that is server/logic-facing is real, tested, and pushed. Continuing directly into Stage D.
 
 ---
 

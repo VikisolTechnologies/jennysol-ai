@@ -249,6 +249,30 @@ describe("agentOrchestrator", () => {
       expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
     }, 15_000);
 
+    // Stage C §5.4 failure semantics — a real finding from a live measurement run (
+    // JENNY_IMPLEMENTATION_STATUS.md's Stage C entry, and independently confirmed during live UI
+    // verification): a live model proposed `node -e ...` for a QA check, which is genuinely not on
+    // the allow-list (agentCommandTool.ts's ALLOWED_COMMANDS only permits `node --version`). Even
+    // approved, the command must never actually run — the allow-list boundary holds regardless of
+    // who or what approves it, per this document's own §7 "never widen the allow-list" rule.
+    it("refuses a disallowed command even when approved, and fails the task with the real reason", async () => {
+      makeFixture("qa-disallowed", "echo should not matter");
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "qa");
+      const task = sessionStore.createTask({
+        sessionId,
+        title: "Verify",
+        description: JSON.stringify({ cwd: "qa-disallowed", command: "node", args: ["-e", "console.log(1)"] }),
+      });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      autoDecideNextAction(sessionId, "approve");
+
+      await expect(runRoleTask(sessionId, task.id)).rejects.toThrow(/allow-list/);
+      const finished = sessionStore.getTask(sessionId, task.id)!;
+      expect(finished.status).toBe("failed");
+      expect((finished.result as { error: string }).error).toMatch(/allow-list/);
+    }, 15_000);
+
     it("rejects a proposed command for real: it never runs, and the task fails", async () => {
       makeFixture("qa-rejected", "touch should-never-run.txt");
       const { spawnAgent } = await import("./agentRegistry.js");
