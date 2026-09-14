@@ -48,6 +48,21 @@ function atCapacity(): boolean {
   return activeRuns >= getHardwareProfile().maxConcurrentLocalRuns;
 }
 
+// Exported for ollamaVision.ts (JENNYSOL-VISION-AND-IMAGERY.md Part A.3): a vision call and a text
+// chat call both ultimately run on this same Mac's one local-inference slot
+// (HardwareProfile.maxConcurrentLocalRuns) — the real, measured GPU OOM found evaluating vision
+// models this session (JENNY_VISION_MODEL_EVALUATION.md) is exactly what an *unshared* second gate
+// would risk reproducing in production. A second, independent `activeRuns` counter in a different
+// file would silently defeat the whole point of this limit.
+export function tryAcquireLocalRunSlot(): boolean {
+  if (atCapacity()) return false;
+  activeRuns++;
+  return true;
+}
+export function releaseLocalRunSlot(): void {
+  activeRuns--;
+}
+
 export const ollamaProvider: LlmProvider = {
   async streamChatCompletion(systemPrompt, history, onDelta, _onWebSources, opts) {
     if (atCapacity()) {

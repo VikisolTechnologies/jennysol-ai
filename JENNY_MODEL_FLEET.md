@@ -31,7 +31,7 @@ available. This document is about making that fleet small, license-safe, and rel
 | Tool calling | **Live** — Gemini (native), Ollama + DeepSeek (via the shared OpenAI-compatible client, implemented and unit-tested last session) |
 | Embeddings | **Live**, but not via Ollama — see below |
 | Long context | Gemini (1M tokens, cloud); Qwen3 (256K, local) — no dedicated long-context-only model needed at current scale |
-| Vision / OCR | **Not implemented** — recommendation below, not built this session |
+| Vision / OCR | **Live** — `qwen3-vl:4b` (local, Ollama) — see [JENNY_VISION_MODEL_EVALUATION.md](JENNY_VISION_MODEL_EVALUATION.md); the Moondream2 recommendation below predates real measurement and did not hold up against it |
 | STT | **Live client-side only** (Web Speech API); no server-side model |
 | TTS | **Live cloud-only** (Gemini TTS); local recommendation below, not built this session |
 | Agentic tasks | **Live** — the tool-calling/agent-gateway path (`agentGateway.ts`) is provider-agnostic already |
@@ -130,7 +130,7 @@ feature. Recorded here as the concrete next step for whoever picks this up:
 | Category | Recommendation | Why | Memory | Effort to add |
 |---|---|---|---|---|
 | Embeddings | Keep the current ONNX pipeline; no change needed | Already local, already free, already working — `nomic-embed-text` would be a lateral move, not an improvement, unless a reason to prefer Ollama's embedding path specifically emerges | already resident | none |
-| Vision / OCR | `Moondream2` (Apache 2.0, ~1.7GB) for lightweight OCR now; `Qwen2.5-VL-7B` (Apache 2.0, ~6GB) once on the GPU server | Moondream2 is purpose-tuned for document OCR/DocVQA and fits the Mac's spare budget without crowding out the chat LLM; Qwen2.5-VL-7B is clearly stronger but its footprint doesn't coexist with a loaded chat model in a 6-8GB budget | 1.7GB (Mac) / 6GB (GPU server) | New route + provider method to send image input; `capabilityRegistry.ts`'s `VISION` entry currently honestly reports `implemented: false` — flip only once real code exists |
+| Vision / OCR | ~~`Moondream2`~~ **superseded by real measurement** — see [JENNY_VISION_MODEL_EVALUATION.md](JENNY_VISION_MODEL_EVALUATION.md): live-tested against `qwen3-vl:4b` and `qwen3-vl:8b`, Moondream2 produced 0/6 valid structured JSON and at least one outright hallucination; `qwen3-vl:4b` (Apache 2.0, 3.3GB) won on every measured axis and is now live (`ollamaVision.ts`). `Qwen2.5-VL-7B`'s successor, `qwen3-vl:8b`, was also live-tested and triggered a real, measured Metal/GPU OOM alongside a resident chat model — the memory-arithmetic conclusion below held, confirmed with fresh evidence for the current model generation, not just inferred to still be true | 3.3GB real (Mac, confirmed via `/api/ps`); 7-9B class still reserved for the GPU server | **Done** — `providers/ollamaVision.ts`, routed as its own `"vision"` `TaskCapability`; `capabilityRegistry.ts`'s `VISION` entry now honestly reports `implemented: true` |
 | STT | `whisper.cpp` (Core ML + Metal), `small` tier by default, `large-v3-turbo` for on-demand higher-accuracy runs | MIT-licensed, Metal-accelerated on Apple Silicon (faster-whisper has no Metal backend and falls back to CPU on Mac) | 0.85GB (small) / ~2GB (turbo) | Not an Ollama model — needs a separate runtime process, audio upload handling, and a new server route; real feature work |
 | TTS | `Kokoro-82M` (Apache 2.0) | Best quality-for-size of the commercially-safe options; explicitly **not** Coqui/XTTS (non-commercial, defunct vendor) | ~1-2GB | Replaces/supplements `geminiTts.ts`'s cloud call with a local runtime; real feature work, and should keep Gemini TTS as a fallback rather than a hard cutover |
 
@@ -229,7 +229,7 @@ vision workloads without crowding a chat model out of memory.
 
 ## What this document is not
 
-Not a claim that vision, local STT, or local TTS exist in JennySol today — `capabilityRegistry.ts`
-honestly reports each as not implemented (vision) or cloud/client-only (STT/TTS), and this document
-doesn't change that; it records what to build next and why, per model, with license groundwork
-already done.
+Vision is now real (see above) — `capabilityRegistry.ts` reports it `implemented: true`, updated as
+part of `JENNYSOL-VISION-AND-IMAGERY.md` Part A. Local STT and local TTS are not — `capabilityRegistry.
+ts` still honestly reports each as not implemented (STT) or cloud/client-only (TTS); this document
+still records what to build next and why, per model, with license groundwork already done.

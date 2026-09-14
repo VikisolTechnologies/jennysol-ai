@@ -8,7 +8,7 @@ import { needsCurrentInfo } from "../currentInfo.js";
 // verification pass. Re-verify with `ollama show <tag>` before trusting
 // memoryRequirementGb for a model added later.
 export type Provider = "gemini" | "deepseek" | "ollama";
-export type TaskCapability = "general" | "coding" | "reasoning" | "currentInfoSummarization" | "embedding" | "trivial";
+export type TaskCapability = "general" | "coding" | "reasoning" | "currentInfoSummarization" | "embedding" | "trivial" | "vision";
 
 export interface ModelEntry {
   provider: Provider;
@@ -138,6 +138,30 @@ export const MODEL_REGISTRY: ModelEntry[] = [
     memoryRequirementGb: 2.5,
     costClass: "free",
     latencyClass: "fast",
+    qualityClass: "basic",
+    license: "Apache 2.0",
+    requiresDedicatedServer: false,
+    enabled: true,
+  },
+  {
+    // JENNYSOL-VISION-AND-IMAGERY.md Part A — real evaluation against moondream and qwen3-vl:8b
+    // (JENNY_VISION_MODEL_EVALUATION.md): 100% structured-JSON reliability (6/6) vs. moondream's 0/6,
+    // and the only one of the three that fits this Mac's real memory budget — qwen3-vl:8b triggered a
+    // real, measured Metal/GPU out-of-memory error alongside a resident qwen3:8b, confirmed in
+    // Ollama's own server log. Not routed through routeChatCompletion() — see ollamaVision.ts's own
+    // header comment for why vision calls use a separate, smaller integration; this entry exists so
+    // "what's in the fleet and why" stays true of every real model, not just the text-chat ones.
+    provider: "ollama",
+    modelId: "qwen3-vl:4b",
+    displayName: "Qwen3-VL 4B",
+    localOrCloud: "local",
+    capabilities: ["vision"],
+    supportsToolCalling: false,
+    supportsStreaming: false,
+    contextWindow: 256_000,
+    memoryRequirementGb: 3.3,
+    costClass: "free",
+    latencyClass: "medium",
     qualityClass: "basic",
     license: "Apache 2.0",
     requiresDedicatedServer: false,

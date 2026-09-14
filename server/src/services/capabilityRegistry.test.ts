@@ -89,9 +89,20 @@ describe("capabilityRegistry", () => {
     expect(image.detail).toMatch(/zero-quota/i);
   });
 
-  it("reports VISION and COMPUTER_CONTROL as not implemented", () => {
+  it("reports COMPUTER_CONTROL as not implemented", () => {
     const registry = getCapabilityRegistry();
-    expect(registry.find((c) => c.id === "VISION")!.implemented).toBe(false);
     expect(registry.find((c) => c.id === "COMPUTER_CONTROL")!.implemented).toBe(false);
+  });
+
+  // JENNYSOL-VISION-AND-IMAGERY.md Part A: real code path now exists (ollamaVision.ts) — this
+  // capability is genuinely implemented, but its `available` bit still honestly tracks whether
+  // Ollama is actually reachable right now, not just "code exists" (same distinction
+  // TEXT_GENERATION already draws for its own free/selfHosted fields).
+  it("reports VISION as implemented, with availability tracking real Ollama reachability", () => {
+    const registry = getCapabilityRegistry();
+    const vision = registry.find((c) => c.id === "VISION")!;
+    expect(vision.implemented).toBe(true);
+    expect(vision.requiresKey).toBe(false);
+    expect(vision.provider).toContain("ollama");
   });
 });

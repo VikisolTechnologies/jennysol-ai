@@ -148,16 +148,24 @@ export function getCapabilityRegistry(): CapabilityStatus[] {
         : "GEMINI_API_KEY not set.",
     },
     {
+      // JENNYSOL-VISION-AND-IMAGERY.md Part A — real code path now exists (ollamaVision.ts,
+      // describeImage()), evaluated and chosen on measured evidence
+      // (JENNY_VISION_MODEL_EVALUATION.md), routed as its own "vision" TaskCapability
+      // (modelRegistry.ts). `available` tracks real reachability, not just "code exists" —
+      // the model is only usable when Ollama itself is actually reachable, same distinction
+      // TEXT_GENERATION already draws above.
       id: "VISION",
-      implemented: false,
-      configured: false,
-      available: false,
-      provider: null,
-      requiresKey: true,
-      free: false,
-      selfHosted: false,
+      implemented: true,
+      configured: true,
+      available: ollamaReachable,
+      provider: "ollama (qwen3-vl:4b)",
+      requiresKey: false,
+      free: true,
+      selfHosted: true,
       modelIndependent: false,
-      detail: "Not implemented — no vision/image-understanding code path exists yet.",
+      detail: ollamaReachable
+        ? undefined
+        : "Ollama isn't reachable right now — vision requires the local model server.",
     },
     {
       id: "EMBEDDINGS",
