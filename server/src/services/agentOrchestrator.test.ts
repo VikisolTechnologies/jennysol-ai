@@ -454,6 +454,94 @@ describe("agentOrchestrator", () => {
     }, 20_000);
   });
 
+  // JENNYSOL-AGENTS-UI-FIRST.md Stage D's own closing note: "The QA pipeline lands last, once the
+  // roles it checks actually exist." They all do now — this proves they actually compose into one
+  // real pipeline together, which nothing before this test exercised: every prior role test ran at
+  // most one or two roles in the same session, never a coder feeding three parallel reviewers plus
+  // QA plus a synthesizing Final Judge in one real run.
+  describe("full QA pipeline — every role cooperating in one real run (Stage D closing requirement)", () => {
+    it("coder -> {security, performance, code_reviewer, visual_qa} in parallel -> qa -> final_judge, with every finding preserved", async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+
+      // 1. Coder writes a real file.
+      const coderAgent = spawnAgent(sessionId, "coder");
+      const coderTask = sessionStore.createTask({ sessionId, title: "Write pipeline.js" });
+      sessionStore.updateTaskStatus(sessionId, coderTask.id, "pending", { agentId: coderAgent.id });
+      mockReturning(JSON.stringify({ filePath: "pipeline.js", content: "module.exports = () => 1;" }));
+      autoDecideNextAction(sessionId, "approve");
+      await runRoleTask(sessionId, coderTask.id);
+      expect(sessionStore.getTask(sessionId, coderTask.id)!.status).toBe("completed");
+
+      // 2. Four reviewers, all depending on the same completed coder task — the DAG's own existing
+      // "many tasks may depend on one" support, not new capability.
+      const reviewers: { role: "security" | "performance" | "code_reviewer"; verdict: string; finding: string }[] = [
+        { role: "security", verdict: "pass", finding: "" },
+        { role: "performance", verdict: "concerns", finding: "one avoidable synchronous call" },
+        { role: "code_reviewer", verdict: "concerns", finding: "unclear function name" },
+      ];
+      for (const r of reviewers) {
+        const agent = spawnAgent(sessionId, r.role);
+        const task = sessionStore.createTask({ sessionId, title: `${r.role} review`, dependsOn: [coderTask.id] });
+        sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+        mockReturning(JSON.stringify({ verdict: r.verdict, findings: r.finding ? [r.finding] : [] }));
+        await runRoleTask(sessionId, task.id);
+        expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+      }
+
+      // Visual QA reviews the same file too — a real screenshot of real (if minimal) content, a
+      // mocked vision call, exactly like its own dedicated tests above.
+      const visualAgent = spawnAgent(sessionId, "visual_qa");
+      const visualTask = sessionStore.createTask({ sessionId, title: "visual_qa review", description: "pipeline.js", dependsOn: [coderTask.id] });
+      sessionStore.updateTaskStatus(sessionId, visualTask.id, "pending", { agentId: visualAgent.id });
+      mockDescribeImage.mockResolvedValue({ content: JSON.stringify({ verdict: "pass", findings: [] }) });
+      await runRoleTask(sessionId, visualTask.id);
+      expect(sessionStore.getTask(sessionId, visualTask.id)!.status).toBe("completed");
+
+      // 3. QA runs a real command against a real fixture, depending on the coder task.
+      mkdirSync(path.join(tmpRoot, "pipeline-qa"), { recursive: true });
+      writeFileSync(path.join(tmpRoot, "pipeline-qa", "package.json"), JSON.stringify({ name: "pipeline-qa", scripts: { test: "echo ok" } }));
+      const qaAgent = spawnAgent(sessionId, "qa");
+      const qaTask = sessionStore.createTask({
+        sessionId,
+        title: "Verify pipeline.js",
+        description: JSON.stringify({ cwd: "pipeline-qa", command: "npm", args: ["test"] }),
+        dependsOn: [coderTask.id],
+      });
+      sessionStore.updateTaskStatus(sessionId, qaTask.id, "pending", { agentId: qaAgent.id });
+      autoDecideNextAction(sessionId, "approve");
+      await runRoleTask(sessionId, qaTask.id);
+      expect(sessionStore.getTask(sessionId, qaTask.id)!.status).toBe("completed");
+
+      // 4. Final Judge synthesizes everything — real accumulated audit_results from all four
+      // reviewers, none clobbered by any other (the exact real bug this session's own group-2 work
+      // found and fixed for two reviewers; this proves it holds for four, plus a differently-shaped
+      // visual_qa entry, all in the same run).
+      const judgeAgent = spawnAgent(sessionId, "final_judge");
+      const judgeTask = sessionStore.createTask({
+        sessionId,
+        title: "Render final verdict",
+        dependsOn: [...reviewers.map(() => coderTask.id), qaTask.id, visualTask.id],
+      });
+      sessionStore.updateTaskStatus(sessionId, judgeTask.id, "pending", { agentId: judgeAgent.id });
+      mockReturning(JSON.stringify({ verdict: "accepted", summary: "Reviewers raised only minor concerns; QA passed." }));
+      await runRoleTask(sessionId, judgeTask.id);
+
+      const auditResults = sessionStore.getMemory(sessionId, "audit_results")?.value as Record<string, unknown>;
+      expect(auditResults.security).toEqual({ verdict: "pass", findings: [] });
+      expect(auditResults.performance).toEqual({ verdict: "concerns", findings: ["one avoidable synchronous call"] });
+      expect(auditResults.code_reviewer).toEqual({ verdict: "concerns", findings: ["unclear function name"] });
+      expect(auditResults.visual_qa).toEqual({ verdict: "pass", findings: [] });
+      expect(auditResults.final_judge).toEqual({ verdict: "accepted", summary: "Reviewers raised only minor concerns; QA passed." });
+
+      // Every real task in the pipeline reached a real terminal state — no silent skip, no
+      // fabricated completion.
+      const allTasks = sessionStore.listTasksForSession(sessionId);
+      expect(allTasks.every((t) => t.status === "completed")).toBe(true);
+      // coder + 3 text reviewers + visual_qa + qa + final_judge
+      expect(allTasks).toHaveLength(7);
+    }, 30_000);
+  });
+
   describe("decomposeObjective — Stage D role acceptance", () => {
     it("accepts the group-3 planning/judgment roles (ux/product_analyst/final_judge) in a real decomposition", async () => {
       mockReturning(

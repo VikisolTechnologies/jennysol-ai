@@ -91,13 +91,28 @@ chasing nothing).
 **`qwen3-vl:4b`, on measured evidence, not the fleet doc's earlier (reasonable, but never
 live-tested) Moondream2 recommendation.** Apache 2.0 (confirmed directly against Qwen's own Hugging
 Face license file, matching every other Qwen model already in this fleet — no new license class
-introduced). Fits this Mac's real memory budget (`hardwareProfile.ts`'s `m1_16gb` profile:
-`usableMemoryGb: 10`; `qwen3:8b` general chat at 5.2GB + `qwen3-vl:4b` vision at 3.57GB real resident
-= ~8.8GB, inside budget) in a way the 7-9B class measurably does not (5.2GB + 5.8GB = 11GB, already
-past the 10GB usable ceiling — and it showed, live, as a real GPU OOM, not just arithmetic on paper).
-100% structured-output reliability (the brief's own most heavily-weighted metric) against Moondream's
-0%. Its own description ("Visual Agent Tasks: Operating computer and mobile interfaces, recognizing
-UI elements") is a direct match for the Visual QA use case this whole exercise exists to unblock.
+introduced). Its own real resident size (3.57GB) is comfortably under this Mac's `m1_16gb` profile's
+`usableMemoryGb: 10` on its own — in a way the 7-9B class measurably is not (`qwen3-vl:8b` alone at
+5.8GB, alongside a resident chat model, is what triggered the real GPU OOM above; 3.57GB alone leaves
+real headroom that model never had). 100% structured-output reliability (the brief's own most
+heavily-weighted metric) against Moondream's 0%. Its own description ("Visual Agent Tasks: Operating
+computer and mobile interfaces, recognizing UI elements") is a direct match for the Visual QA use
+case this whole exercise exists to unblock.
+
+**Correction, found live while directly testing memory contention (this document's own §4
+requirement) rather than left as arithmetic**: an earlier draft of this section reasoned that
+`qwen3:8b` (general chat, 5.2GB) and `qwen3-vl:4b` (3.57GB) *should* coexist resident together, since
+5.2+3.57 ≈ 8.8GB is under the 10GB budget. **That reasoning was never actually tested, and the real,
+live behavior is different**: on this Mac, right now, with no `OLLAMA_MAX_LOADED_MODELS` override set
+anywhere, Ollama evicts the previously-resident model **immediately** on any request for a
+*different* model — confirmed directly: warming `qwen3:8b` evicted an already-resident
+`qwen2.5-coder:7b` outright (not "eventually, once memory got tight" — instantly, on the very next
+request), and requesting `qwen3-vl:4b` right after evicted `qwen3:8b` in turn, even though both would
+fit the stated budget together. **The real, honest implication**: on this specific machine, as
+configured today, a vision request and a text-chat request will always cold-start against each
+other in practice — there is no "both stay warm" scenario here, regardless of what the raw memory
+arithmetic alone would suggest. This is exactly the class of number this document exists to report
+plainly rather than let stand as a plausible-sounding assumption.
 
 **Real, honest limitation to carry forward, not hide**: 2/5 raw defect accuracy on *subtle* UI defects
 is a real number, not a rounding error — this model will miss some genuine problems. Given the safer
@@ -157,6 +172,17 @@ Everything this section originally flagged as remaining is now done, in the same
   real file with a real, deliberate low-contrast defect, and the real Visual QA role's finding named
   that exact defect precisely, with no hallucination. Full detail in
   `JENNY_IMPLEMENTATION_STATUS.md`'s "Visual QA — the loop closed for real" entry.
+
+**The keep-warm decision A.3 explicitly asks for, made deliberately, not left implicit**: given the
+real, tested eviction behavior above (any model switch evicts the previous one on this machine,
+regardless of `OLLAMA_MAX_LOADED_MODELS` being unset), something has to be the default warm model —
+**the general chat model stays it.** General chat is JennySol's primary, high-frequency, user-facing
+path; Visual QA is a comparatively rare, occasional step inside an agent session, not something a
+real user waits on directly. A vision call accepting a real, occasional cold-start cost is the right
+tradeoff; making every general chat message pay that cost so a rare Visual QA task can stay warm
+would not be. No code change was needed to make this the actual behavior (nothing currently forces
+the vision model to stay resident), so this is a documented operating decision, not a shipped
+feature — flagged here so a future session doesn't have to re-derive it from scratch.
 
 ## Part B — Image generation: a real, evidence-based deferral
 

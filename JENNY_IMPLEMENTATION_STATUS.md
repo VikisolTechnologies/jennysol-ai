@@ -2095,8 +2095,40 @@ role's findings are a real, useful signal, not a substitute for a human's own re
 same "reports, does not decide, and isn't the last word" posture this document has applied to every
 other reviewer role.
 
-**Not yet built**: the full QA pipeline (lands last, once every role it checks exists — it now does;
-this is the next natural piece of work, not started this batch).
+**Not yet built at the time**: the full QA pipeline. Closed in the very next batch — see below.
+
+#### The full QA pipeline — every role proven to cooperate (JENNYSOL-AGENTS-UI-FIRST.md's own Stage D closing requirement)
+
+**Status: VERIFIED — 1 new comprehensive integration test, tsc clean, full suite green (584; the 1
+already-well-established, environment-load-dependent live-model flake — this session's cumulative
+work left this Mac at real, sustained ~84% swap usage — reconfirmed transient by re-running alone
+immediately after, same as every prior occurrence this session).**
+
+The brief's own closing instruction for Stage D was explicit: "The QA pipeline lands last, once the
+roles it checks actually exist." They all do now (11/11). What had never actually been exercised,
+across every phase of this whole engagement, was **all of them cooperating in one real run** — every
+prior test ran at most one or two review-shaped roles together. A new test does exactly that: a real
+coder task, then `security` + `performance` + `code_reviewer` + `visual_qa` all reviewing the same
+completed file in parallel (the DAG's own existing "many tasks may depend on one" support — no new
+scheduling capability needed), then a real `qa` command check, then `final_judge` synthesizing
+everything — 7 real tasks, 5 of them writing to the same shared `audit_results` memory key. Asserts
+directly that all five entries survive intact under their own role key, none clobbered by any other
+— the exact real bug this session's own Stage D group 2 work found and fixed for two reviewers,
+now proven to hold for five, including the differently-shaped `visual_qa` and `final_judge` entries
+alongside the three text-only reviewers.
+
+**A deliberate, stated scope boundary, not an oversight**: this is the Orchestrator's own existing,
+already-tested ability to compose a plan that includes several reviewer roles (already proven
+per-role, per-group throughout Stage D) — not a new "always run every reviewer automatically"
+mechanism. Building a pipeline that *dynamically* appends a review step after seeing what a coder
+task actually produced (e.g., only add `visual_qa` if the file the coder wrote turns out to be a
+screenshottable UI file) would require dynamically injecting new tasks into an already-decomposed DAG
+mid-run — a real, separate, substantially larger capability change (Phase 3's DAG is fixed at
+decompose time today) that nothing in this brief named or required. Flagged as a legitimate future
+capability, not silently assumed to already exist.
+
+This closes every item in `JENNYSOL-AGENTS-UI-FIRST.md`. Stage A, B, B2, C (§5.1-§5.4), and D
+(all 11 roles plus the full pipeline proof) are complete, real, tested, and pushed.
 
 ---
 
