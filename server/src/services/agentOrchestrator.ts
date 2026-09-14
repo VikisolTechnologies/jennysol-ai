@@ -13,7 +13,7 @@ import type { AgentTask } from "./agentSessionStore.js";
 import { spawnAgent, getAgent, updateAgentStatus, type Agent, type AgentRole } from "./agentRegistry.js";
 import { createTaskBatch, type TaskDraft } from "./agentTaskDag.js";
 import { runAgentTask } from "./agentTaskRunner.js";
-import { proposeAgentAction, awaitApprovalDecision } from "./agentToolRegistry.js";
+import { proposeAgentAction, awaitApprovalDecision, readFile } from "./agentToolRegistry.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
 import { extractJson } from "./agentJsonExtract.js";
 import { writeSessionMemory } from "./agentMemoryWriteScope.js";
@@ -24,6 +24,9 @@ import {
   BACKEND_SYSTEM_PROMPT,
   DATABASE_SYSTEM_PROMPT,
   UI_SYSTEM_PROMPT,
+  SECURITY_SYSTEM_PROMPT,
+  PERFORMANCE_SYSTEM_PROMPT,
+  CODE_REVIEWER_SYSTEM_PROMPT,
 } from "./agentRolePrompts.js";
 
 export class OrchestratorError extends Error {
@@ -224,7 +227,12 @@ async function runQaTask(sessionId: string, taskId: string, task: AgentTask, age
 // autonomy": the Orchestrator must never be allowed to hand work to a role that can't actually do it.
 type ProseMemoryRoleConfig = { kind: "prose-memory"; systemPrompt: string; memoryKey: string };
 type FileWriteRoleConfig = { kind: "file-write"; systemPrompt: string };
-type RoleExecutionConfig = ProseMemoryRoleConfig | FileWriteRoleConfig;
+// Stage D group 2: reads real file content (never invents what a file contains — see
+// readChangedFilesContent below) and writes a structured {verdict, findings} finding to
+// "audit_results", keyed by its own role so three reviewers sharing that one memory key never
+// clobber each other's findings (see the merge logic in runReviewCompletion).
+type ReviewRoleConfig = { kind: "review"; systemPrompt: string };
+type RoleExecutionConfig = ProseMemoryRoleConfig | FileWriteRoleConfig | ReviewRoleConfig;
 
 const ROLE_EXECUTION: Partial<Record<AgentRole, RoleExecutionConfig>> = {
   architect: { kind: "prose-memory", systemPrompt: ARCHITECT_SYSTEM_PROMPT, memoryKey: "architecture" },
@@ -232,7 +240,47 @@ const ROLE_EXECUTION: Partial<Record<AgentRole, RoleExecutionConfig>> = {
   backend: { kind: "file-write", systemPrompt: BACKEND_SYSTEM_PROMPT },
   database: { kind: "file-write", systemPrompt: DATABASE_SYSTEM_PROMPT },
   ui: { kind: "file-write", systemPrompt: UI_SYSTEM_PROMPT },
+  security: { kind: "review", systemPrompt: SECURITY_SYSTEM_PROMPT },
+  performance: { kind: "review", systemPrompt: PERFORMANCE_SYSTEM_PROMPT },
+  code_reviewer: { kind: "review", systemPrompt: CODE_REVIEWER_SYSTEM_PROMPT },
 };
+
+// The augmentContext hook agentTaskRunner.ts gained in group 1, put to real use here: a review-shaped
+// role's read scope (agentTaskRunner.ts's MEMORY_READ_SCOPE) already includes "changed_files", but
+// that memory key only ever holds a list of *paths* — without actually reading each file for real,
+// any "finding" a reviewer reported would be invented, not observed. Uses the same READ-tier
+// readFile every other read already goes through (agentToolRegistry.ts, ADR-004) — no new boundary.
+async function readChangedFilesContent(sessionId: string, agent: Agent): Promise<Record<string, unknown>> {
+  const changedFiles = sessionStore.getMemory(sessionId, "changed_files")?.value;
+  if (!Array.isArray(changedFiles) || changedFiles.length === 0) return { file_contents: {} };
+  const contents: Record<string, string> = {};
+  for (const filePath of changedFiles) {
+    if (typeof filePath !== "string") continue;
+    try {
+      contents[filePath] = await readFile(sessionId, agent.id, filePath);
+    } catch (err) {
+      contents[filePath] = `<could not read: ${err instanceof Error ? err.message : String(err)}>`;
+    }
+  }
+  return { file_contents: contents };
+}
+
+async function runReviewCompletion(sessionId: string, roleName: string, fullText: string, ctx: { agent: Agent; task: AgentTask }): Promise<void> {
+  const parsed = extractJson(fullText) as Record<string, unknown>;
+  if (parsed.verdict !== "pass" && parsed.verdict !== "concerns") {
+    throw new OrchestratorError(`${roleName} output for task "${ctx.task.title}" has an invalid or missing verdict`);
+  }
+  const findings = Array.isArray(parsed.findings) ? parsed.findings.filter((f): f is string => typeof f === "string") : [];
+  // Three reviewer roles share one memory key — merge under this role's own key rather than
+  // overwrite, or the second reviewer to finish would silently erase the first one's findings.
+  const existing = sessionStore.getMemory(sessionId, "audit_results");
+  const merged =
+    existing?.value && typeof existing.value === "object" && !Array.isArray(existing.value)
+      ? { ...(existing.value as Record<string, unknown>) }
+      : {};
+  merged[ctx.agent.role] = { verdict: parsed.verdict, findings };
+  writeSessionMemory(sessionId, ctx.agent.id, "audit_results", merged);
+}
 
 async function runFileWriteCompletion(sessionId: string, roleName: string, fullText: string, ctx: { agent: Agent; task: AgentTask }): Promise<void> {
   const parsed = extractJson(fullText) as Record<string, unknown>;
@@ -283,9 +331,14 @@ export async function runRoleTask(sessionId: string, taskId: string): Promise<vo
 
   return runAgentTask(sessionId, taskId, {
     systemPromptOverride: config.systemPrompt,
+    augmentContext: config.kind === "review" ? readChangedFilesContent : undefined,
     onComplete: async (fullText, ctx) => {
       if (config.kind === "prose-memory") {
         writeSessionMemory(sessionId, ctx.agent.id, config.memoryKey, { note: fullText.trim() });
+        return;
+      }
+      if (config.kind === "review") {
+        await runReviewCompletion(sessionId, agent.role, fullText, ctx);
         return;
       }
       await runFileWriteCompletion(sessionId, agent.role, fullText, ctx);

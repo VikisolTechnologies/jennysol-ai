@@ -231,6 +231,82 @@ describe("agentOrchestrator", () => {
     });
   });
 
+  // Stage D group 2: security/performance/code_reviewer read REAL file content (agentTaskRunner.ts's
+  // augmentContext hook + agentToolRegistry.ts's readFile) before ever calling the model — a
+  // "review" of a file the role never actually read would be an invented finding, exactly the
+  // fabrication this whole engagement has refused everywhere else.
+  describe.each(["security", "performance", "code_reviewer"] as const)("runRoleTask — %s (Stage D group 2)", (role) => {
+    it(`reads the real file content for a changed file and writes a real finding to audit_results`, async () => {
+      const fs = await import("node:fs/promises");
+      await fs.writeFile(path.join(tmpRoot, "reviewed.js"), "const password = 'hunter2'; // a real, reviewable line");
+      sessionStore.setMemory(sessionId, "changed_files", ["reviewed.js"]);
+
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, role);
+      const task = sessionStore.createTask({ sessionId, title: `${role} reviews reviewed.js` });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockReturning(JSON.stringify({ verdict: "concerns", findings: ["reviewed.js: hardcoded secret on line 1"] }));
+
+      await runRoleTask(sessionId, task.id);
+
+      // The real file content actually reached the model — not just the file's name.
+      const [systemPrompt] = mockRoute.mock.calls[0];
+      expect(systemPrompt).toContain("hunter2");
+
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+      const auditResults = sessionStore.getMemory(sessionId, "audit_results")?.value as Record<string, unknown>;
+      expect(auditResults[role]).toEqual({ verdict: "concerns", findings: ["reviewed.js: hardcoded secret on line 1"] });
+    });
+  });
+
+  it("Stage D group 2: two reviewers writing to audit_results merge under their own role key, neither clobbers the other", async () => {
+    const fs = await import("node:fs/promises");
+    await fs.writeFile(path.join(tmpRoot, "shared.js"), "function ok() { return 1; }");
+    sessionStore.setMemory(sessionId, "changed_files", ["shared.js"]);
+
+    const { spawnAgent } = await import("./agentRegistry.js");
+    const secAgent = spawnAgent(sessionId, "security");
+    const secTask = sessionStore.createTask({ sessionId, title: "security review" });
+    sessionStore.updateTaskStatus(sessionId, secTask.id, "pending", { agentId: secAgent.id });
+    mockReturning(JSON.stringify({ verdict: "pass", findings: [] }));
+    await runRoleTask(sessionId, secTask.id);
+
+    const perfAgent = spawnAgent(sessionId, "performance");
+    const perfTask = sessionStore.createTask({ sessionId, title: "performance review" });
+    sessionStore.updateTaskStatus(sessionId, perfTask.id, "pending", { agentId: perfAgent.id });
+    mockReturning(JSON.stringify({ verdict: "concerns", findings: ["shared.js: fine, just checking merge"] }));
+    await runRoleTask(sessionId, perfTask.id);
+
+    const auditResults = sessionStore.getMemory(sessionId, "audit_results")?.value as Record<string, unknown>;
+    expect(auditResults.security).toEqual({ verdict: "pass", findings: [] });
+    expect(auditResults.performance).toEqual({ verdict: "concerns", findings: ["shared.js: fine, just checking merge"] });
+  });
+
+  it("Stage D group 2: a reviewer with nothing to review is told so honestly, never fed an invented file", async () => {
+    const { spawnAgent } = await import("./agentRegistry.js");
+    const agent = spawnAgent(sessionId, "code_reviewer");
+    const task = sessionStore.createTask({ sessionId, title: "review with nothing changed yet" });
+    sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+    mockReturning(JSON.stringify({ verdict: "concerns", findings: ["nothing to review yet"] }));
+
+    await runRoleTask(sessionId, task.id);
+
+    const [systemPrompt] = mockRoute.mock.calls[0];
+    expect(systemPrompt).toContain('"file_contents": {}');
+    expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+  });
+
+  it("Stage D group 2: fails the task honestly when a reviewer's output has no valid verdict", async () => {
+    const { spawnAgent } = await import("./agentRegistry.js");
+    const agent = spawnAgent(sessionId, "security");
+    const task = sessionStore.createTask({ sessionId, title: "review" });
+    sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+    mockReturning(JSON.stringify({ findings: ["looks fine I guess"] }));
+
+    await expect(runRoleTask(sessionId, task.id)).rejects.toThrow(OrchestratorError);
+    expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
+  });
+
   describe("decomposeObjective — Stage D role acceptance", () => {
     it("accepts the group-1 specialist roles (backend/database/ui) in a real decomposition", async () => {
       mockReturning(
@@ -244,6 +320,21 @@ describe("agentOrchestrator", () => {
       expect(tasks).toHaveLength(3);
       const agents = listAgentsForSession(sessionId);
       expect(agents.map((a) => a.role).sort()).toEqual(["backend", "database", "orchestrator", "ui"]);
+    });
+
+    it("accepts the group-2 specialist roles (security/performance/code_reviewer) in a real decomposition", async () => {
+      mockReturning(
+        JSON.stringify([
+          { localId: "T1", role: "coder", title: "Write the file" },
+          { localId: "T2", role: "security", title: "Review it", dependsOn: ["T1"] },
+          { localId: "T3", role: "performance", title: "Review it", dependsOn: ["T1"] },
+          { localId: "T4", role: "code_reviewer", title: "Review it", dependsOn: ["T1"] },
+        ])
+      );
+      const { tasks } = await decomposeObjective(sessionId, "x");
+      expect(tasks).toHaveLength(4);
+      const agents = listAgentsForSession(sessionId);
+      expect(agents.map((a) => a.role).sort()).toEqual(["code_reviewer", "coder", "orchestrator", "performance", "security"]);
     });
 
     it("still rejects a genuinely unknown role name, not just anything not in the original 4", async () => {

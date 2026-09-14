@@ -1974,11 +1974,40 @@ measurement run) — now a third independent live confirmation that the boundary
 which provider (this run used `gemini`, not local Ollama) or which objective produced the disallowed
 command. Cleaned up afterward: the two real files, the test user (cascades to its session).
 
-**Not yet built**: Stage D groups 2 (security/performance/code_reviewer — needs a new `augmentContext`
-capability, already scaffolded in `agentTaskRunner.ts` this batch but not yet wired to a real role) and
-3 (product_analyst/ux/final_judge), Visual QA (blocked on real vision-model support — see
-`JENNYSOL-VISION-AND-IMAGERY.md`, not yet started), and the full QA pipeline (lands last, once the
-roles it checks all exist).
+#### Stage D group 2 — security, performance, code_reviewer (the review-shaped roles)
+
+**Status: VERIFIED live end-to-end on a real running server, 30 new tests, tsc clean, full suite
+green (563).**
+
+These three read real, already-written code and report findings — they never write or fix anything
+themselves (mirroring QA's own "reports, never decides" shape one level up). The real, necessary piece
+built for this: `agentOrchestrator.ts`'s `readChangedFilesContent()`, wired through group 1's
+`augmentContext` hook, actually reads every file in `changed_files` via `agentToolRegistry.ts`'s
+existing READ-tier `readFile` before the model ever runs — without this, a "review" of file *names*
+alone (all `MEMORY_READ_SCOPE` gave these roles before) would be an invented finding, not a real one.
+**A real bug caught while designing this, not after**: all three roles share one `audit_results`
+memory key — a naive `writeSessionMemory(..., "audit_results", {verdict, findings})` per role would
+let the second reviewer to finish silently erase the first one's findings. Fixed before it ever
+shipped: `runReviewCompletion` reads the existing value, merges this role's own findings under its
+own key, and writes the merged object back — **tested explicitly** (`"two reviewers writing to
+audit_results merge under their own role key, neither clobbers the other"`), not just asserted safe.
+Also tested: a reviewer given nothing to review yet reports that honestly rather than inventing a
+finding about code it was never shown (matching the prompt's own explicit instruction for this case).
+
+**Live proof, not just mocked tests**: a real objective ("create config.js with a hardcoded database
+password, then have security review it") really decomposed into architect→coder→security tasks. The
+live Coder wrote the exact file asked for (a real secret in real code — the *point* of this
+objective was to give the reviewer something real and specific to find, not a contrived pass). The
+live Security role's finding — `"config.js contains a hardcoded database password
+('supersecretpassword123') exported directly in source code."` — quotes the **exact real password
+string from the file**, direct proof it actually read the file's real content rather than guessing
+from its name. Verdict `"concerns"`, correctly. Session completed cleanly (the Orchestrator correctly
+scoped the plan to exactly what was asked — no unrequested QA step tacked on). Cleaned up afterward:
+the one real file, the test user.
+
+**Not yet built**: Stage D group 3 (product_analyst/ux/final_judge — the planning/judgment roles),
+Visual QA (blocked on real vision-model support — see `JENNYSOL-VISION-AND-IMAGERY.md`, not yet
+started), and the full QA pipeline (lands last, once the roles it checks all exist).
 
 ---
 
