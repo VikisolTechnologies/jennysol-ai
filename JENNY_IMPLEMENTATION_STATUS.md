@@ -2005,9 +2005,56 @@ from its name. Verdict `"concerns"`, correctly. Session completed cleanly (the O
 scoped the plan to exactly what was asked — no unrequested QA step tacked on). Cleaned up afterward:
 the one real file, the test user.
 
-**Not yet built**: Stage D group 3 (product_analyst/ux/final_judge — the planning/judgment roles),
-Visual QA (blocked on real vision-model support — see `JENNYSOL-VISION-AND-IMAGERY.md`, not yet
-started), and the full QA pipeline (lands last, once the roles it checks all exist).
+#### Stage D group 3 — product_analyst, ux, final_judge (the planning/judgment roles)
+
+**Status: VERIFIED live end-to-end on a real running server, 8 new tests (including a real bug
+found and fixed live, see below), tsc clean, full suite green (571; up from 563 at the end of group
+2).** This completes all 10
+remaining roles from `agentRegistry.ts`'s `ROLE_CATALOG` — every role now has real execution logic
+behind it, except Visual QA (see below).
+
+Two new execution kinds in `agentOrchestrator.ts`'s `ROLE_EXECUTION` table: **list-memory**
+(Product Analyst writes a real, bounded JSON array of open questions to `open_questions` — a list of
+distinct questions, not a single prose note, matching what that memory key is actually for) and
+**judgment** (Final Judge renders one `{verdict: "accepted"|"rejected", summary}` on the whole
+objective, synthesizing what other roles already found — deliberately a distinct kind from "review"
+even though the merge-into-a-shared-key code is nearly identical, since a review's "concerns" is not
+the same claim as a judge's "rejected"). UX needed no new kind at all — it reuses Architect's exact
+prose-memory shape, writing to `current_plan` instead of `architecture`.
+
+**A real, live-found bug, fixed on the spot, not deferred**: while live-verifying this group, a
+session got permanently stuck `"running"` on the dashboard forever — `agentSessionRunner.ts`'s
+`driveSession` loop only ever checked "are *all* tasks terminal" to decide the session was done, so a
+downstream task (here, `final_judge`'s own "Render verdict" task) whose *only* dependency had
+permanently failed (QA's now-familiar allow-list refusal — see below) was itself neither ready nor
+terminal, and the loop just idled forever with no way for a human watching the dashboard to tell
+"waiting on you" apart from "will never finish." Root-caused and fixed immediately: the loop now
+detects real deadlock — nothing in flight (`queued`/`running`/`awaiting_approval`), nothing ready,
+yet something still non-terminal — and marks the session `failed` with a real
+`deadlocked_on_failed_dependency` reason. The `awaiting_approval` exclusion is what makes this safe:
+a task genuinely waiting on a human still holds a live executor promise, so this check can never
+misfire on a session that's merely waiting, only on one that provably cannot progress further. Caught
+this precisely, not by inspection alone: confirmed the exact previously-stuck live session actually
+flipped to `"failed"` in real time via `tsx watch`'s auto-reload, then encoded it as a permanent
+regression test (`"marks the session failed when a downstream task is permanently deadlocked..."`).
+
+**Live proof, not just mocked tests**: a real objective explicitly inviting `product_analyst` and
+`final_judge` really decomposed into 5 tasks using both new roles, unprompted beyond the new prompt
+guidance. The live Product Analyst correctly returned a real, **honest empty array** — this specific
+objective genuinely had nothing ambiguous about it, and the prompt's own explicit instruction ("never
+invent a question just to have something to say") held for real, not just in a mocked test. The
+Coder wrote a real, correct `greet.js` through the approval gate. QA then hit the **same allow-list
+refusal for a fourth independent time this session** (across two different providers, three
+different objectives) — permanently blocking `final_judge`'s own dependency, which is exactly what
+surfaced the deadlock bug above. `final_judge`'s own live LLM completion path is proven by its mocked
+tests (already exercising the identical code path deterministically); reaching it live in this
+specific run would have required hand-editing a task's description mid-run outside the real API
+surface, which wasn't worth doing once the mocked coverage and the Orchestrator's real, correct role
+assignment were both already confirmed. Cleaned up afterward: the one real file, the test user.
+
+**Not yet built**: Visual QA (blocked on real vision-model support — see
+`JENNYSOL-VISION-AND-IMAGERY.md`, not yet started), and the full QA pipeline (lands last, once the
+roles it checks all exist).
 
 ---
 

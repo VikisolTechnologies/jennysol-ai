@@ -27,6 +27,9 @@ import {
   SECURITY_SYSTEM_PROMPT,
   PERFORMANCE_SYSTEM_PROMPT,
   CODE_REVIEWER_SYSTEM_PROMPT,
+  UX_SYSTEM_PROMPT,
+  PRODUCT_ANALYST_SYSTEM_PROMPT,
+  FINAL_JUDGE_SYSTEM_PROMPT,
 } from "./agentRolePrompts.js";
 
 export class OrchestratorError extends Error {
@@ -232,7 +235,16 @@ type FileWriteRoleConfig = { kind: "file-write"; systemPrompt: string };
 // "audit_results", keyed by its own role so three reviewers sharing that one memory key never
 // clobber each other's findings (see the merge logic in runReviewCompletion).
 type ReviewRoleConfig = { kind: "review"; systemPrompt: string };
-type RoleExecutionConfig = ProseMemoryRoleConfig | FileWriteRoleConfig | ReviewRoleConfig;
+// Stage D group 3: Product Analyst writes a real, bounded list — not a single prose note — since
+// "open_questions" is a list of distinct questions, not one narrative (agentSessionStore.ts's own
+// memory shape).
+type ListMemoryRoleConfig = { kind: "list-memory"; systemPrompt: string; memoryKey: string };
+// Final Judge: a distinct kind from "review" on purpose, even though the code shape (parse, merge
+// into a shared memory key by role) is nearly identical — a review's "concerns" is not the same claim
+// as a judge's "rejected" (the whole objective failed), so keeping them semantically separate avoids
+// quietly blurring what a "verdict" means depending on which role produced it.
+type JudgmentRoleConfig = { kind: "judgment"; systemPrompt: string };
+type RoleExecutionConfig = ProseMemoryRoleConfig | FileWriteRoleConfig | ReviewRoleConfig | ListMemoryRoleConfig | JudgmentRoleConfig;
 
 const ROLE_EXECUTION: Partial<Record<AgentRole, RoleExecutionConfig>> = {
   architect: { kind: "prose-memory", systemPrompt: ARCHITECT_SYSTEM_PROMPT, memoryKey: "architecture" },
@@ -243,7 +255,24 @@ const ROLE_EXECUTION: Partial<Record<AgentRole, RoleExecutionConfig>> = {
   security: { kind: "review", systemPrompt: SECURITY_SYSTEM_PROMPT },
   performance: { kind: "review", systemPrompt: PERFORMANCE_SYSTEM_PROMPT },
   code_reviewer: { kind: "review", systemPrompt: CODE_REVIEWER_SYSTEM_PROMPT },
+  ux: { kind: "prose-memory", systemPrompt: UX_SYSTEM_PROMPT, memoryKey: "current_plan" },
+  product_analyst: { kind: "list-memory", systemPrompt: PRODUCT_ANALYST_SYSTEM_PROMPT, memoryKey: "open_questions" },
+  final_judge: { kind: "judgment", systemPrompt: FINAL_JUDGE_SYSTEM_PROMPT },
 };
+
+// Shared by review and judgment completions: several roles can share one memory key over a session's
+// lifetime (three reviewers writing "audit_results"; a re-run judge overwriting its own prior verdict
+// is fine, but must never erase a *different* role's entry in the same object) — merge under this
+// role's own key rather than overwrite the whole value.
+function mergeIntoSharedMemory(sessionId: string, memoryKey: string, role: AgentRole, value: unknown): Record<string, unknown> {
+  const existing = sessionStore.getMemory(sessionId, memoryKey);
+  const merged =
+    existing?.value && typeof existing.value === "object" && !Array.isArray(existing.value)
+      ? { ...(existing.value as Record<string, unknown>) }
+      : {};
+  merged[role] = value;
+  return merged;
+}
 
 // The augmentContext hook agentTaskRunner.ts gained in group 1, put to real use here: a review-shaped
 // role's read scope (agentTaskRunner.ts's MEMORY_READ_SCOPE) already includes "changed_files", but
@@ -271,14 +300,25 @@ async function runReviewCompletion(sessionId: string, roleName: string, fullText
     throw new OrchestratorError(`${roleName} output for task "${ctx.task.title}" has an invalid or missing verdict`);
   }
   const findings = Array.isArray(parsed.findings) ? parsed.findings.filter((f): f is string => typeof f === "string") : [];
-  // Three reviewer roles share one memory key — merge under this role's own key rather than
-  // overwrite, or the second reviewer to finish would silently erase the first one's findings.
-  const existing = sessionStore.getMemory(sessionId, "audit_results");
-  const merged =
-    existing?.value && typeof existing.value === "object" && !Array.isArray(existing.value)
-      ? { ...(existing.value as Record<string, unknown>) }
-      : {};
-  merged[ctx.agent.role] = { verdict: parsed.verdict, findings };
+  const merged = mergeIntoSharedMemory(sessionId, "audit_results", ctx.agent.role, { verdict: parsed.verdict, findings });
+  writeSessionMemory(sessionId, ctx.agent.id, "audit_results", merged);
+}
+
+function runListMemoryCompletion(sessionId: string, memoryKey: string, roleName: string, fullText: string, ctx: { agent: Agent; task: AgentTask }): void {
+  const parsed = extractJson(fullText);
+  if (!Array.isArray(parsed) || !parsed.every((q) => typeof q === "string")) {
+    throw new OrchestratorError(`${roleName} output for task "${ctx.task.title}" is not a JSON array of strings`);
+  }
+  writeSessionMemory(sessionId, ctx.agent.id, memoryKey, parsed);
+}
+
+function runJudgmentCompletion(sessionId: string, roleName: string, fullText: string, ctx: { agent: Agent; task: AgentTask }): void {
+  const parsed = extractJson(fullText) as Record<string, unknown>;
+  if (parsed.verdict !== "accepted" && parsed.verdict !== "rejected") {
+    throw new OrchestratorError(`${roleName} output for task "${ctx.task.title}" has an invalid or missing verdict`);
+  }
+  const summary = typeof parsed.summary === "string" ? parsed.summary : "";
+  const merged = mergeIntoSharedMemory(sessionId, "audit_results", ctx.agent.role, { verdict: parsed.verdict, summary });
   writeSessionMemory(sessionId, ctx.agent.id, "audit_results", merged);
 }
 
@@ -339,6 +379,14 @@ export async function runRoleTask(sessionId: string, taskId: string): Promise<vo
       }
       if (config.kind === "review") {
         await runReviewCompletion(sessionId, agent.role, fullText, ctx);
+        return;
+      }
+      if (config.kind === "list-memory") {
+        runListMemoryCompletion(sessionId, config.memoryKey, agent.role, fullText, ctx);
+        return;
+      }
+      if (config.kind === "judgment") {
+        runJudgmentCompletion(sessionId, agent.role, fullText, ctx);
         return;
       }
       await runFileWriteCompletion(sessionId, agent.role, fullText, ctx);

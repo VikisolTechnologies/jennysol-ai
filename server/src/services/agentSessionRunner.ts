@@ -8,7 +8,13 @@
 import * as sessionStore from "./agentSessionStore.js";
 import { tick } from "./agentScheduler.js";
 import { runRoleTask } from "./agentOrchestrator.js";
+import { readyTasks } from "./agentTaskDag.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
+
+// A task in one of these statuses has a real executor promise still alive somewhere inside tick()
+// (running or genuinely awaiting a human decision) — the loop must never declare deadlock while any
+// task is still in-flight, since it will resolve itself.
+const IN_FLIGHT_TASK_STATUSES = new Set<sessionStore.AgentTaskStatus>(["queued", "running", "awaiting_approval"]);
 
 let tickIntervalMs = 1000;
 
@@ -73,13 +79,30 @@ export async function driveSession(
         return;
       }
 
-      // Nothing dispatched this tick, nothing currently ready, and no free-standing task is still
-      // "running" — either every remaining task is a permanent dependency dead-end on a
-      // failed/cancelled task (agentTaskDag.ts's documented "no automatic unblock" gap — a real,
-      // separately-tracked limitation, not something this loop papers over) or one is genuinely
-      // "awaiting_approval" (that task's own runRoleTask call is still in flight inside tick(),
-      // occupying a Scheduler slot — it resumes itself the moment a human decides; this loop doesn't
-      // drive it directly). Idle-wait rather than spin either way.
+      // Real deadlock, found live (JENNY_IMPLEMENTATION_STATUS.md's Stage D group 3 entry): nothing
+      // ready, nothing in flight, yet at least one task is still non-terminal — this can only happen
+      // when every remaining task is a permanent dependency dead-end on a failed/cancelled task
+      // (agentTaskDag.ts's own documented "no automatic unblock" rule: a dependency that's failed or
+      // cancelled excludes a task from readyTasks() forever). A task genuinely "awaiting_approval" is
+      // excluded from this by IN_FLIGHT_TASK_STATUSES — it still has a live executor promise inside
+      // tick() and will resolve itself the moment a human decides, so this can never misfire on a
+      // session that's merely waiting on one. Before this check, a session like that looped here
+      // forever, permanently "running" on the dashboard with no further progress possible and no way
+      // for a human to tell the difference between "waiting" and "stuck" without reading the DAG by
+      // hand.
+      const nothingInFlight = !tasks.some((t) => IN_FLIGHT_TASK_STATUSES.has(t.status));
+      const nothingReady = readyTasks(sessionId).length === 0;
+      const somethingStillPending = tasks.some((t) => !isTerminalTaskStatus(t.status));
+      if (nothingInFlight && nothingReady && somethingStillPending) {
+        sessionStore.updateSessionStatus(sessionId, "failed");
+        appendSessionEvent({
+          sessionId,
+          type: "session.status_changed",
+          payload: { status: "failed", reason: "deadlocked_on_failed_dependency" },
+        });
+        return;
+      }
+
       await new Promise((r) => setTimeout(r, tickIntervalMs));
     }
   } finally {

@@ -307,7 +307,111 @@ describe("agentOrchestrator", () => {
     expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
   });
 
+  // Stage D group 3: the planning/judgment roles.
+  describe("runRoleTask — ux (Stage D group 3, reuses architect's prose-memory shape)", () => {
+    it("writes the model's real output to session_memory.current_plan", async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "ux");
+      const task = sessionStore.createTask({ sessionId, title: "Decide the flow" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockReturning("A single-page form with inline validation, no page reload.");
+
+      await runRoleTask(sessionId, task.id);
+
+      expect(sessionStore.getMemory(sessionId, "current_plan")?.value).toEqual({
+        note: "A single-page form with inline validation, no page reload.",
+      });
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+    });
+  });
+
+  describe("runRoleTask — product_analyst (Stage D group 3)", () => {
+    it("writes a real list of open questions", async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "product_analyst");
+      const task = sessionStore.createTask({ sessionId, title: "Find open questions" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockReturning(JSON.stringify(["Should notes be private to each user, or shared?"]));
+
+      await runRoleTask(sessionId, task.id);
+
+      expect(sessionStore.getMemory(sessionId, "open_questions")?.value).toEqual([
+        "Should notes be private to each user, or shared?",
+      ]);
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+    });
+
+    it("accepts a real, honest empty array when nothing is genuinely ambiguous", async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "product_analyst");
+      const task = sessionStore.createTask({ sessionId, title: "Find open questions" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockReturning("[]");
+
+      await runRoleTask(sessionId, task.id);
+
+      expect(sessionStore.getMemory(sessionId, "open_questions")?.value).toEqual([]);
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+    });
+
+    it("fails honestly when the output isn't a JSON array of strings", async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "product_analyst");
+      const task = sessionStore.createTask({ sessionId, title: "Find open questions" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockReturning(JSON.stringify({ questions: ["not the right shape"] }));
+
+      await expect(runRoleTask(sessionId, task.id)).rejects.toThrow(OrchestratorError);
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
+    });
+  });
+
+  describe("runRoleTask — final_judge (Stage D group 3)", () => {
+    it("writes a real accepted verdict citing the provided context", async () => {
+      sessionStore.setMemory(sessionId, "audit_results", { security: { verdict: "pass", findings: [] } });
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "final_judge");
+      const task = sessionStore.createTask({ sessionId, title: "Render final verdict" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockReturning(JSON.stringify({ verdict: "accepted", summary: "Security review passed with no findings." }));
+
+      await runRoleTask(sessionId, task.id);
+
+      const auditResults = sessionStore.getMemory(sessionId, "audit_results")?.value as Record<string, unknown>;
+      expect(auditResults.final_judge).toEqual({ verdict: "accepted", summary: "Security review passed with no findings." });
+      // The judge's own write must not have clobbered the reviewer's earlier entry in the same key.
+      expect(auditResults.security).toEqual({ verdict: "pass", findings: [] });
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("completed");
+    });
+
+    it("fails honestly when the output has no valid accepted/rejected verdict", async () => {
+      const { spawnAgent } = await import("./agentRegistry.js");
+      const agent = spawnAgent(sessionId, "final_judge");
+      const task = sessionStore.createTask({ sessionId, title: "Render final verdict" });
+      sessionStore.updateTaskStatus(sessionId, task.id, "pending", { agentId: agent.id });
+      mockReturning(JSON.stringify({ verdict: "maybe", summary: "unclear" }));
+
+      await expect(runRoleTask(sessionId, task.id)).rejects.toThrow(OrchestratorError);
+      expect(sessionStore.getTask(sessionId, task.id)!.status).toBe("failed");
+    });
+  });
+
   describe("decomposeObjective — Stage D role acceptance", () => {
+    it("accepts the group-3 planning/judgment roles (ux/product_analyst/final_judge) in a real decomposition", async () => {
+      mockReturning(
+        JSON.stringify([
+          { localId: "T1", role: "coder", title: "Write the file" },
+          { localId: "T2", role: "ux", title: "Decide flow" },
+          { localId: "T3", role: "product_analyst", title: "Find questions" },
+          { localId: "T4", role: "final_judge", title: "Judge", dependsOn: ["T1", "T2", "T3"] },
+        ])
+      );
+      const { tasks } = await decomposeObjective(sessionId, "x");
+      expect(tasks).toHaveLength(4);
+      const agents = listAgentsForSession(sessionId);
+      expect(agents.map((a) => a.role).sort()).toEqual(["coder", "final_judge", "orchestrator", "product_analyst", "ux"]);
+    });
+
     it("accepts the group-1 specialist roles (backend/database/ui) in a real decomposition", async () => {
       mockReturning(
         JSON.stringify([

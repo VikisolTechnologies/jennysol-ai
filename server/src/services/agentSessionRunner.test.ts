@@ -78,6 +78,27 @@ describe("agentSessionRunner", () => {
     expect(sessionStore.getSessionUnscoped(sessionId)!.status).toBe("failed");
   });
 
+  // Real bug found live (JENNY_IMPLEMENTATION_STATUS.md's Stage D group 3 entry): a downstream task
+  // whose only dependency permanently failed was never itself terminal, so the old loop looped
+  // forever, leaving the session stuck "running" on the dashboard with no way to tell "waiting" from
+  // "stuck" apart, and no further progress ever possible.
+  it("marks the session failed when a downstream task is permanently deadlocked on a failed dependency, rather than looping forever", async () => {
+    const agent = spawnAgent(sessionId, "coder");
+    const t1 = sessionStore.createTask({ sessionId, title: "fails for real" });
+    sessionStore.updateTaskStatus(sessionId, t1.id, "pending", { agentId: agent.id });
+    const t2 = sessionStore.createTask({ sessionId, title: "can never become ready", dependsOn: [t1.id] });
+    sessionStore.updateTaskStatus(sessionId, t2.id, "pending", { agentId: agent.id });
+
+    await driveSession(sessionId, instantFailureExecutor);
+
+    expect(sessionStore.getSessionUnscoped(sessionId)!.status).toBe("failed");
+    expect(sessionStore.getTask(sessionId, t1.id)!.status).toBe("failed");
+    // t2 is left exactly as it was — permanently 'pending', never silently marked failed or
+    // completed itself (agentTaskDag.ts's own "no automatic unblock" rule stays true even once the
+    // session around it is declared failed).
+    expect(sessionStore.getTask(sessionId, t2.id)!.status).toBe("pending");
+  });
+
   it("stops driving (and stays idle) once a human pauses the session, never marking it done early", async () => {
     const agent = spawnAgent(sessionId, "coder");
     let releaseTask: (() => void) | null = null;
