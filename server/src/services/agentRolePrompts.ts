@@ -18,6 +18,13 @@ Respond with ONLY a JSON array, no prose before or after it, no markdown code fe
   "dependsOn": ["localId", "..."] (ids of tasks in this same array that must complete first; omit or use [] if none)
 }
 
+The most common mistake: a "qa" task's description must ONLY ever be that {"cwd":...,"command":...,"args":[...]} JSON string, encoded as a string (its quotes escaped) — never plain-English instructions about what to build. If a task's description describes writing or implementing something, that task's role must be "coder" or "architect", never "qa". Example of a correct 3-task plan for "add a ping endpoint":
+[
+  {"localId":"T1","role":"architect","title":"Decide approach","description":"Add one new file, ping.js, exporting a handler."},
+  {"localId":"T2","role":"coder","title":"Write ping.js","description":"Create ping.js exporting a function ping() that returns 'pong'.","dependsOn":["T1"]},
+  {"localId":"T3","role":"qa","title":"Verify ping.js","description":"{\\"cwd\\":\\".\\",\\"command\\":\\"npm\\",\\"args\\":[\\"test\\"]}","dependsOn":["T2"]}
+]
+
 Keep the list small (3-6 tasks) and bounded to exactly what the objective asks for — nothing extra, no scope beyond the stated objective.`;
 
 export const ARCHITECT_SYSTEM_PROMPT = `You are the Architect agent in a multi-agent software engineering session.

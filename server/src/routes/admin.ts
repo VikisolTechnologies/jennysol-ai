@@ -15,7 +15,7 @@ import { getSessionEventsAfter, subscribeToSession, type SessionEvent } from "..
 import { appendSessionEvent } from "../services/sessionEventBus.js";
 import { decomposeObjective } from "../services/agentOrchestrator.js";
 import { driveSession } from "../services/agentSessionRunner.js";
-import { pauseSession, resumeSession, cancelSession, killAgent, SessionControlError } from "../services/agentSessionControl.js";
+import { pauseSession, resumeSession, cancelSession, killAgent, retryTask, SessionControlError } from "../services/agentSessionControl.js";
 import { listPendingActions, approveAgentAction, rejectAgentAction, AgentToolError } from "../services/agentToolRegistry.js";
 
 export const adminRouter = Router();
@@ -187,6 +187,19 @@ adminRouter.post("/agent-sessions/:id/agents/:agentId/kill", (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(err instanceof SessionControlError ? 400 : 500).json({ error: err instanceof Error ? err.message : "Could not kill agent" });
+  }
+});
+
+// Stage C §5.3 — resume from a checkpoint rather than restart: resets exactly the one failed task
+// (agentSessionControl.ts's retryTask) and re-invokes the driver loop, same shape as resume's own
+// route (driveSession is a no-op if a loop for this session is already alive).
+adminRouter.post("/agent-sessions/:id/tasks/:taskId/retry", (req, res) => {
+  try {
+    retryTask(req.params.id, req.params.taskId);
+    driveSession(req.params.id).catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err instanceof SessionControlError ? 400 : 500).json({ error: err instanceof Error ? err.message : "Could not retry task" });
   }
 });
 

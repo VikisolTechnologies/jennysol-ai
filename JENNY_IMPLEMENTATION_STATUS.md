@@ -1811,6 +1811,101 @@ permanent regression test in that stage rather than only known from this one liv
 **Not yet built**: Stage C (§5.1 latency/cost report, §5.2 write-scope enforcement, §5.3 checkpoints,
 §5.4 failure-semantics tests) and Stage D (remaining 10 roles). Continuing directly into Stage C next.
 
+#### Stage C §5.1-§5.3 — latency/cost truth, write-scope enforcement, checkpoints
+
+**Status: VERIFIED — 24 new tests, tsc clean both packages, full suite green (550; the 1 already-
+documented, environment-load-dependent live-model flake re-confirmed transient by re-running it alone
+immediately after, same as every prior occurrence this session).**
+
+**§5.1 — real numbers, node by node, local model (this Mac's real, always-available capacity), warm:**
+a one-off measurement script (not committed — produced the numbers below, then deleted) ran the exact
+real `decomposeObjective`/`runRoleTask` path against this Mac's real Ollama for the objective "create
+ping.js exporting a function returning 'pong'":
+- Decompose (Orchestrator, `deepseek-r1:7b`): **20-34s**
+- Architect (`deepseek-r1:7b`): **13-33s**
+- Coder (`qwen2.5-coder:7b`): **6-8s** first-token, **8-33s** total node time
+- QA (no LLM call by design): **~1ms** to a real command result
+- **Total wall-clock for a 3-4 node objective: 60-136s** (136s the first, colder Phase 9 run; 60-71s
+  once models were already warm) — a real, honest four-reasoning-step objective on this Mac is a
+  **roughly one-to-two-minute** objective, not a low-latency interaction.
+- Real token cost: **1,679-1,882 tokens** total across 3 agents for this small a task. No $ figure is
+  reported — `agentScheduler.ts`'s own documented gap (no $/token price table exists anywhere in this
+  codebase) still applies; reporting a dollar amount here would be exactly the invented number this
+  engagement has avoided everywhere else.
+- A separate, real, live-UI-verification run (previous entry) used `gemini` (cloud fallback) instead
+  and completed decompose+architect in **~10s each** — roughly 2-3x faster than the local path for
+  the reasoning-heavy nodes, a real, direct measurement of the local-vs-cloud tradeoff this system
+  already routes between.
+- **What would have to change to be acceptable**, per the brief's own instruction to report before
+  optimizing: (1) a faster/smaller model for the Orchestrator/Architect reasoning nodes specifically —
+  `deepseek-r1:7b`'s "thinking" mode is the single largest cost observed all session (30s+ more than
+  once); (2) parallelizing independent DAG branches once real objectives have any (this session's
+  test objectives were linear chains, so the Scheduler's real concurrency support has real work left
+  untested here); (3) a keep-warm prober ahead of local reasoning calls specifically, not just the
+  general-capability model `keepWarm.ts` already keeps resident — the 30s+ figures were consistently
+  the model's own cold "thinking" latency, not network or transport overhead. Not implemented here —
+  reporting only, per the brief's own explicit instruction not to optimize yet.
+- **A real, freshly-observed failure mode found doing this measurement**: the live Orchestrator twice
+  (both real measurement runs) assigned the "qa" role to a task whose description was plain-English
+  coding instructions meant for a coder task, while a differently-titled task got the correct QA
+  command spec — a real role/description mismatch, not a JSON-escaping issue. `runQaTask`'s existing
+  `JSON.parse` catch handled it exactly as designed: an immediate (~1ms), honest, correctly-labeled
+  failure, no hang, no silent skip. Considered and rejected a stricter fix (rejecting the whole
+  decompose batch atomically the moment any qa-role task's spec is malformed) because it would trade
+  a *better* outcome (architect+coder's real, completed work stands; only the one malformed QA node
+  fails) for a *worse* one (the entire batch, including the parts that already worked, gets thrown
+  away) — for zero real time/cost savings, since the failure is already near-instant and free. Fixed
+  the actual root cause instead: strengthened `ORCHESTRATOR_SYSTEM_PROMPT` (`agentRolePrompts.ts`)
+  with an explicit worked example distinguishing a qa-role task's required JSON-spec description from
+  a coder-role task's prose description — a real prompt fix, not a validation workaround, matching
+  Phase 9's own precedent for exactly this class of live-model issue.
+
+**§5.2 — real, server-side write-scope enforcement for shared memory** (`agentMemoryWriteScope.ts`,
+new): every real memory write before this stage (`agentOrchestrator.ts`'s three `setMemory` call
+sites — orchestrator→requirements, architect→architecture, coder→changed_files) went straight to the
+store completely unguarded — `agentTaskRunner.ts`'s own comment had flagged this exact gap since
+Phase 5 ("Phase 2 flagged this as a gap to close by this point, not before"). `writeSessionMemory()`
+is now the one real enforcement point: a role without `memory:write_any` (per `agentRegistry.ts`'s
+existing `ROLE_CATALOG`) can only write a key in its own declared `MEMORY_WRITE_SCOPE` — defined for
+all 14 roles now, same reasoning as `ROLE_CATALOG`'s own "define the full catalog now, not per-phase."
+**The explicit violation cases the brief asks for, not just the happy path** (`agentMemoryWriteScope.
+test.ts`, 5 tests): a coder writing outside its own scope is refused; an agent id real in a *different*
+session can't be used to write into this one just by pairing it with this session's id (getAgent's
+own existing cross-session-leakage guard, reused here); an unknown agent id throws rather than
+silently no-op-ing. Also closed in passing: `sessionEventBus.ts`'s `"memory.updated"` event type has
+existed since Phase 4 but nothing had ever emitted it — every write now does.
+
+**§5.3 — checkpoints, both real failure shapes the brief names:**
+1. *A clean mid-run failure* (`agentSessionControl.ts`'s new `retryTask`): the checkpoint is nothing
+   new to build — every task before a failure is already durably `completed` in `agent_tasks`, and
+   `agentTaskDag.ts`'s `readyTasks()` already never re-selects a completed task. What was missing was
+   a way to reset *only* the failed node back to a clean `pending` (new `resetTaskForRetry` in
+   `agentSessionStore.ts` — deliberately not `updateTaskStatus`, whose CASE-based timestamp logic only
+   ever moves `started_at`/`completed_at` forward and would leave a retried task's elapsed-time
+   display showing the stale failed attempt's numbers). New route:
+   `POST /agent-sessions/:id/tasks/:taskId/retry` (+ a client Retry button on any failed task).
+   **Tested for real** (`agentSessionControl.test.ts`, 3 tests): a real 2-node chain where node 1
+   completed and node 2 failed — retrying node 2 resets exactly that node, while node 1's real,
+   already-completed result is provably untouched; retrying a non-failed task is refused (the
+   explicit violation case); an unknown task id throws.
+2. *A real process restart mid-run* — a materially different case from a clean failure: a task stuck
+   `running`/`awaiting_approval` when the process itself dies has no real executor promise left behind
+   it, but its row never learns the process died. New `resumeInFlightSessionsOnBoot()`
+   (`agentSessionRunner.ts`), called once at server startup (`index.ts`): for every session still
+   `running`, resets any task stuck `running`/`awaiting_approval` via the same `resetTaskForRetry` the
+   manual retry route uses, then re-invokes `driveSession` — deliberately does **not** touch a session
+   stuck `planning` (that would mean silently re-running a real LLM decomposition call the operator
+   never asked for again; left for a human to notice and retry from the dashboard instead). **Tested
+   for real** (`agentSessionRunner.test.ts`, 2 new tests): a task simulated as stuck mid-flight is
+   reset and the session actually completes for real afterward, with node 1's real completed result
+   untouched (the checkpoint holding through a *process-level* interruption, not just a clean
+   task-level one); a paused or already-terminal session is confirmed left exactly alone — a reboot
+   must never silently resume a session a human deliberately paused.
+
+**Not yet built**: Stage C §5.4 (failure-semantics tests for the remaining named cases — timeout,
+loop, contradicting output) and Stage D (remaining 10 roles, added in groups of 2-3 per the brief's
+own explicit instruction, each verified end-to-end on the dashboard before the next group).
+
 ---
 
 ## PHASE 5 — Automatic Gap Analysis

@@ -307,6 +307,20 @@ export function updateTaskStatus(
   );
 }
 
+// Stage C §5.3 (checkpoints): resets exactly one failed task back to a clean 'pending' — not just
+// updateTaskStatus(..., "pending"), which only ever moves started_at/completed_at FORWARD (its own
+// CASE logic) and would leave this task's stale timestamps from the failed attempt behind. A retried
+// task's elapsed time must read as a real, fresh measurement of the retry, not the sum of two runs.
+// The checkpoint itself is nothing new: every OTHER already-completed task in the session keeps its
+// real status untouched, so re-driving the session after this resumes exactly at this one node, not
+// from the start (agentTaskDag.ts's readyTasks() never re-selects an already-'completed' task).
+export function resetTaskForRetry(sessionId: string, taskId: string): void {
+  db.prepare(
+    `UPDATE agent_tasks SET status = 'pending', started_at = NULL, completed_at = NULL, result = NULL
+     WHERE id = ? AND session_id = ?`
+  ).run(taskId, sessionId);
+}
+
 // Test-only escape hatch, matching the established convention (pendingActions.ts's
 // __clearAllPendingActionsForTests, providerHealth.ts's __resetHealthForTests).
 export function __deleteSessionForTests(sessionId: string): void {

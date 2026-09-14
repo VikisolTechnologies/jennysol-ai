@@ -108,3 +108,29 @@ export function killAgent(sessionId: string, agentId: string): void {
   updateAgentStatus(sessionId, agentId, "cancelled", { currentTaskId: null });
   appendSessionEvent({ sessionId, agentId, type: "agent.status_changed", payload: { status: "cancelled", reason: "human_killed" } });
 }
+
+// Stage C §5.3 (checkpoints): "a long run that fails at node 9 must resume from a checkpoint rather
+// than restart." The checkpoint is nothing new — every task before the failed one is already
+// durably 'completed' in agent_tasks and agentTaskDag.ts's readyTasks() never re-selects a completed
+// task. What was missing is this: a way to reset exactly the failed node back to pending so the next
+// drive tick picks up there, instead of the only alternative being a whole new session from scratch.
+// If the session itself ended up terminal (failed) as a side effect of this task failing, it's put
+// back to "running" too — the caller (the route) is expected to also re-invoke driveSession, the same
+// way resumeSession's own caller does.
+export function retryTask(sessionId: string, taskId: string): void {
+  const session = sessionStore.getSessionUnscoped(sessionId);
+  if (!session) throw new SessionControlError(`Session ${sessionId} not found`);
+  const task = sessionStore.getTask(sessionId, taskId);
+  if (!task) throw new SessionControlError(`Task ${taskId} not found in session ${sessionId}`);
+  if (task.status !== "failed") {
+    throw new SessionControlError(`Task ${taskId} is not failed (status: "${task.status}") — only a failed task can be retried`);
+  }
+
+  sessionStore.resetTaskForRetry(sessionId, taskId);
+  appendSessionEvent({ sessionId, agentId: task.agentId ?? undefined, taskId, type: "task.retried", payload: { title: task.title } });
+
+  if (session.status === "failed") {
+    sessionStore.updateSessionStatus(sessionId, "running");
+    appendSessionEvent({ sessionId, type: "session.status_changed", payload: { status: "running", reason: "task_retried" } });
+  }
+}

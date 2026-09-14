@@ -99,3 +99,35 @@ export function __resetSessionRunnerForTests(): void {
 export function __setTickIntervalMsForTests(ms: number): void {
   tickIntervalMs = ms;
 }
+
+// Stage C §5.3 (checkpoints): the real "resume after a process restart" gap flagged when this loop
+// was first built (activeRunners is in-memory only — a session left "running" when the process died
+// has no loop left driving it, and nothing before this stage ever restarted one). Called once at
+// server boot. A task stuck "running" or "awaiting_approval" when the process died has no real
+// executor promise left behind it — the actual work is gone even though the row says otherwise — so
+// each is reset to a clean 'pending' via the same resetTaskForRetry the manual retry route uses
+// before the session's loop is re-invoked, rather than leaving it stuck forever (readyTasks() never
+// re-selects a non-'pending' task) or silently marking it 'completed' with no real evidence it ran.
+// Deliberately does NOT touch a session stuck in "planning" — that would mean re-running a real LLM
+// decomposition call the operator never explicitly asked for again; left for a human to notice and
+// retry via the dashboard instead.
+export function resumeInFlightSessionsOnBoot(
+  executor: (sessionId: string, taskId: string) => Promise<void> = runRoleTask
+): void {
+  for (const session of sessionStore.listAllSessions()) {
+    if (session.status !== "running") continue;
+    for (const task of sessionStore.listTasksForSession(session.id)) {
+      if (task.status === "running" || task.status === "awaiting_approval") {
+        sessionStore.resetTaskForRetry(session.id, task.id);
+        appendSessionEvent({
+          sessionId: session.id,
+          agentId: task.agentId ?? undefined,
+          taskId: task.id,
+          type: "task.retried",
+          payload: { title: task.title, reason: "process_restart" },
+        });
+      }
+    }
+    driveSession(session.id, executor).catch(() => {});
+  }
+}

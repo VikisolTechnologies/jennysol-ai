@@ -5,6 +5,7 @@ import { warmUpGemini } from "./services/providers/gemini.js";
 import { startKeepWarm } from "./services/keepWarm.js";
 import { logError } from "./services/errorLog.js";
 import { deleteExpiredSessions } from "./services/auth/sessions.js";
+import { resumeInFlightSessionsOnBoot } from "./services/agentSessionRunner.js";
 import "./db/index.js";
 
 if (noProviderConfigured()) {
@@ -24,6 +25,12 @@ warmUpGemini();
 // deployment where Ollama isn't in the active chain (Railway today) — see
 // keepWarm.ts.
 startKeepWarm();
+
+// Stage C §5.3 (checkpoints): a session left "running" when the process last exited (crash, deploy,
+// manual restart) has no in-memory driver loop left — resume each one from where it really left off
+// rather than leaving it stuck forever. See agentSessionRunner.ts's own comment for exactly what this
+// does and, deliberately, does not touch.
+resumeInFlightSessionsOnBoot();
 
 // Sweeps sessions already past expires_at — safe by construction (see
 // deleteExpiredSessions' own comment), never touches anything still

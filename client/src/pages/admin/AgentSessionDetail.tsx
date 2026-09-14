@@ -8,6 +8,7 @@ import {
   Loader2,
   Pause,
   Play,
+  RotateCcw,
   Skull,
   Terminal,
   X,
@@ -22,6 +23,7 @@ import {
   pauseAgentSession,
   rejectAgentAction,
   resumeAgentSession,
+  retryTask,
   streamAgentSessionEvents,
   type AgentRow,
   type AgentSessionSummary,
@@ -211,6 +213,19 @@ export function AgentSessionDetail() {
       await refetch(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not kill agent");
+    } finally {
+      setControlBusy(null);
+    }
+  }
+
+  async function handleRetry(taskId: string) {
+    if (!id) return;
+    setControlBusy(`retry:${taskId}`);
+    try {
+      await retryTask(id, taskId);
+      await refetch(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not retry task");
     } finally {
       setControlBusy(null);
     }
@@ -419,13 +434,30 @@ export function AgentSessionDetail() {
                 <li key={t.id} className="rounded-lg border border-neutral-100 p-2 text-xs dark:border-white/10">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-neutral-700 dark:text-neutral-200">{t.title}</span>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                        TASK_STATUS_STYLES[t.status] ?? TASK_STATUS_STYLES.pending
-                      }`}
-                    >
-                      {t.status.replace("_", " ")}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                          TASK_STATUS_STYLES[t.status] ?? TASK_STATUS_STYLES.pending
+                        }`}
+                      >
+                        {t.status.replace("_", " ")}
+                      </span>
+                      {t.status === "failed" && (
+                        <button
+                          type="button"
+                          title="Retry this task from where it failed"
+                          onClick={() => handleRetry(t.id)}
+                          disabled={!!controlBusy}
+                          className="rounded-md p-1 text-neutral-400 transition hover:bg-brand-50 hover:text-brand-600 disabled:opacity-50 dark:hover:bg-brand-500/10"
+                        >
+                          {controlBusy === `retry:${t.id}` ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <RotateCcw size={12} />
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <p className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-neutral-400">
                     {t.startedAt && <span>{elapsed(t.startedAt, t.completedAt)}</span>}

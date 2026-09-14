@@ -226,6 +226,9 @@ export async function cancelAgentSession(id: string): Promise<void> {
 export async function killAgent(sessionId: string, agentId: string): Promise<void> {
   await parseOrThrow(await authFetch(`/api/admin/agent-sessions/${sessionId}/agents/${agentId}/kill`, { method: "POST" }));
 }
+export async function retryTask(sessionId: string, taskId: string): Promise<void> {
+  await parseOrThrow(await authFetch(`/api/admin/agent-sessions/${sessionId}/tasks/${taskId}/retry`, { method: "POST" }));
+}
 
 // Stage B — the approval queue. A pending action's `args` are already redacted server-side
 // (agentToolRegistry.ts's proposeAgentAction — redactSecrets before the event/action is ever

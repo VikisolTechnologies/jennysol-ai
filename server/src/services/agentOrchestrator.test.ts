@@ -87,7 +87,13 @@ describe("agentOrchestrator", () => {
         JSON.stringify([
           { localId: "T1", role: "architect", title: "Decide approach" },
           { localId: "T2", role: "coder", title: "Write the file", dependsOn: ["T1"] },
-          { localId: "T3", role: "qa", title: "Verify", dependsOn: ["T2"] },
+          {
+            localId: "T3",
+            role: "qa",
+            title: "Verify",
+            description: JSON.stringify({ cwd: ".", command: "npm", args: ["test"] }),
+            dependsOn: ["T2"],
+          },
         ])
       );
 
@@ -125,6 +131,7 @@ describe("agentOrchestrator", () => {
       mockReturning(JSON.stringify([{ localId: "T1", role: "wizard", title: "x" }]));
       await expect(decomposeObjective(sessionId, "x")).rejects.toThrow(OrchestratorError);
     });
+
 
     it("propagates a real cycle rejection from Phase 3's DAG rather than partially inserting", async () => {
       mockReturning(

@@ -24,6 +24,7 @@ export type SessionEventType =
   | "task.completed"
   | "task.failed"
   | "task.cancelled"
+  | "task.retried"
   | "agent.spawned"
   | "agent.status_changed"
   | "tool.exec.started"

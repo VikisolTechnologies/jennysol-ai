@@ -4,9 +4,11 @@ import { db } from "../db/index.js";
 import * as sessionStore from "./agentSessionStore.js";
 import { spawnAgent } from "./agentRegistry.js";
 import { __resetSchedulerForTests } from "./agentScheduler.js";
+import { getSessionEventsAfter } from "./sessionEventBus.js";
 import {
   driveSession,
   isDrivingSession,
+  resumeInFlightSessionsOnBoot,
   __resetSessionRunnerForTests,
   __setTickIntervalMsForTests,
 } from "./agentSessionRunner.js";
@@ -148,5 +150,44 @@ describe("agentSessionRunner", () => {
 
     expect(callCount).toBe(1);
     expect(sessionStore.getSessionUnscoped(sessionId)!.status).toBe("completed");
+  });
+
+  // Stage C §5.3: "a long run that fails at node 9 must resume from a checkpoint rather than
+  // restart" also has to survive the process itself dying mid-node, not just a clean pause/cancel.
+  describe("resumeInFlightSessionsOnBoot — real mid-run process-restart recovery", () => {
+    it("resets a task stuck 'running' from a dead process and resumes driving the session for real", async () => {
+      const agent = spawnAgent(sessionId, "coder");
+      const done = sessionStore.createTask({ sessionId, title: "already finished before the crash" });
+      sessionStore.updateTaskStatus(sessionId, done.id, "completed", { agentId: agent.id });
+      // Simulates the exact state a real crash leaves behind: a task whose executor promise is gone,
+      // but whose row was never told the process died.
+      const stuck = sessionStore.createTask({ sessionId, title: "was in flight when the process died", dependsOn: [done.id] });
+      sessionStore.updateTaskStatus(sessionId, stuck.id, "running", { agentId: agent.id });
+
+      resumeInFlightSessionsOnBoot(instantSuccessExecutor);
+      // driveSession runs in the background — give its first real tick(s) a moment to land.
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(sessionStore.getTask(sessionId, stuck.id)!.status).toBe("completed");
+      // The checkpoint held: the already-completed task was never re-run or altered.
+      expect(sessionStore.getTask(sessionId, done.id)!.status).toBe("completed");
+      expect(sessionStore.getSessionUnscoped(sessionId)!.status).toBe("completed");
+      const events = getSessionEventsAfter(sessionId, 0);
+      expect(events.some((e) => e.type === "task.retried" && e.taskId === stuck.id)).toBe(true);
+    });
+
+    it("leaves a paused or already-terminal session alone — only 'running' sessions are resumed", async () => {
+      sessionStore.updateSessionStatus(sessionId, "paused");
+      const agent = spawnAgent(sessionId, "coder");
+      const stuck = sessionStore.createTask({ sessionId, title: "stuck but session is paused" });
+      sessionStore.updateTaskStatus(sessionId, stuck.id, "running", { agentId: agent.id });
+
+      resumeInFlightSessionsOnBoot(instantSuccessExecutor);
+      await new Promise((r) => setTimeout(r, 100));
+
+      // A paused session is left exactly as a human left it — not silently resumed on a reboot.
+      expect(sessionStore.getTask(sessionId, stuck.id)!.status).toBe("running");
+      expect(sessionStore.getSessionUnscoped(sessionId)!.status).toBe("paused");
+    });
   });
 });

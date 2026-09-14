@@ -6,7 +6,7 @@ import { spawnAgent, getAgent, updateAgentStatus } from "./agentRegistry.js";
 import { requestLock, isLocked } from "./agentFileLocks.js";
 import { proposeAgentAction, awaitApprovalDecision, listPendingActions } from "./agentToolRegistry.js";
 import { getSessionEventsAfter } from "./sessionEventBus.js";
-import { pauseSession, resumeSession, cancelSession, killAgent, SessionControlError } from "./agentSessionControl.js";
+import { pauseSession, resumeSession, cancelSession, killAgent, retryTask, SessionControlError } from "./agentSessionControl.js";
 
 function makeUser() {
   const userId = randomUUID();
@@ -125,6 +125,46 @@ describe("agentSessionControl", () => {
 
     it("throws on an unknown agent id rather than a silent success", () => {
       expect(() => killAgent(sessionId, randomUUID())).toThrow(SessionControlError);
+    });
+  });
+
+  describe("retryTask — Stage C §5.3 checkpoints: resume from the failed node, not from scratch", () => {
+    it("resets a real mid-run failure back to pending, leaving earlier completed work untouched", () => {
+      const agent = spawnAgent(sessionId, "coder");
+      const t1 = sessionStore.createTask({ sessionId, title: "node 1 (already done)" });
+      sessionStore.updateTaskStatus(sessionId, t1.id, "completed", { agentId: agent.id, result: { ok: true } });
+      const t2 = sessionStore.createTask({ sessionId, title: "node 2 (fails)", dependsOn: [t1.id] });
+      sessionStore.updateTaskStatus(sessionId, t2.id, "failed", { agentId: agent.id, result: { error: "boom" } });
+      sessionStore.updateSessionStatus(sessionId, "failed");
+
+      retryTask(sessionId, t2.id);
+
+      const retried = sessionStore.getTask(sessionId, t2.id)!;
+      expect(retried.status).toBe("pending");
+      expect(retried.startedAt).toBeNull();
+      expect(retried.completedAt).toBeNull();
+      expect(retried.result).toBeNull();
+      // The checkpoint: node 1's real, already-completed work is exactly untouched — a resumed
+      // drive picks up at node 2, it does not redo node 1.
+      expect(sessionStore.getTask(sessionId, t1.id)!.status).toBe("completed");
+      expect(sessionStore.getTask(sessionId, t1.id)!.result).toEqual({ ok: true });
+      // A failed session is put back to running so a resumed drive loop actually continues.
+      expect(sessionStore.getSessionUnscoped(sessionId)!.status).toBe("running");
+
+      const events = getSessionEventsAfter(sessionId, 0);
+      expect(events.some((e) => e.type === "task.retried" && e.taskId === t2.id)).toBe(true);
+    });
+
+    it("refuses to retry a task that isn't failed — the explicit violation case", () => {
+      const agent = spawnAgent(sessionId, "coder");
+      const running = sessionStore.createTask({ sessionId, title: "still running" });
+      sessionStore.updateTaskStatus(sessionId, running.id, "running", { agentId: agent.id });
+      expect(() => retryTask(sessionId, running.id)).toThrow(SessionControlError);
+      expect(sessionStore.getTask(sessionId, running.id)!.status).toBe("running");
+    });
+
+    it("throws on an unknown task id rather than a silent success", () => {
+      expect(() => retryTask(sessionId, randomUUID())).toThrow(SessionControlError);
     });
   });
 });

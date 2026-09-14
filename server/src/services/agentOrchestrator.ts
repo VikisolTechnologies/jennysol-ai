@@ -16,6 +16,7 @@ import { runAgentTask } from "./agentTaskRunner.js";
 import { proposeAgentAction, awaitApprovalDecision } from "./agentToolRegistry.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
 import { extractJson } from "./agentJsonExtract.js";
+import { writeSessionMemory } from "./agentMemoryWriteScope.js";
 import { ORCHESTRATOR_SYSTEM_PROMPT, ARCHITECT_SYSTEM_PROMPT, CODER_SYSTEM_PROMPT } from "./agentRolePrompts.js";
 
 export class OrchestratorError extends Error {
@@ -64,7 +65,7 @@ export interface DecomposeResult {
 // proven in Phase 3).
 export async function decomposeObjective(sessionId: string, objective: string): Promise<DecomposeResult> {
   const orchestrator = spawnAgent(sessionId, "orchestrator");
-  sessionStore.setMemory(sessionId, "requirements", { objective }, orchestrator.id);
+  writeSessionMemory(sessionId, orchestrator.id, "requirements", { objective });
   updateAgentStatus(sessionId, orchestrator.id, "planning");
   appendSessionEvent({
     sessionId,
@@ -214,7 +215,7 @@ export async function runRoleTask(sessionId: string, taskId: string): Promise<vo
     systemPromptOverride,
     onComplete: async (fullText, ctx) => {
       if (ctx.agent.role === "architect") {
-        sessionStore.setMemory(sessionId, "architecture", { note: fullText.trim() }, ctx.agent.id);
+        writeSessionMemory(sessionId, ctx.agent.id, "architecture", { note: fullText.trim() });
         return;
       }
       if (ctx.agent.role === "coder") {
@@ -243,7 +244,7 @@ export async function runRoleTask(sessionId: string, taskId: string): Promise<vo
         }
         const existing = sessionStore.getMemory(sessionId, "changed_files");
         const files = Array.isArray(existing?.value) ? (existing!.value as string[]) : [];
-        sessionStore.setMemory(sessionId, "changed_files", [...files, parsed.filePath], ctx.agent.id);
+        writeSessionMemory(sessionId, ctx.agent.id, "changed_files", [...files, parsed.filePath]);
       }
     },
   });
