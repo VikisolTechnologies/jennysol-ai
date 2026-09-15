@@ -68,9 +68,9 @@ export function MainApp() {
   }
 
   return (
-    <div className="flex h-[var(--app-vh)] w-screen flex-col overflow-hidden bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+    <div className="flex h-[var(--app-vh)] w-screen flex-col overflow-hidden bg-jenny-void text-jenny-text">
       {unseenCompleted.length > 0 && (
-        <div className="flex shrink-0 flex-col gap-1.5 border-b border-brand-200 bg-brand-50 px-4 py-2 dark:border-brand-500/20 dark:bg-brand-500/10">
+        <div className="flex shrink-0 flex-col gap-1.5 border-b border-jenny-hairline bg-jenny-raised px-4 py-2">
           {unseenCompleted.map((run) => (
             <div key={run.id} className="flex items-center justify-between gap-3 text-xs">
               <button
@@ -78,7 +78,7 @@ export function MainApp() {
                   selectConversation(run.conversationId);
                   void dismiss(run.id);
                 }}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left text-brand-800 hover:underline dark:text-brand-200"
+                className="flex min-w-0 flex-1 items-center gap-2 text-left text-jenny-champagne hover:underline"
               >
                 <Bell size={13} className="shrink-0" />
                 <span className="truncate">
@@ -88,7 +88,7 @@ export function MainApp() {
               </button>
               <button
                 onClick={() => void dismiss(run.id)}
-                className="shrink-0 rounded-md p-1 text-brand-600 hover:bg-brand-100 dark:text-brand-300 dark:hover:bg-brand-500/10"
+                className="shrink-0 rounded-md p-1 text-jenny-gold hover:bg-jenny-raised-2"
                 aria-label="Dismiss"
               >
                 <X size={12} />

@@ -1,20 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Ear,
-  EarOff,
-  ImageIcon,
-  Menu,
-  Mic,
-  MicOff,
-  MessageSquare,
-  Moon,
-  Pause,
-  SendHorizontal,
-  Square,
-  SquarePen,
-  Sun,
-  X,
-} from "lucide-react";
+  IconEar,
+  IconEarOff,
+  IconHistory,
+  IconMessage,
+  IconMicrophone,
+  IconMicrophoneOff,
+  IconPhoto,
+  IconPlayerPause,
+  IconPlayerStop,
+  IconSend,
+  IconSettings,
+  IconSquarePlus,
+  IconX,
+} from "@tabler/icons-react";
 import {
   cancelChatRun,
   fetchActiveRuns,
@@ -29,12 +28,12 @@ import {
 import { MessageBubble } from "./MessageBubble";
 import { VoicePicker } from "./VoicePicker";
 import { VoiceOrb, type OrbState } from "./VoiceOrb";
-import { useTheme } from "../lib/useTheme";
 import { useSpeechRecognition } from "../lib/useSpeechRecognition";
 import { useVoiceConversation } from "../lib/useVoiceConversation";
 import { useKeyboardOpen } from "../lib/useKeyboardOpen";
 import { speak, stopSpeaking } from "../lib/speak";
 import { getStoredVoice, storeVoice, type VoiceId } from "../lib/voices";
+import { PENDING_FIRST_MESSAGE_KEY } from "../lib/storageKeys";
 
 interface DisplayMessage extends ChatTurn {
   sources?: Source[];
@@ -47,6 +46,29 @@ const SUGGESTIONS = [
   "What are the key points I should know?",
   "Explain this in simple terms",
 ];
+
+// JENNYSOL-UI-BUILD.md §6.1's "eyebrow showing the provider and response
+// time" — real data (server/src/services/agentRunStore.ts's own `provider`
+// and start/complete timestamps on every AgentRun), not a design flourish:
+// fetched once per completed turn via fetchRun, since the SSE stream itself
+// only ever carries sources on `done` (see lib/api.ts's ChatStreamHandlers).
+function formatProvider(provider: string | null): string {
+  if (!provider) return "LOCAL";
+  return provider.toUpperCase();
+}
+function formatSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}S`;
+}
+// A real, computed greeting for a brand-new conversation that has no title
+// yet — not a fabricated "session name", the actual current weekday and
+// time of day, matching the mockup's "Tuesday evening" register.
+function timeOfDayGreeting(): string {
+  const now = new Date();
+  const weekday = now.toLocaleDateString(undefined, { weekday: "long" });
+  const hour = now.getHours();
+  const part = hour < 5 ? "night" : hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
+  return `${weekday} ${part}`;
+}
 
 export function ChatWindow({
   onOpenSidebar,
@@ -74,16 +96,16 @@ export function ChatWindow({
   const [spokenReplies, setSpokenReplies] = useState(false);
   const [voice, setVoiceState] = useState<VoiceId>(getStoredVoice);
   const [assistantSpeaking, setAssistantSpeaking] = useState(false);
+  const [lastTurnMeta, setLastTurnMeta] = useState<{ provider: string; ms: number } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { theme, toggleTheme } = useTheme();
   const keyboardOpen = useKeyboardOpen();
 
   // Lets the empty-state hero shrink away instead of hard-unmounting the
   // instant the first message lands (see the render below) — "visible" for
   // an empty conversation, "collapsing" for one CSS transition's worth of
   // time right after the first message, then "gone" so nothing keeps
-  // animating (VoiceOrb's idle glow, specifically) once it's off-screen.
+  // animating (the orb's idle glow, specifically) once it's off-screen.
   // Returning to an existing conversation (messages already populated on
   // mount/switch) skips straight to "gone" — no cinematic hero for that
   // case, matching a fresh empty conversation always starting at "visible".
@@ -205,6 +227,23 @@ export function ChatWindow({
       .catch(() => setMessages([]));
   }, [conversationId]);
 
+  // Real opening message from pages/jennysol/FirstRun.tsx — read once, only
+  // for a genuinely fresh/empty conversation (never overwrites an existing
+  // one the sidebar just switched into), and only once per browser tab
+  // (removeItem below) so navigating back to "/" later never resends it.
+  useEffect(() => {
+    if (conversationId) return;
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(PENDING_FIRST_MESSAGE_KEY);
+      if (pending) sessionStorage.removeItem(PENDING_FIRST_MESSAGE_KEY);
+    } catch {
+      return;
+    }
+    if (pending) void handleSend(pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Polls a run's durable state until it finishes, applying the result once
   // it does. Used both when the live SSE stream itself dies mid-request
   // (handleSend's catch block) and when resuming a run that was already in
@@ -224,6 +263,7 @@ export function ChatWindow({
         setSending(false);
         setSendingStatus(null);
         currentRunIdRef.current = null;
+        applyRunMeta(run);
         setMessages((prev) => {
           const copy = [...prev];
           const last = copy.length - 1;
@@ -251,6 +291,17 @@ export function ChatWindow({
     return false;
   }
 
+  // Real provider + response time for the header eyebrow (§6.1) — best
+  // effort: a failure here just means the eyebrow doesn't update for this
+  // turn, never blocks or delays showing the reply itself.
+  function applyRunMeta(run: { provider: string | null; startedAt: string; completedAt: string | null }) {
+    if (!run.completedAt) return;
+    const started = new Date(run.startedAt.replace(" ", "T") + "Z").getTime();
+    const completed = new Date(run.completedAt.replace(" ", "T") + "Z").getTime();
+    if (!Number.isFinite(started) || !Number.isFinite(completed) || completed < started) return;
+    setLastTurnMeta({ provider: formatProvider(run.provider), ms: completed - started });
+  }
+
   // Covers the specific scenario the latency audit called out: the user
   // backgrounds the app mid-reply (switches apps on iPhone, switches
   // browser tabs) and returns. iOS Safari can suspend JS execution for a
@@ -274,6 +325,7 @@ export function ChatWindow({
           setSending(false);
           setSendingStatus(null);
           currentRunIdRef.current = null;
+          applyRunMeta(run);
           setMessages((prev) => {
             const copy = [...prev];
             const last = copy.length - 1;
@@ -433,6 +485,7 @@ export function ChatWindow({
             copy[copy.length - 1] = { ...copy[copy.length - 1], sources };
             return copy;
           });
+          if (capturedRunId) void fetchRun(capturedRunId).then((run) => run && applyRunMeta(run));
           if (spokenReplies || forceSpeak) {
             voiceConv.notifySpeakingStart();
             setAssistantSpeaking(true);
@@ -491,135 +544,141 @@ export function ChatWindow({
   }
 
   return (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-neutral-100/50 dark:bg-neutral-950">
-      {/* Extremely subtle continuation of the intro's atmosphere — dark mode
-          only (light mode keeps its own clean white look untouched). A
-          felt-not-noticed radial glow, not a wallpaper: no light-mode
-          equivalent, no animation, no reason for it to ever cost a repaint
-          after first render. */}
-      <div
-        className="pointer-events-none absolute inset-0 hidden dark:block"
-        aria-hidden="true"
-        style={{
-          background:
-            "radial-gradient(ellipse 60% 45% at 50% 38%, rgba(118,69,255,0.08), transparent 70%)",
-        }}
-      />
-      <header className="relative flex shrink-0 items-center justify-between border-b border-neutral-200 bg-white/80 px-2 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] backdrop-blur-xl dark:border-brand-300/[0.08] dark:bg-neutral-950/70 sm:px-4">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={onOpenSidebar}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-white/10 md:hidden"
-            aria-label="Open sidebar"
-          >
-            <Menu size={19} />
-          </button>
-          <span className="text-sm font-semibold">JennySol</span>
-        </div>
-        <div className="flex items-center gap-0.5 sm:gap-1">
-          <button
-            onClick={onNewChat}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-white/10 md:hidden"
-            aria-label="New chat"
-            title="New chat"
-          >
-            <SquarePen size={18} />
-          </button>
-          {voiceConv.supported ? (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleVoiceConvButtonClick}
-                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
-                  voiceConv.state === "listening"
-                    ? "bg-rose-500 text-white"
-                    : voiceConv.state === "sleeping"
-                      ? "bg-brand-gradient text-white"
-                      : voiceConv.state === "paused"
-                        ? "bg-amber-500 text-white"
-                        : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
-                }`}
-                aria-label={
-                  voiceConv.state === "off"
-                    ? "Start talking to Jenny"
-                    : voiceConv.state === "paused"
-                      ? "Resume voice conversation"
-                      : "Pause voice conversation"
-                }
-                title={
-                  voiceConv.state === "off"
-                    ? "Tap to start talking — no wake word needed"
-                    : voiceConv.state === "sleeping"
-                      ? "Listening for “Hey Jenny”…"
-                      : voiceConv.state === "listening"
-                        ? "Listening — click to pause, or just talk over Jenny to interrupt her"
-                        : "Paused — click to resume"
-                }
-              >
-                {voiceConv.state === "paused" ? (
-                  <Pause size={14} />
-                ) : voiceConv.state === "off" ? (
-                  <EarOff size={14} />
-                ) : (
-                  <Ear size={14} className={voiceConv.state === "listening" ? "animate-pulse" : ""} />
-                )}
-                <span className="hidden sm:inline">
-                  {voiceConv.state === "off"
-                    ? "Talk to Jenny"
-                    : voiceConv.state === "sleeping"
-                      ? "Hey Jenny"
-                      : voiceConv.state === "listening"
-                        ? "Listening…"
-                        : "Paused"}
-                </span>
-              </button>
-              {voiceConv.state !== "off" && (
-                <button
-                  onClick={voiceConv.stop}
-                  className="rounded-lg p-2 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-white/10 dark:hover:text-neutral-300"
-                  aria-label="End voice conversation"
-                  title="End voice conversation"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-          ) : (
-            // Previously this whole block just didn't render when the
-            // browser has no Web Speech API (Firefox, some in-app/webview
-            // browsers) — the voice feature silently vanished with nothing
-            // explaining why. Showing a disabled button with a real reason
-            // beats a feature that just isn't there.
+    <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-jenny-surface">
+      <header className="relative flex shrink-0 flex-col gap-4 border-b border-jenny-hairline bg-jenny-surface/95 px-4 pb-4 pt-[calc(0.9rem+env(safe-area-inset-top))] backdrop-blur-xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1">
             <button
-              disabled
-              className="flex cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-neutral-300 dark:text-neutral-600"
-              aria-label="Voice isn't supported in this browser"
-              title="Voice isn't supported in this browser — try Chrome, Edge, or Safari"
+              onClick={onOpenSidebar}
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-jenny-muted hover:bg-jenny-raised md:hidden"
+              aria-label="Open sidebar"
             >
-              <EarOff size={14} />
-              <span className="hidden sm:inline">Voice unavailable</span>
+              <IconHistory size={19} />
             </button>
-          )}
-          <VoicePicker
-            voice={voice}
-            onChangeVoice={setVoice}
-            spokenRepliesEnabled={spokenReplies}
-            onToggleSpokenReplies={() => {
-              if (spokenReplies) stopSpeaking();
-              setSpokenReplies((v) => !v);
-            }}
-          />
-          <button
-            onClick={toggleTheme}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200 sm:h-9 sm:w-9"
-            aria-label="Toggle theme"
-          >
-            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
+            <span className="text-[11px] tracking-[0.3em] text-jenny-muted">JENNYSOL</span>
+          </div>
+          <div className="flex items-center gap-0.5 sm:gap-1">
+            <button
+              onClick={onNewChat}
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-jenny-muted hover:bg-jenny-raised md:hidden"
+              aria-label="New chat"
+              title="New chat"
+            >
+              <IconSquarePlus size={18} />
+            </button>
+            {voiceConv.supported ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleVoiceConvButtonClick}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                    voiceConv.state === "listening"
+                      ? "bg-jenny-bad text-jenny-void"
+                      : voiceConv.state === "sleeping"
+                        ? "bg-jenny-gold text-jenny-ink-on-gold"
+                        : voiceConv.state === "paused"
+                          ? "bg-jenny-warn text-jenny-ink-on-gold"
+                          : "text-jenny-muted hover:bg-jenny-raised hover:text-jenny-text-2"
+                  }`}
+                  aria-label={
+                    voiceConv.state === "off"
+                      ? "Start talking to Jenny"
+                      : voiceConv.state === "paused"
+                        ? "Resume voice conversation"
+                        : "Pause voice conversation"
+                  }
+                  title={
+                    voiceConv.state === "off"
+                      ? "Tap to start talking — no wake word needed"
+                      : voiceConv.state === "sleeping"
+                        ? "Listening for “Hey Jenny”…"
+                        : voiceConv.state === "listening"
+                          ? "Listening — click to pause, or just talk over Jenny to interrupt her"
+                          : "Paused — click to resume"
+                  }
+                >
+                  {voiceConv.state === "paused" ? (
+                    <IconPlayerPause size={14} />
+                  ) : voiceConv.state === "off" ? (
+                    <IconEarOff size={14} />
+                  ) : (
+                    <IconEar size={14} className={voiceConv.state === "listening" ? "animate-pulse" : ""} />
+                  )}
+                  <span className="hidden sm:inline">
+                    {voiceConv.state === "off"
+                      ? "Talk to Jenny"
+                      : voiceConv.state === "sleeping"
+                        ? "Hey Jenny"
+                        : voiceConv.state === "listening"
+                          ? "Listening…"
+                          : "Paused"}
+                  </span>
+                </button>
+                {voiceConv.state !== "off" && (
+                  <button
+                    onClick={voiceConv.stop}
+                    className="rounded-lg p-2 text-jenny-dim transition hover:bg-jenny-raised hover:text-jenny-text-3"
+                    aria-label="End voice conversation"
+                    title="End voice conversation"
+                  >
+                    <IconX size={14} />
+                  </button>
+                )}
+              </div>
+            ) : (
+              // Previously this whole block just didn't render when the
+              // browser has no Web Speech API (Firefox, some in-app/webview
+              // browsers) — the voice feature silently vanished with nothing
+              // explaining why. Showing a disabled button with a real reason
+              // beats a feature that just isn't there.
+              <button
+                disabled
+                className="flex cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-jenny-faint"
+                aria-label="Voice isn't supported in this browser"
+                title="Voice isn't supported in this browser — try Chrome, Edge, or Safari"
+              >
+                <IconEarOff size={14} />
+                <span className="hidden sm:inline">Voice unavailable</span>
+              </button>
+            )}
+            <VoicePicker
+              voice={voice}
+              onChangeVoice={setVoice}
+              spokenRepliesEnabled={spokenReplies}
+              onToggleSpokenReplies={() => {
+                if (spokenReplies) stopSpeaking();
+                setSpokenReplies((v) => !v);
+              }}
+            />
+            <button
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2"
+              aria-label="Settings"
+              title="Settings"
+            >
+              <IconSettings size={16} />
+            </button>
+          </div>
         </div>
+
+        {/* §6.1 — eyebrow (provider + response time of the last real turn)
+            and a serif session title, gold rule beneath. Only appears once
+            there's something real to show (heroPhase !== "visible" means at
+            least one message exists) — no placeholder eyebrow on a truly
+            empty chat. */}
+        {heroPhase !== "visible" && (
+          <div>
+            {lastTurnMeta && (
+              <p className="text-[10px] tracking-[0.25em] text-jenny-gold">
+                {lastTurnMeta.provider} · {formatSeconds(lastTurnMeta.ms)}
+              </p>
+            )}
+            <p className="mt-1 font-voice text-[20px] text-jenny-text">{timeOfDayGreeting()}</p>
+            <div className="mt-2.5 h-px w-7 bg-jenny-gold" />
+          </div>
+        )}
       </header>
 
       {voiceConv.error && (
-        <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+        <div className="flex items-center justify-between gap-3 border-b border-jenny-warn/30 bg-jenny-warn/10 px-4 py-2 text-xs text-jenny-warn">
           <span>
             {voiceConv.error === "mic-denied"
               ? "Jenny can't hear you — microphone access is blocked. Allow microphone access for this site in your browser settings, then tap Talk to Jenny again."
@@ -627,22 +686,22 @@ export function ChatWindow({
           </span>
           <button
             onClick={voiceConv.clearError}
-            className="shrink-0 rounded-md p-1 text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-500/10"
+            className="shrink-0 rounded-md p-1 text-jenny-warn hover:bg-jenny-warn/10"
             aria-label="Dismiss"
           >
-            <X size={13} />
+            <IconX size={13} />
           </button>
         </div>
       )}
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6 sm:px-8">
         {heroPhase !== "gone" && (
-          // Voice-first when idle (large centered Orb), typing-first the
+          // Voice-first when idle (large centered orb), typing-first the
           // instant the keyboard opens: centering this content vertically
           // in a viewport the keyboard just shrank means it overflows its
-          // container, and since it's centered, the Orb — first in the
+          // container, and since it's centered, the orb — first in the
           // stack — is what scrolls out of view above the fold. Collapsing
-          // the subtitle/suggestions and shrinking the Orb keeps everything
+          // the subtitle/suggestions and shrinking the orb keeps everything
           // on-screen and puts the composer where the user's attention
           // actually is. transition-all animates the swap smoothly in both
           // directions rather than popping.
@@ -667,8 +726,8 @@ export function ChatWindow({
                 keyboardOpen ? "max-h-0 opacity-0" : "max-h-40 opacity-100"
               }`}
             >
-              <h2 className="text-lg font-bold">Ask JennySol anything</h2>
-              <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+              <h2 className="font-voice text-xl text-jenny-text">Ask JennySol anything</h2>
+              <p className="mt-1.5 text-sm text-jenny-muted">
                 Upload documents in the sidebar so answers are grounded in them, or just start chatting.
               </p>
             </div>
@@ -681,14 +740,14 @@ export function ChatWindow({
                 <button
                   key={s}
                   onClick={() => handleSend(s)}
-                  className="rounded-xl border border-neutral-200 bg-white px-3.5 py-3 text-left text-sm text-neutral-600 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-300 hover:text-neutral-900 hover:shadow-md active:translate-y-0 active:duration-75 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-300 dark:backdrop-blur-sm dark:hover:border-brand-300/40 dark:hover:bg-white/[0.07] dark:hover:text-white dark:hover:shadow-[0_0_24px_-6px_rgba(139,107,255,0.45)]"
+                  className="rounded-2xl bg-jenny-raised px-3.5 py-3 text-left text-sm text-jenny-text-3 transition hover:bg-jenny-raised-2"
                 >
                   {s}
                 </button>
               ))}
             </div>
             <p
-              className={`text-[10px] text-neutral-300 transition-opacity duration-300 dark:text-white/25 ${
+              className={`text-[10px] text-jenny-faint transition-opacity duration-300 ${
                 keyboardOpen ? "opacity-0" : "opacity-100"
               }`}
             >
@@ -719,11 +778,11 @@ export function ChatWindow({
           space for the keyboard), so this never adds an artificial gap
           above an open keyboard, only above the home indicator when it's
           the actual bottom edge of the screen. */}
-      <div className="shrink-0 border-t border-neutral-200 bg-white/80 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl dark:border-white/10 dark:bg-neutral-950/80 sm:px-4 sm:pt-4 sm:pb-[calc(1rem+env(safe-area-inset-bottom))]">
+      <div className="shrink-0 border-t border-jenny-hairline bg-jenny-surface/95 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl sm:px-4 sm:pt-4 sm:pb-[calc(1rem+env(safe-area-inset-bottom))]">
         {messages.length > 0 && voiceConv.state !== "off" && (
-          <div className="mx-auto mb-3 flex max-w-3xl animate-fade-in items-center gap-2.5 rounded-xl border border-neutral-200 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]">
+          <div className="mx-auto mb-3 flex max-w-3xl animate-fade-in items-center gap-2.5 rounded-2xl bg-jenny-raised px-3 py-2">
             <VoiceOrb state={orbState} size="sm" onInterrupt={handleInterrupt} />
-            <span className="text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="text-xs text-jenny-muted">
               {orbState === "speaking"
                 ? "Speaking — tap the orb to interrupt"
                 : orbState === "listening"
@@ -739,43 +798,39 @@ export function ChatWindow({
           </div>
         )}
         <div className="mx-auto flex max-w-3xl items-center gap-2">
-          <div className="flex rounded-lg border border-neutral-200 p-0.5 dark:border-white/10">
+          <div className="flex rounded-lg border border-jenny-border p-0.5">
             <button
               onClick={() => setImageMode(false)}
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                !imageMode
-                  ? "bg-brand-gradient text-white"
-                  : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                !imageMode ? "bg-jenny-gold text-jenny-ink-on-gold" : "text-jenny-muted hover:text-jenny-text-2"
               }`}
               aria-pressed={!imageMode}
             >
-              <MessageSquare size={13} />
+              <IconMessage size={13} />
               <span className="hidden sm:inline">Chat</span>
             </button>
             <button
               onClick={() => setImageMode(true)}
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                imageMode
-                  ? "bg-brand-gradient text-white"
-                  : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                imageMode ? "bg-jenny-gold text-jenny-ink-on-gold" : "text-jenny-muted hover:text-jenny-text-2"
               }`}
               aria-pressed={imageMode}
             >
-              <ImageIcon size={13} />
+              <IconPhoto size={13} />
               <span className="hidden sm:inline">Image</span>
             </button>
           </div>
 
-          <div className="flex min-w-0 flex-1 items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-sm transition-shadow focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 dark:border-white/10 dark:bg-white/[0.04] dark:focus-within:border-brand-300/40 dark:focus-within:shadow-[0_0_24px_-6px_rgba(139,107,255,0.45)]">
+          <div className="flex min-w-0 flex-1 items-end gap-2 rounded-2xl bg-jenny-raised p-1.5 transition-shadow focus-within:ring-1 focus-within:ring-jenny-gold/40">
             {speech.supported && (
               <button
                 onClick={() => (speech.listening ? speech.stop() : speech.start())}
                 className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition ${
                   speech.listening
-                    ? "animate-pulse bg-rose-500 text-white"
+                    ? "animate-pulse bg-jenny-bad text-jenny-void"
                     : speech.error
-                      ? "text-amber-500 dark:text-amber-400"
-                      : "text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-white/10 dark:hover:text-neutral-300"
+                      ? "text-jenny-warn"
+                      : "text-jenny-dim hover:bg-jenny-raised-2 hover:text-jenny-text-3"
                 }`}
                 aria-label={speech.listening ? "Stop listening" : "Speak your message"}
                 title={
@@ -788,7 +843,7 @@ export function ChatWindow({
                         : "Speak your message"
                 }
               >
-                {speech.listening ? <MicOff size={16} /> : <Mic size={16} />}
+                {speech.listening ? <IconMicrophoneOff size={16} /> : <IconMicrophone size={16} />}
               </button>
             )}
             <textarea
@@ -806,31 +861,31 @@ export function ChatWindow({
               }}
               rows={1}
               placeholder={imageMode ? "Describe…" : "Ask Jenny…"}
-              className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-base outline-none placeholder:text-neutral-400"
+              className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-base text-jenny-text outline-none placeholder:text-jenny-dim"
             />
             {sending ? (
               <button
                 onClick={handleCancel}
                 disabled={!currentRunIdRef.current}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-800 text-white transition disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white/20"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-jenny-raised-2 text-jenny-text transition disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Stop generating"
                 title="Stop generating"
               >
-                <Square size={14} fill="currentColor" />
+                <IconPlayerStop size={14} />
               </button>
             ) : (
               <button
                 onClick={() => handleSend()}
                 disabled={!input.trim()}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-gradient text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-jenny-gold text-jenny-ink-on-gold transition disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Send message"
               >
-                <SendHorizontal size={16} />
+                <IconSend size={16} />
               </button>
             )}
           </div>
         </div>
-        <p className="mt-2 text-center text-[10px] text-neutral-400">
+        <p className="mt-2 text-center text-[10px] text-jenny-faint">
           JennySol can make mistakes. Verify important information.
         </p>
       </div>

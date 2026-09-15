@@ -9,6 +9,9 @@ export default {
       fontFamily: {
         sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+        // JENNYSOL-UI-BUILD.md's "display serif at weight 400" for questions,
+        // screen titles and numbers — Fraunces, loaded in index.html.
+        voice: ["Fraunces", "ui-serif", "Georgia", "serif"],
       },
       colors: {
         brand: {
@@ -49,6 +52,37 @@ export default {
           error: "#F87171",
           info: "#60A5FA",
         },
+        // JennySol product palette (JENNYSOL-UI-BUILD.md's token table) — the
+        // twelve authenticated/entry-flow screens only. Named `jenny` rather
+        // than reusing `brand` (still load-bearing for anything this pass
+        // didn't touch) or `aurora` (the marketing/legal-page skin, out of
+        // this spec's scope). Backed by the CSS custom properties in
+        // index.css so arbitrary values (`bg-[var(--js-surface)]`) and these
+        // named utilities (`bg-jenny-surface`) both work; the two are kept
+        // in sync by hand since Tailwind can't read CSS vars at build time.
+        jenny: {
+          void: "#0B0A09",
+          surface: "#0F0D0B",
+          raised: "#1A1613",
+          "raised-2": "#2A241D",
+          hairline: "#1C1815",
+          "hairline-card": "#241F1A",
+          border: "#2A241D",
+          text: "#F7F1EA",
+          "text-2": "#E8DFD2",
+          "text-3": "#C9BFB1",
+          muted: "#8A7F6E",
+          dim: "#6B6157",
+          faint: "#4A443C",
+          gold: "#D6A84F",
+          champagne: "#F3D79B",
+          "gold-mid": "#8A6A2E",
+          "gold-deep": "#5A4720",
+          ok: "#7E9173",
+          warn: "#C8A85A",
+          bad: "#B58A8A",
+          "ink-on-gold": "#2A1C06",
+        },
       },
       animation: {
         "fade-in": "fade-in 0.35s ease-out",
@@ -82,6 +116,12 @@ export default {
         "aurora-core-spin": "aurora-core-spin 18s linear infinite",
         "aurora-drift": "aurora-drift 9s ease-in-out infinite",
         "aurora-fade-up": "aurora-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+        // --- components/orb/Orb.tsx (JENNYSOL-UI-BUILD.md §3) ---
+        "jenny-orb-ripple": "jenny-orb-ripple 2.8s ease-out infinite",
+        "jenny-orb-core": "jenny-orb-core 2.2s ease-in-out infinite",
+        "jenny-orb-breathe": "jenny-orb-breathe 4s ease-in-out infinite",
+        "jenny-orb-think": "jenny-orb-think 1.6s linear infinite",
+        "jenny-orb-bar": "jenny-orb-bar 0.9s ease-in-out infinite",
       },
       keyframes: {
         "fade-in": {
@@ -205,6 +245,27 @@ export default {
         "aurora-fade-up": {
           "0%": { opacity: 0, transform: "translateY(14px)" },
           "100%": { opacity: 1, transform: "translateY(0)" },
+        },
+        "jenny-orb-ripple": {
+          "0%": { transform: "scale(0.5)", opacity: 0.5 },
+          "80%": { opacity: 0 },
+          "100%": { transform: "scale(1.7)", opacity: 0 },
+        },
+        "jenny-orb-core": {
+          "0%, 100%": { transform: "scale(1)" },
+          "50%": { transform: "scale(1.14)" },
+        },
+        "jenny-orb-breathe": {
+          "0%, 100%": { opacity: 0.45 },
+          "50%": { opacity: 0.85 },
+        },
+        "jenny-orb-think": {
+          "0%": { transform: "rotate(0deg)" },
+          "100%": { transform: "rotate(360deg)" },
+        },
+        "jenny-orb-bar": {
+          "0%, 100%": { transform: "scaleY(0.35)" },
+          "50%": { transform: "scaleY(1)" },
         },
       },
       backgroundImage: {

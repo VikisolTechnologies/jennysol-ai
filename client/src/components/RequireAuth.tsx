@@ -1,42 +1,35 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
-import { JennySolIntro } from "./intro/JennySolIntro";
 
+// JENNYSOL-UI-BUILD.md replaces the old JennySolIntro.tsx auto-dismissing
+// cinematic overlay with real, interactive screens (Welcome → mic permission
+// → first run) — see pages/jennysol/*.tsx. This component's job shrinks to
+// just the redirect: a first-time user (or a replayed intro, via Sidebar's
+// diagnostics) lands on "/start" instead of an overlay rendered in place.
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading, dismissWelcome, introReplayToken, clearIntroReplay } = useAuth();
-  // Local flag so dismissing plays the exit animation before children ever
-  // mount, instead of popping straight to the app the instant the optimistic
-  // user.hasSeenWelcome flip in AuthContext lands.
-  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
+  const { user, loading, introReplayToken, clearIntroReplay } = useAuth();
+
+  // Consumed once, in an effect rather than inline during render — bumping
+  // introReplayToken (Sidebar's "Replay welcome" diagnostic) should redirect
+  // to /start exactly once per bump, not re-clear on every re-render this
+  // component happens to go through while still on that screen.
+  useEffect(() => {
+    if (introReplayToken > 0) clearIntroReplay();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [introReplayToken]);
 
   if (loading) {
     return (
-      <div className="flex h-[var(--app-vh)] w-screen items-center justify-center bg-white dark:bg-neutral-950">
-        <Sparkles size={22} className="animate-pulse text-brand-500" />
+      <div className="flex h-[var(--app-vh)] w-screen items-center justify-center bg-jenny-void">
+        <Sparkles size={22} className="animate-pulse text-jenny-gold" />
       </div>
     );
   }
 
   if (!user) return <Navigate to="/login" replace />;
-
-  // introReplayToken is a purely client-side, non-persisted counter (see
-  // AuthContext's replayIntro) — bumping it re-satisfies this condition
-  // without ever touching the server-side hasSeenWelcome flag, so "replay
-  // the intro" for a demo never affects what a returning visit shows.
-  if ((!user.hasSeenWelcome && !welcomeDismissed) || introReplayToken > 0) {
-    return (
-      <JennySolIntro
-        name={user.name}
-        onDone={() => {
-          if (introReplayToken > 0) clearIntroReplay();
-          else dismissWelcome();
-          setWelcomeDismissed(true);
-        }}
-      />
-    );
-  }
+  if (introReplayToken > 0 || !user.hasSeenWelcome) return <Navigate to="/start" replace />;
 
   return <>{children}</>;
 }

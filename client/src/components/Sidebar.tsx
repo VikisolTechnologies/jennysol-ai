@@ -1,27 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Brain,
-  ChevronDown,
-  ChevronRight,
-  Compass,
-  File,
-  FileText,
-  LayoutDashboard,
-  ListTodo,
-  LogOut,
-  MailWarning,
-  MessageSquare,
-  MoreVertical,
-  Pencil,
-  Plug,
-  Settings,
-  SquarePen,
-  Sparkles,
-  Trash2,
-  UploadCloud,
-  X,
-} from "lucide-react";
+  IconBrain,
+  IconChevronDown,
+  IconChevronRight,
+  IconCompass,
+  IconFile,
+  IconFileText,
+  IconLayoutDashboard,
+  IconListCheck,
+  IconLogout,
+  IconMailExclamation,
+  IconMessage,
+  IconDotsVertical,
+  IconPencil,
+  IconPlug,
+  IconSettings,
+  IconSquarePlus,
+  IconTrash,
+  IconUpload,
+  IconX,
+} from "@tabler/icons-react";
+import { Orb } from "./orb/Orb";
 import { RenameDialog, DeleteConversationDialog } from "./ConversationDialog";
 import {
   deleteConversation,
@@ -38,8 +38,8 @@ import { resendVerification, fetchServerVersion } from "../lib/auth";
 import { ROLES } from "../lib/auth";
 
 function iconFor(filename: string) {
-  if (filename.toLowerCase().endsWith(".pdf")) return <File size={16} className="text-rose-500" />;
-  return <FileText size={16} className="text-brand-500" />;
+  if (filename.toLowerCase().endsWith(".pdf")) return <IconFile size={16} className="text-jenny-bad" />;
+  return <IconFileText size={16} className="text-jenny-gold" />;
 }
 
 function relativeTime(iso: string): string {
@@ -197,46 +197,40 @@ export function Sidebar({
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-30 flex w-80 shrink-0 -translate-x-full flex-col gap-3 border-r border-neutral-200 bg-neutral-50/90 p-4 backdrop-blur-xl transition-transform duration-300 dark:border-white/10 dark:bg-neutral-900/90 md:static md:translate-x-0 md:bg-neutral-50 md:dark:bg-neutral-900 ${
+      className={`fixed inset-y-0 left-0 z-30 flex w-80 shrink-0 -translate-x-full flex-col gap-3 border-r border-jenny-hairline bg-jenny-void/95 p-4 backdrop-blur-xl transition-transform duration-300 md:static md:translate-x-0 md:bg-jenny-void ${
         open ? "translate-x-0" : ""
       }`}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-gradient text-white shadow-lg shadow-brand-500/30">
-            <Sparkles size={18} />
-          </div>
+          <Orb state="asleep" size="sm" />
           <div>
-            <h1 className="text-sm font-bold leading-tight">JennySol AI</h1>
-            <p className="text-[11px] text-neutral-500 dark:text-neutral-400">Grounded chat assistant</p>
+            <h1 className="text-sm font-bold leading-tight text-jenny-text">JennySol</h1>
+            <p className="text-[11px] text-jenny-dim">Grounded chat assistant</p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-200/70 dark:hover:bg-white/10 md:hidden"
+          className="rounded-lg p-1.5 text-jenny-muted hover:bg-jenny-raised md:hidden"
           aria-label="Close sidebar"
         >
-          <X size={18} />
+          <IconX size={18} />
         </button>
       </div>
 
       <button
         onClick={onNewChat}
-        className="flex items-center justify-center gap-2 rounded-xl bg-brand-gradient px-3 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-500/25 transition hover:opacity-90"
+        className="flex items-center justify-center gap-2 rounded-xl bg-jenny-gold px-3 py-2.5 text-sm font-semibold text-jenny-ink-on-gold transition hover:opacity-90"
       >
-        <SquarePen size={15} />
+        <IconSquarePlus size={15} />
         New chat
       </button>
 
       <div className="flex-1 overflow-y-auto">
-        {conversations.length === 0 && (
-          <p className="px-2.5 py-3 text-xs text-neutral-400">No chats yet — say something!</p>
-        )}
+        {conversations.length === 0 && <p className="px-2.5 py-3 text-xs text-jenny-faint">No chats yet — say something!</p>}
         {groupConversations(conversations).map((group) => (
           <div key={group.label} className="mb-3">
-            <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-              {group.label}
-            </h3>
+            <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-jenny-faint">{group.label}</h3>
             <ul className="space-y-0.5">
               {group.items.map((c) => (
                 <li key={c.id} className="relative">
@@ -247,16 +241,14 @@ export function Sidebar({
                       inner control unreliable to activate). */}
                   <div
                     className={`flex w-full items-center gap-0.5 rounded-lg pl-0.5 pr-1 transition ${
-                      c.id === activeConversationId
-                        ? "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200"
-                        : "text-neutral-700 hover:bg-neutral-200/60 dark:text-neutral-300 dark:hover:bg-white/5"
+                      c.id === activeConversationId ? "bg-jenny-gold/10 text-jenny-champagne" : "text-jenny-text-3 hover:bg-jenny-raised"
                     }`}
                   >
                     <button
                       onClick={() => onSelectConversation(c.id)}
                       className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2 text-left text-sm"
                     >
-                      <MessageSquare size={14} className="shrink-0 opacity-60" />
+                      <IconMessage size={14} className="shrink-0 opacity-60" />
                       <span className="truncate">{c.title}</span>
                     </button>
                     {/* Always visible (never hover-gated) — a hover-only
@@ -271,21 +263,21 @@ export function Sidebar({
                         menuTriggerRef.current = e.currentTarget;
                         setMenuOpenForId((prev) => (prev === c.id ? null : c.id));
                       }}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-neutral-200/80 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-jenny-dim transition hover:bg-jenny-raised-2 hover:text-jenny-text-2"
                       aria-label={`More options for "${c.title}"`}
                       aria-haspopup="menu"
                       aria-expanded={menuOpenForId === c.id}
                     >
-                      <MoreVertical size={15} />
+                      <IconDotsVertical size={15} />
                     </button>
                   </div>
-                  <span className="ml-2.5 block px-0.5 text-[10px] text-neutral-400">{relativeTime(c.updatedAt)}</span>
+                  <span className="ml-2.5 block px-0.5 text-[10px] text-jenny-faint">{relativeTime(c.updatedAt)}</span>
 
                   {menuOpenForId === c.id && (
                     <div
                       role="menu"
                       onClick={(e) => e.stopPropagation()}
-                      className="absolute right-1 top-11 z-10 w-40 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg motion-safe:animate-fade-in dark:border-white/10 dark:bg-neutral-900"
+                      className="absolute right-1 top-11 z-10 w-40 overflow-hidden rounded-xl border border-jenny-hairline-card bg-jenny-raised py-1 shadow-lg motion-safe:animate-fade-in"
                     >
                       <button
                         role="menuitem"
@@ -293,9 +285,9 @@ export function Sidebar({
                           setMenuOpenForId(null);
                           setRenameTarget(c);
                         }}
-                        className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-white/5"
+                        className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm text-jenny-text-2 hover:bg-jenny-raised-2"
                       >
-                        <Pencil size={14} /> Rename
+                        <IconPencil size={14} /> Rename
                       </button>
                       <button
                         role="menuitem"
@@ -303,9 +295,9 @@ export function Sidebar({
                           setMenuOpenForId(null);
                           setDeleteTarget(c);
                         }}
-                        className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                        className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-sm text-jenny-bad hover:bg-jenny-bad/10"
                       >
-                        <Trash2 size={14} /> Delete
+                        <IconTrash size={14} /> Delete
                       </button>
                     </div>
                   )}
@@ -331,13 +323,13 @@ export function Sidebar({
         restoreFocusRef={menuTriggerRef}
       />
 
-      <div className="shrink-0 border-t border-neutral-200 pt-3 dark:border-white/10">
+      <div className="shrink-0 border-t border-jenny-hairline pt-3">
         <button
           onClick={() => setDocumentsExpanded((v) => !v)}
-          className="flex min-h-11 w-full items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+          className="flex min-h-11 w-full items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-jenny-faint hover:text-jenny-text-3"
         >
           <span>Documents {documents.length > 0 && `(${documents.length})`}</span>
-          {documentsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {documentsExpanded ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}
         </button>
 
         {documentsExpanded && (
@@ -355,19 +347,17 @@ export function Sidebar({
                 if (file) handleFile(file);
               }}
               className={`group relative flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-3 py-4 text-center transition-colors ${
-                dragging
-                  ? "border-brand-500 bg-brand-50 dark:bg-brand-500/10"
-                  : "border-neutral-300 hover:border-brand-400 hover:bg-brand-50/60 dark:border-white/15 dark:hover:border-brand-400/60 dark:hover:bg-brand-500/5"
+                dragging ? "border-jenny-gold bg-jenny-gold/10" : "border-jenny-border hover:border-jenny-gold-mid hover:bg-jenny-gold/5"
               }`}
             >
-              <UploadCloud
+              <IconUpload
                 size={18}
-                className={uploading ? "animate-bounce text-brand-500" : "text-neutral-400 group-hover:text-brand-500"}
+                className={uploading ? "animate-bounce text-jenny-gold" : "text-jenny-dim group-hover:text-jenny-gold"}
               />
-              <span className="text-[11px] font-medium text-neutral-600 dark:text-neutral-300">
+              <span className="text-[11px] font-medium text-jenny-text-3">
                 {uploading ? "Uploading…" : "Drop a file or click to upload"}
               </span>
-              <span className="text-[10px] text-neutral-400">PDF, TXT, or MD</span>
+              <span className="text-[10px] text-jenny-faint">PDF, TXT, or MD</span>
               <input
                 ref={fileInput}
                 type="file"
@@ -380,14 +370,11 @@ export function Sidebar({
                 }}
               />
             </label>
-            {error && <p className="text-[11px] text-rose-500">{error}</p>}
+            {error && <p className="text-[11px] text-jenny-bad">{error}</p>}
 
             <ul className="max-h-40 space-y-0.5 overflow-y-auto">
               {documents.map((doc) => (
-                <li
-                  key={doc.id}
-                  className="group flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-neutral-200/60 dark:hover:bg-white/5"
-                >
+                <li key={doc.id} className="group flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-jenny-raised">
                   <span className="flex min-w-0 items-center gap-1.5">
                     {iconFor(doc.filename)}
                     <span className="truncate" title={doc.filename}>
@@ -399,27 +386,23 @@ export function Sidebar({
                       setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
                       await deleteDocument(doc.id);
                     }}
-                    className="shrink-0 text-neutral-400 opacity-0 transition hover:text-rose-500 group-hover:opacity-100"
+                    className="shrink-0 text-jenny-dim opacity-0 transition hover:text-jenny-bad group-hover:opacity-100"
                     aria-label={`Delete ${doc.filename}`}
                   >
-                    <Trash2 size={12} />
+                    <IconTrash size={12} />
                   </button>
                 </li>
               ))}
-              {documents.length === 0 && (
-                <li className="px-2 py-2 text-[11px] text-neutral-400">
-                  None yet — answers use general knowledge until you add some.
-                </li>
-              )}
+              {documents.length === 0 && <li className="px-2 py-2 text-[11px] text-jenny-faint">None yet — answers use general knowledge until you add some.</li>}
             </ul>
           </div>
         )}
       </div>
 
       {user && !user.emailVerified && (
-        <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400">
+        <div className="shrink-0 rounded-lg border border-jenny-warn/25 bg-jenny-warn/10 px-2.5 py-2 text-[11px] text-jenny-warn">
           <div className="flex items-start gap-1.5">
-            <MailWarning size={13} className="mt-0.5 shrink-0" />
+            <IconMailExclamation size={13} className="mt-0.5 shrink-0" />
             <div>
               Verify your email to secure your account.{" "}
               {resendState === "sent" ? (
@@ -449,17 +432,13 @@ export function Sidebar({
       {user && (
         <div className="flex shrink-0 flex-col gap-0.5">
           {[
-            { to: "/agents", label: "Agents", Icon: Compass },
-            { to: "/files", label: "Files", Icon: FileText },
-            { to: "/memory", label: "Memory", Icon: Brain },
-            { to: "/tasks", label: "Tasks", Icon: ListTodo },
-            { to: "/integrations", label: "Integrations", Icon: Plug },
+            { to: "/agents", label: "Agents", Icon: IconCompass },
+            { to: "/files", label: "Files", Icon: IconFileText },
+            { to: "/memory", label: "Memory", Icon: IconBrain },
+            { to: "/tasks", label: "Tasks", Icon: IconListCheck },
+            { to: "/integrations", label: "Integrations", Icon: IconPlug },
           ].map(({ to, label, Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-neutral-500 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-neutral-200"
-            >
+            <Link key={to} to={to} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
               <Icon size={13} />
               {label}
             </Link>
@@ -468,21 +447,15 @@ export function Sidebar({
       )}
 
       {user && (
-        <Link
-          to="/account"
-          className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-neutral-500 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-neutral-200"
-        >
-          <Settings size={13} />
+        <Link to="/account" className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
+          <IconSettings size={13} />
           Account &amp; settings
         </Link>
       )}
 
       {user?.role === "admin" && (
-        <Link
-          to="/admin"
-          className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-neutral-500 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-neutral-200"
-        >
-          <LayoutDashboard size={13} />
+        <Link to="/admin" className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
+          <IconLayoutDashboard size={13} />
           Admin dashboard
         </Link>
       )}
@@ -494,12 +467,11 @@ export function Sidebar({
               path that keeps access to this guest's history. */}
           <button
             onClick={onRequestAuthGate}
-            className="flex items-center gap-2 rounded-lg border border-dashed border-brand-300 px-2.5 py-2 text-left text-xs font-medium text-brand-700 transition hover:bg-brand-50 dark:border-brand-500/30 dark:text-brand-300 dark:hover:bg-brand-500/10"
+            className="flex items-center gap-2 rounded-lg border border-dashed border-jenny-gold-mid px-2.5 py-2 text-left text-xs font-medium text-jenny-champagne transition hover:bg-jenny-gold/10"
           >
-            <Sparkles size={13} className="shrink-0" />
+            <IconSquarePlus size={13} className="shrink-0" />
             <span>
-              You're chatting as a guest.{" "}
-              <span className="underline">Sign up to save your chats</span>
+              You&rsquo;re chatting as a guest. <span className="underline">Sign up to save your chats</span>
             </span>
           </button>
           {/* Keeps the temporary-vs-permanent distinction subtle but
@@ -507,9 +479,7 @@ export function Sidebar({
               history now really does live only for this browser session
               (sessionStorage-backed identity, short server-side TTL), so
               this is no longer just a sign-up pitch, it's accurate. */}
-          <p className="px-2.5 text-[10px] text-neutral-400">
-            Your chat history is temporary and will be cleared when this browser session ends.
-          </p>
+          <p className="px-2.5 text-[10px] text-jenny-faint">Your chat history is temporary and will be cleared when this browser session ends.</p>
           {/* Shared-device escape hatch — see docs/SECURITY_AUDIT.md. On a
               shared phone/computer, whoever opens Jennysol next would
               otherwise silently continue THIS guest's session (and see its
@@ -526,7 +496,7 @@ export function Sidebar({
                 void startNewGuestSession();
               }
             }}
-            className="px-2.5 text-left text-[10px] text-neutral-400 underline decoration-dotted transition hover:text-neutral-600 dark:hover:text-neutral-300"
+            className="px-2.5 text-left text-[10px] text-jenny-faint underline decoration-dotted transition hover:text-jenny-text-3"
           >
             Not you? Start a new session
           </button>
@@ -536,23 +506,16 @@ export function Sidebar({
       {user && !user.isGuest && (
         <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg px-1 py-1">
           <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-neutral-700 dark:text-neutral-200">{user.name}</p>
-            <p className="truncate text-[10px] text-neutral-400">
-              {ROLES.find((r) => r.value === user.role)?.label ?? user.role}
-            </p>
+            <p className="truncate text-xs font-semibold text-jenny-text-2">{user.name}</p>
+            <p className="truncate text-[10px] text-jenny-faint">{ROLES.find((r) => r.value === user.role)?.label ?? user.role}</p>
           </div>
-          <button
-            onClick={logout}
-            className="shrink-0 rounded-lg p-1.5 text-neutral-400 transition hover:bg-neutral-200/60 hover:text-neutral-700 dark:hover:bg-white/10 dark:hover:text-neutral-200"
-            aria-label="Log out"
-            title="Log out"
-          >
-            <LogOut size={14} />
+          <button onClick={logout} className="shrink-0 rounded-lg p-1.5 text-jenny-dim transition hover:bg-jenny-raised hover:text-jenny-text-2" aria-label="Log out" title="Log out">
+            <IconLogout size={14} />
           </button>
         </div>
       )}
 
-      <p className="shrink-0 text-center text-[10px] text-neutral-400">Powered by Vikisol · runs locally on your data</p>
+      <p className="shrink-0 text-center text-[10px] text-jenny-faint">Powered by Vikisol · runs locally on your data</p>
 
       {/* Lets two devices be compared directly (e.g. "are these actually
           two different identities, and the same app build?") instead of
@@ -560,20 +523,18 @@ export function Sidebar({
           is secret: user.id is already returned by /api/auth/me, and both
           build SHAs are the same information a repo commit log shows. */}
       {user && (
-        <details className="shrink-0 text-[10px] text-neutral-400">
-          <summary className="cursor-pointer select-none text-center hover:text-neutral-600 dark:hover:text-neutral-300">
-            Diagnostics
-          </summary>
-          <div className="mt-1.5 space-y-1 rounded-lg bg-neutral-100 px-2 py-1.5 font-mono dark:bg-white/5">
+        <details className="shrink-0 text-[10px] text-jenny-faint">
+          <summary className="cursor-pointer select-none text-center hover:text-jenny-text-3">Diagnostics</summary>
+          <div className="mt-1.5 space-y-1 rounded-lg bg-jenny-raised px-2 py-1.5 font-mono">
             <p>account: {user.isGuest ? "guest" : "full"}</p>
             <p className="break-all">user id: {user.id}</p>
             <p>app build: {__BUILD_VERSION__}</p>
             <p>server build: {serverVersion ?? "…"}</p>
             <button
               onClick={replayIntro}
-              className="mt-1 rounded-md border border-neutral-300 px-2 py-1 font-sans text-[10px] text-neutral-500 transition hover:border-neutral-400 hover:text-neutral-700 dark:border-white/10 dark:hover:border-white/25 dark:hover:text-neutral-200"
+              className="mt-1 rounded-md border border-jenny-border px-2 py-1 font-sans text-[10px] text-jenny-muted transition hover:border-jenny-gold-mid hover:text-jenny-text-2"
             >
-              Replay JennySol intro
+              Replay welcome
             </button>
           </div>
         </details>

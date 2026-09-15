@@ -36,6 +36,38 @@
   --aurora-warning: #d97706;
   --aurora-error: #dc2626;
   --aurora-info: #2563eb;
+
+  /* JennySol product design tokens (JENNYSOL-UI-BUILD.md) — the dark, focused
+     skin for the twelve authenticated/entry-flow screens (welcome through
+     settings). Deliberately global rather than scoped to a wrapper class:
+     cheap, namespaced by name already (no collision with --aurora-*, which
+     stays scoped to the untouched marketing/legal pages per the build doc's
+     own "do not restyle anything outside these twelve screens" boundary),
+     and matches how --aurora-* itself is declared. There is no light-mode
+     variant — the spec defines exactly one palette, so these screens are
+     dark-only by design, not a `.dark`-gated pair like --aurora-*.
+  */
+  --js-void: #0b0a09;
+  --js-surface: #0f0d0b;
+  --js-raised: #1a1613;
+  --js-raised-2: #2a241d;
+  --js-hairline: #1c1815;
+  --js-hairline-card: #241f1a;
+  --js-border: #2a241d;
+  --js-text: #f7f1ea;
+  --js-text-2: #e8dfd2;
+  --js-text-3: #c9bfb1;
+  --js-muted: #8a7f6e;
+  --js-dim: #6b6157;
+  --js-faint: #4a443c;
+  --js-gold: #d6a84f;
+  --js-champagne: #f3d79b;
+  --js-gold-mid: #8a6a2e;
+  --js-gold-deep: #5a4720;
+  --js-ok: #7e9173;
+  --js-warn: #c8a85a;
+  --js-bad: #b58a8a;
+  --js-ink-on-gold: #2a1c06;
 }
 
 .dark {

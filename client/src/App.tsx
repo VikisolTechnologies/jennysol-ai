@@ -13,8 +13,15 @@ import { RequireAdmin } from "./components/RequireAdmin";
 const Landing = lazy(() => import("./pages/Landing").then((m) => ({ default: m.Landing })));
 const Privacy = lazy(() => import("./pages/Privacy").then((m) => ({ default: m.Privacy })));
 const Terms = lazy(() => import("./pages/Terms").then((m) => ({ default: m.Terms })));
-const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
-const Signup = lazy(() => import("./pages/Signup").then((m) => ({ default: m.Signup })));
+// JENNYSOL-UI-BUILD.md — the real /login and /signup pages are now the
+// conversational SignIn/SignUp flow (pages/jennysol/*.tsx), replacing the
+// old single-step Login/Signup forms entirely (deleted, not kept as
+// dead code — see JENNY_IMPLEMENTATION_STATUS.md's UI-build entry).
+const Welcome = lazy(() => import("./pages/jennysol/Welcome").then((m) => ({ default: m.Welcome })));
+const SignIn = lazy(() => import("./pages/jennysol/SignIn").then((m) => ({ default: m.SignIn })));
+const SignUp = lazy(() => import("./pages/jennysol/SignUp").then((m) => ({ default: m.SignUp })));
+const MicPermission = lazy(() => import("./pages/jennysol/MicPermission").then((m) => ({ default: m.MicPermission })));
+const FirstRun = lazy(() => import("./pages/jennysol/FirstRun").then((m) => ({ default: m.FirstRun })));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword").then((m) => ({ default: m.ForgotPassword })));
 const ResetPassword = lazy(() => import("./pages/ResetPassword").then((m) => ({ default: m.ResetPassword })));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail").then((m) => ({ default: m.VerifyEmail })));
@@ -49,8 +56,17 @@ export default function App() {
         <Route path="/welcome" element={<Landing />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
+        <Route path="/start" element={<Welcome />} />
+        <Route path="/login" element={<SignIn />} />
+        <Route path="/signup" element={<SignUp />} />
+        {/* Deliberately NOT wrapped in RequireAuth — that guard redirects
+            !hasSeenWelcome straight to /start, which is exactly the state
+            a user is in while actually completing these two onboarding
+            screens (an infinite redirect otherwise). Reached only via
+            explicit navigation from Welcome/SignUp/SignIn, by which point a
+            real user (guest or full) already exists. */}
+        <Route path="/mic-permission" element={<MicPermission />} />
+        <Route path="/first-run" element={<FirstRun />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
