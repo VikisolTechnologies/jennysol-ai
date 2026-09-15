@@ -1817,21 +1817,57 @@ permanent regression test in that stage rather than only known from this one liv
 documented, environment-load-dependent live-model flake re-confirmed transient by re-running it alone
 immediately after, same as every prior occurrence this session).**
 
-**§5.1 — real numbers, node by node, local model (this Mac's real, always-available capacity), warm:**
-a one-off measurement script (not committed — produced the numbers below, then deleted) ran the exact
-real `decomposeObjective`/`runRoleTask` path against this Mac's real Ollama for the objective "create
-ping.js exporting a function returning 'pong'":
-- Decompose (Orchestrator, `deepseek-r1:7b`): **20-34s**
-- Architect (`deepseek-r1:7b`): **13-33s**
-- Coder (`qwen2.5-coder:7b`): **6-8s** first-token, **8-33s** total node time
-- QA (no LLM call by design): **~1ms** to a real command result
-- **Total wall-clock for a 3-4 node objective: 60-136s** (136s the first, colder Phase 9 run; 60-71s
-  once models were already warm) — a real, honest four-reasoning-step objective on this Mac is a
-  **roughly one-to-two-minute** objective, not a low-latency interaction.
-- Real token cost: **1,679-1,882 tokens** total across 3 agents for this small a task. No $ figure is
-  reported — `agentScheduler.ts`'s own documented gap (no $/token price table exists anywhere in this
-  codebase) still applies; reporting a dollar amount here would be exactly the invented number this
-  engagement has avoided everywhere else.
+**§5.1 — real numbers, node by node, local model (this Mac's real, always-available capacity) —
+corrected 2026-09-14** in direct response to review feedback asking for the raw numbers, not a
+summary of them. The range below (20-34s / 13-33s / ...) came from a since-deleted one-off script and
+was itself already a compression of multiple runs; re-run live, twice, against the real production
+Ollama instance (`100.70.199.75:11434`) with the exact same `decomposeObjective`/`runRoleTask` path
+and the same objective ("create ping.js exporting a function returning 'pong'"), this time logging
+every node's exact timestamp and exact token delta rather than a range:
+
+**Run 1** (orchestrator/coder models cold):
+
+| Node | Role | Model | Wall-clock | Tokens |
+|---|---|---|---|---|
+| 1 | orchestrator (decompose) | `deepseek-r1:7b` | 24,081 ms | 1,465 |
+| 2 | coder — "Implement Ping Handler" | `qwen2.5-coder:7b` | 9,657 ms | 346 |
+| 3 | qa — "Verify ping.js" (real `npm test`) | — | 288 ms | 0 |
+| **Total** | | | **34,029 ms** | **1,811** |
+
+QA verdict: **FAILED** (exit 1) — coder's `ping.js` did a stray `require('express')`, not installed.
+
+**Run 2** (models already warm from Run 1):
+
+| Node | Role | Model | Wall-clock | Tokens |
+|---|---|---|---|---|
+| 1 | orchestrator (decompose) | `deepseek-r1:7b` | 29,347 ms | 1,570 |
+| 2 | coder — "Implement Ping Function" | `qwen2.5-coder:7b` | 7,080 ms | 309 |
+| 3 | qa — "Verify ping.js" | — | 295 ms | 0 |
+| **Total** | | | **36,725 ms** | **1,879** |
+
+QA verdict: **FAILED** (exit 1) — different real defect: coder exported `ping` as a non-function
+(`module.exports = ping` instead of `module.exports = { ping }`), so `ping()` threw
+`TypeError: ping is not a function`.
+
+**Three corrections to the original range-based entry, found by re-measuring rather than re-pasting:**
+1. **Neither live run produced an Architect node.** The real orchestrator decided a 2-task DAG
+   (coder + qa) was sufficient for this objective both times. The earlier "3-4 node" framing described
+   what the orchestrator *can* produce (confirmed elsewhere this session), not what it typically does
+   for an objective this small — the orchestrator's own decomposition is genuinely non-deterministic
+   run to run, which is itself real information, not noise to average away.
+2. **QA is not "~1ms."** It's 288-295 ms both times — the real cost of spawning `npm test` as a child
+   process. The original "~1ms" figure described a different, faster fast-fail case (a malformed
+   command spec caught by `JSON.parse` before any process ever spawns) and was mislabeled as QA's
+   typical cost.
+3. **No $ figure is reported**, same as before — `agentScheduler.ts`'s own documented gap (no
+   $/token price table exists anywhere in this codebase) still applies.
+
+**The real, honest answer to "is this usable" is in the QA verdicts above, not just the timing**: both
+live runs failed QA, for two different real coder mistakes, on the simplest possible objective this
+system has ever been measured against. QA caught both correctly — the safety net works — but a
+two-node local pipeline costing ~35s per attempt with a 2-for-2 real failure rate on a trivial task is
+the actual, current state of local-only usability, not a number to round up from.
+
 - A separate, real, live-UI-verification run (previous entry) used `gemini` (cloud fallback) instead
   and completed decompose+architect in **~10s each** — roughly 2-3x faster than the local path for
   the reasoning-heavy nodes, a real, direct measurement of the local-vs-cloud tradeoff this system
@@ -2363,3 +2399,88 @@ critical security issues resolved"** is now much closer to true — the two head
 unchecked since prompt-injection sanitization is still untested and no automated test
 suite exists to keep these guarantees from regressing silently. The other fourteen require
 work that has not started.
+
+## 2026-09-14 review response — Ollama cleanup, self-approval-class audit
+
+**Duplicate Ollama process removed.** Found two `ollama serve` processes: PID 91168 (started
+manually this session on `127.0.0.1:11434`, zero models resident) and PID 54017 (the permanent
+`sh.brew.ollama` launchd service, on `100.70.199.75:11434` — confirmed via `server/.env`'s real
+`OLLAMA_BASE_URL` to be the address production actually depends on). Killed 91168. Confirmed after:
+one process remains, `qwen3:8b` still resident on the real production instance, unaffected — the
+removed process held no model, so nothing was evicted by the kill itself.
+
+**Self-approval-class audit** — the review's concern: is there anywhere the same identity is both
+the actor proposing an action and the authorizer deciding it, beyond the one instance already fixed
+(the Orchestrator self-approving its own WRITE/exec proposals, closed by `awaitApprovalDecision()`).
+Traced every real call site of every gate-like function in the codebase, not just the one already
+known:
+
+- **Approvals** (`approveAgentAction`/`rejectAgentAction`) and **session control**
+  (`pauseSession`/`resumeSession`/`cancelSession`/`killAgent`/`retryTask`) — grepped every real call
+  site of all six functions: every single one is called from exactly one place,
+  `src/routes/admin.ts`, which is `requireAuth, requireAdmin`-gated for the whole router. No agent
+  code path (`agentOrchestrator.ts`, `agentTaskRunner.ts`) calls any of them, directly or indirectly.
+  Structurally, an agent has no credential that would let it hit these routes even if it tried.
+- **Command execution** — `executeCommand` (the only real function that runs a shell command) is
+  imported by exactly one file (`agentToolRegistry.ts`), and called from exactly one place inside it:
+  inside `approveAgentAction`, never inside `proposeAgentAction`. Same for `executeFileWrite`. The
+  TTL auto-expiry timer (`ACTION_TTL_MS`, 5 min) that fires when nobody ever decides only ever
+  resolves `approved: false` — the safe direction; there is no path, timer or otherwise, that
+  auto-approves.
+- **Write-scope grants** (`agentMemoryWriteScope.ts`) — `writeSessionMemory()` re-fetches the
+  agent's real role/permissions fresh from the DB on every call (`getAgent(sessionId, agentId)`), it
+  never trusts a claim the caller makes about itself. Every real call site in `agentOrchestrator.ts`
+  passes a server-derived `agent.id`/`ctx.agent.id` (from a DB row already fetched this request),
+  never a value parsed out of an LLM's own JSON output — so an agent cannot impersonate a
+  higher-privilege agent id to write outside its scope. Only `orchestrator`/`architect`/`final_judge`
+  hold `memory:write_any`, and that assignment comes solely from the static, code-defined
+  `ROLE_CATALOG`, never from anything LLM-influenced.
+- **A latent landmine, not a live vulnerability**: `spawnAgent(sessionId, role, overrides?)` accepts
+  an `overrides.permissions` argument that would let a caller grant an agent permissions outside its
+  `ROLE_CATALOG` default. Checked every real call site: `agentOrchestrator.ts` always calls
+  `spawnAgent(sessionId, role)` with no third argument — `overrides` is exercised only by tests today.
+  Not a real self-escalation path right now, but it is the shape one would take: flagging so nobody
+  wires an LLM-derived value into that third argument later believing the function is safe by
+  construction. It isn't — it's safe because nothing calls it that way yet.
+- **Checkpoint resume** — `resumeInFlightSessionsOnBoot()` was the review's named concern for this
+  surface specifically. Confirmed it resets any task stuck `running`/`awaiting_approval` at boot all
+  the way back to `pending` (`resetTaskForRetry`), which means a task that had a proposal pending
+  when the process died does **not** come back approved — it re-proposes and waits for a genuinely
+  fresh human decision after restart. This is the safe direction (reset-and-reask, never
+  assume-approved).
+- **Adjacent finding, not the same class, surfaced while auditing command execution**:
+  `ALLOWED_COMMANDS` now includes `npm: ["test", "run", "install", "ci", "--version"]`. The
+  allow-list check (`assertAllowed`) only validates that `args[0]` (`"run"`) is on the list — it does
+  not constrain *which* script name follows. A human approving an `npm run <script>` proposal is
+  approving "run npm," not "run this specific, vetted script" — the actual script name is whatever
+  the fixture's `package.json` defines, unvalidated by this gate. Not a self-approval bug (a real
+  human still decides), but a real looseness in what that human's approval actually authorizes. Not
+  fixed here — flagged for a real decision on whether `npm run` should be scoped to a specific,
+  named allow-list of scripts rather than the bare subcommand.
+- **Adjacent finding, final_judge has no real enforcement teeth**: `runJudgmentCompletion` writes a
+  `{verdict, summary}` into the shared `audit_results` memory key and nothing else — a `"rejected"`
+  verdict does not fail the task, does not fail the session, and nothing anywhere reads `audit_results`
+  to gate `agentSessionRunner.ts`'s own real completion logic (`updateSessionStatus(sessionId,
+  anyFailed ? "failed" : "completed")`, driven purely by task-level pass/fail, never by judgment
+  content). This isn't a self-approval risk in the audited sense — final_judge never approves its own
+  gated action, it has no gated action to approve — but it is a real governance gap worth naming
+  plainly: the one role whose entire purpose is "should this be accepted" currently has no mechanism
+  to actually block acceptance. Not fixed here; flagged for a real decision on whether a `"rejected"`
+  verdict should fail the session, require human sign-off, or stay advisory-only by design.
+
+**Conclusion**: the one self-approval bug found and fixed earlier this session (Orchestrator
+self-approving its own actions) was the only live instance of that exact class — every other gate-like
+function in the codebase was traced to a single, human-authenticated call site with no agent-reachable
+path around it. The two adjacent findings above (`npm run` script scope, final_judge's lack of real
+teeth) are real gaps, but a different class — worth a founder decision, not silently left as
+understood-but-unwritten.
+
+**The fourth review item — real Arena screenshot accuracy test — is done, in
+`JENNY_VISION_MODEL_EVALUATION.md`'s own new closing section.** Real, production Arena UI
+(`arena.vikisol.in`), real founder-provided login, screenshots only. Headline results: 2/2 clean real
+pages correctly passed, 0 hallucinations (consistent with the synthetic-fixture finding), but the one
+scoreable planted defect was **missed** (a fully invisible button label went unreported), and a second
+planted defect **could not be scored at all** — a real request failure, reproduced twice, root-caused
+via the real Ollama server log to memory-pressure-triggered eviction (`system_free="2.0 GiB"`,
+`system_limited=true`) distinct from the earlier-documented hard GPU-OOM crash. The closing verdict on
+vision-model trustworthiness was revised more cautious, not softened, as a result.

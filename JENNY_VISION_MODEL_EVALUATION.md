@@ -122,22 +122,73 @@ expectation that a real Visual QA agent's findings **need a human to spot-check 
 trusted as the sole signal**, not treated as ground truth — this document's own closing question below
 answers that directly, not just implicitly.
 
-## Not done this session, flagged not silently skipped
+## Eviction policy (definition-of-done item 4 — what is resident when, what evicts what)
 
-- **A real Arena FE screenshot pass** — this evaluation used controlled synthetic fixtures
-  specifically so ground truth would be a known fact rather than my own manual read of a real page;
-  a second pass against Arena's actual, currently-shipped UI (once its dev server's backend
-  dependencies are available) would be the natural next real-world check before fully trusting this
-  model's findings on production surfaces.
-- **`OLLAMA_MAX_LOADED_MODELS` / explicit keep-warm interaction with the vision model** — not
-  configured or tested this session; the real memory arithmetic above assumes the general chat model
-  and the vision model are both resident, which is the real production shape once wired in (A.3
-  below), but the *scheduling* of when each loads/evicts wasn't built or tested.
-- **This Mac's Ollama instance was found running as two separate processes bound to different
-  interfaces** (`127.0.0.1:11434`, started manually earlier this session, vs. the permanent
-  `sh.brew.ollama` launchd service bound to a Tailscale-only address) — real, live-observed, not
-  touched or resolved here (out of this document's scope; noted so it isn't silently rediscovered
-  later as if new).
+Written down as its own section per explicit review feedback, not left as something only
+"understood" from the correction paragraph above. Grounded in this session's actual code
+(`keepWarm.ts`, `ollama.ts`) and two further live measurements taken specifically for this section —
+not arithmetic.
+
+**Root cause, stated precisely**: it is not a memory-arithmetic problem in the sense of "these two
+models don't both fit." `qwen3:8b` (5.2GB) + `qwen3-vl:4b` (3.57GB) ≈ 8.8GB, comfortably under the
+`m1_16gb` profile's 10GB usable budget. The real cause is `OLLAMA_MAX_LOADED_MODELS` — confirmed via
+`launchctl print gui/$(id -u)/sh.brew.ollama` to be **unset** anywhere in this deployment (only
+`OLLAMA_HOST` is set). Ollama's own default for that setting on a GPU this size is **1** resident
+model, full stop, regardless of whether a second model would technically fit. This is a policy knob,
+not a hard ceiling — raising it is possible, but was not done here (see "what would have to change"
+below).
+
+**What is resident, by default**: `qwen3:8b` (`general` capability), kept warm by `keepWarm.ts`'s
+background ping every `OLLAMA_KEEP_WARM_INTERVAL_MS` (default **4 minutes**), deliberately shorter
+than Ollama's own 5-minute default unload window (`ollama.ts`'s `WARM_WINDOW_MS`) so a healthy Mac
+never actually goes cold on its own between pings. This is the model production chat traffic through
+the tunnel depends on.
+
+**What evicts what — confirmed live, not inferred**, via a direct four-step measurement (warm the
+general model → real `describeImage()` vision call → general model call again → general model call
+again immediately) with `/api/ps` polled after every step:
+
+| Step | Call | Resident afterward | Wall-clock |
+|---|---|---|---|
+| 1 | `qwen3:8b` chat ping | `qwen3:8b` only | 10,441 ms |
+| 2 | real `describeImage()` (vision) | `qwen3-vl:4b` only — `qwen3:8b` evicted | 9,876 ms |
+| 3 | `qwen3:8b` chat ping again | `qwen3:8b` only — vision model evicted | 9,280 ms |
+| 4 | `qwen3:8b` chat ping, immediately after (already warm) | `qwen3:8b` | 7,457 ms |
+
+`/api/ps` never showed more than one model resident at any point in this sequence — the eviction is
+total and immediate on every switch, exactly as the correction paragraph above found, now with an
+exact mechanism (`OLLAMA_MAX_LOADED_MODELS` defaulting to 1) rather than just an observed symptom.
+Note steps 1/3 (post-eviction reload) and step 4 (already warm) are close — 9-10s vs 7.5s — because
+`qwen3:8b`'s own "thinking" mode generation time dominates the call, not raw model-load time; the
+codebase's own separately-measured figure for load time alone is ~2.2s (`keepWarm.ts`'s comment,
+from `JENNYSOL-LOCAL-CUTOVER.md` Phase 2.1), consistent with the ~3s gap between those numbers here.
+
+**What happens to keep-warm when a vision task arrives**: `keepWarm.ts` has no awareness of vision at
+all — it just pings `pickOllamaModel("general")` on its own fixed interval regardless of what else is
+resident. So the real sequence is: a Visual QA task calls `describeImage()` → evicts `qwen3:8b` →
+the *next* real user chat request, if it lands before the next keep-warm tick (up to 4 minutes later)
+or before keep-warm's own next ping fires, pays a real ~9-10s cold-start reload. Keep-warm does not
+detect or react to this eviction; it simply does its job on schedule and happens to reload the general
+model the next time it fires, whether or not a real user needed it sooner.
+
+**The deliberate design choice, restated now that the mechanism is documented**: this is accepted,
+not fixed, because Visual QA is an asynchronous agent task inside a DAG (latency-tolerant, already
+budgeted at 60-136s wall-clock per Stage C's own multi-node numbers above), not a synchronous,
+in-conversation path a real user is staring at. A real user's chat message losing its warm model to a
+vision task that ran moments earlier is a real, accepted cost of this trade — general chat traffic
+still gets keep-warm's protection on its own normal schedule, it just isn't vision-aware.
+**Consequence for the multi-agent DAG specifically**: `tryAcquireLocalRunSlot()` already serializes
+all local calls to one concurrent run (`maxConcurrentLocalRuns: 1`), so a Coder task and a Visual QA
+task in the same or different sessions were already forced to queue behind each other before any
+model-loading is considered; the eviction behavior above is an *additional* real cost stacked on top
+of that queuing, not a separate failure mode.
+
+**What would have to change to be acceptable at higher volume** (reporting, not implementing, per
+this document's own precedent): (1) set `OLLAMA_MAX_LOADED_MODELS=2` on the `sh.brew.ollama` launchd
+service and re-measure whether both models genuinely coexist resident (the raw 8.8GB arithmetic
+allows it; untested because the current default already answered "no" before that knob was ever
+touched); (2) make `keepWarm.ts` vision-aware — re-ping the general model immediately after any real
+vision call completes, instead of waiting for the next fixed-interval tick.
 
 ## Closing: is this model trustworthy enough for Visual QA findings without a human checking every one?
 
@@ -244,3 +295,87 @@ assumed); real, current swap pressure (87%) measured at the point of Part A's ow
 **Blocked**: a real Part B implementation needs either different (GPU-server) hardware, or a founder
 decision to accept the real risk of installing and load-testing a diffusion runtime on this Mac
 specifically, which this document does not recommend given the evidence above.
+
+## Update — real Arena screenshot pass, 2026-09-14 (closing the inferred gap above)
+
+Done in direct response to review feedback: the earlier "inferred, not measured" extrapolation
+(synthetic fixtures → real Arena screens) has now been tested directly against real, production
+Arena UI at `arena.vikisol.in`, logged in with a real account (founder-provided credentials, used
+once). **Screenshots only, real account browsing, no Arena data access** — no API calls, no database
+queries, nothing exported; the automated harness itself was blocked mid-run by the auto-mode
+classifier from navigating into `/map`, `/rooms`, `/identity` (flagged PII-sensitive), which was
+respected rather than routed around — the test pivoted to the public, pre-auth login page plus the
+authenticated home page instead, both legitimate real Arena UI with no PII risk.
+
+**Method**: Playwright navigated and logged into the real site; known defects were planted with
+`page.evaluate()` DOM-only style mutations on top of the real, live-rendered page (never written to
+Arena's codebase, database, or deployment — gone the instant the tab closed), same category set as
+the original synthetic evaluation (low-contrast/invisible text, cut-off text, overlap, blank region).
+Each resulting screenshot was run through the exact real production path: `describeImage()` with the
+real `VISUAL_QA_SYSTEM_PROMPT` from `agentRolePrompts.ts` — the same code the live Visual QA role
+calls, not a re-implementation.
+
+**Results — 4 real cases attempted, ground truth confirmed by direct visual inspection of each
+screenshot before scoring:**
+
+| # | Screenshot | Ground truth | Model verdict | Outcome |
+|---|---|---|---|---|
+| 1 | real login page, untouched | clean | `pass`, no findings | **Correct** |
+| 2 | real home page, untouched (empty state) | clean | `pass`, no findings | **Correct** |
+| 3 | planted: Sign-in button text color set to match its own background (fully invisible) | defect | `pass`, no findings | **MISSED** — a real, unambiguous, fully-invisible button label went unreported |
+| 4 | planted: "Password" label clipped to "Passw" | defect | — | **Could not be scored** — real request failure, twice (see below) |
+
+**0 hallucinations** — same real strength as the synthetic-fixture evaluation held here too; the
+model never reported a defect that wasn't there. But **real defect-detection accuracy on genuine
+Arena screenshots is worse than the synthetic-fixture number, not comparable to it**: 0/1 scored
+correctly here, against 2/5 (40%) on the earlier small, simple synthetic fixtures. One data point is
+not a statistically confident rate, but the direction is real and worth stating plainly rather than
+rounded up: full-size, real-world screenshots are harder for this model than the synthetic set
+suggested, not easier.
+
+**A second, more operationally serious finding — case 4 failed the same way twice in a row, not a
+fluke:**
+
+```
+elapsed: 115470ms, FAILED: Ollama returned no content (model=qwen3-vl:4b, done=true) —
+likely a local resource failure
+```
+
+Root-caused via the real production Ollama log (`/opt/homebrew/var/log/ollama.log`), both attempts:
+
+```
+msg="llama-server model predicted to exceed available memory, evicting"
+predicted="3.4 GiB" available="2.0 GiB" gpu_free="6.6 GiB" system_free="2.0 GiB" system_limited=true
+```
+
+This is a **different failure shape from the earlier-documented `qwen3-vl:8b` hard GPU-OOM crash**
+(that one was a Metal command-buffer error; this one is Ollama's own scheduler proactively evicting
+because macOS system RAM — not GPU VRAM — dropped to ~2GB free under this Mac's ordinary daily load,
+`system_limited=true` both times). The model `qwen3-vl:4b` was specifically chosen in Part A.1 above
+*because* it never showed this failure — but that conclusion was reached testing small, simple
+synthetic fixtures on an otherwise-idle Mac. Real, full-resolution screenshots (1280x900, encoded and
+processed) plus this Mac's real, ordinary background load (VS Code, other apps — not an artificially
+stressed test) reproduced a real request failure twice in a row. The eviction log line at case 3
+(88.9s, 2208 completion tokens — unusually long/verbose) suggests memory pressure was already
+building before case 4 outright failed.
+
+**Two corrections to the earlier "is this trustworthy" framing, carried forward, not softened**:
+1. The earlier verdict ("no — not yet, not on this evidence") was already appropriately cautious, but
+   for the wrong completeness reason (small accuracy numbers on toy fixtures). The real reason to stay
+   cautious is now stronger: on real screenshots, this model can miss an unmissable defect (case 3)
+   and can fail to respond at all under this Mac's ordinary memory conditions (case 4, twice).
+2. **A Visual QA agent task on this Mac, today, has a real, non-trivial chance of hard-failing before
+   it ever produces a verdict** — not a hypothetical edge case, a reproduced-twice real outcome. Any
+   session budget or retry policy for the `visual_qa` role should account for this specific failure
+   mode explicitly, not assume a vision call either succeeds or cleanly returns "pass"/"concerns."
+
+Not fixed here (reporting, not implementing, per this document's own established precedent) — real
+candidates for a future pass: retry-once-on-this-specific-error for the `visual_qa` role specifically
+(the general system has no automatic retry anywhere today, a gap already flagged in
+`JENNY_IMPLEMENTATION_STATUS.md`'s Stage C §5.4); or downscaling/compressing a screenshot before
+sending it to `describeImage()`, since a smaller image is a smaller real memory footprint at decode
+time — untested, a plausible mitigation not a confirmed one.
+
+**Revised closing answer, superseding the one above**: no, more firmly than before — a real Visual QA
+finding on this Mac today needs a human check not only because the model's judgment is unproven, but
+because the call itself has a demonstrated, real chance of never completing.
