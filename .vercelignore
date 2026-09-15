@@ -1,0 +1,6 @@
+server/
+docs/
+*.md
+client/test-results/
+client/playwright-report/
+client/blob-report/
