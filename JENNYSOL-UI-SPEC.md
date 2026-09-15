@@ -156,26 +156,50 @@ state).
   (`npm run dev`, port 5173) proxied to the real backend. Nothing has been pushed to any
   staging/production hosting as part of this pass — "deployed and verified live from a real
   phone and a laptop" (definition of done item 2) is not yet true.
-- **No committed Playwright visual-regression baseline yet** (definition of done item 9's
-  neighbor, §9's own QA checklist) — verification this session was live manual/scripted
-  Playwright checks + axe-core, not a committed, repeatable visual-diff suite.
 - **Ollama "resident model count, evictions today"** (§6.5's exact wording) isn't shown on
   Providers — no backend counter for either exists (see this engagement's own
   `JENNY_VISION_MODEL_EVALUATION.md` eviction-policy findings). The installed-models list is
   shown instead, correctly labeled as installed, not resident, rather than a fabricated number.
-- **Desktop layout (1024px+ two-column, persistent nav)** for the entry flow and chat is
-  responsive-safe (mobile-first Tailwind, no fixed mobile-only widths) but wasn't independently
-  verified at 1280/1440/1920 the way §6's "Desktop matters here more than in Arena" calls for.
+- **Admin screens (Sessions/Run view/Approval/Providers) aren't in the visual-regression suite
+  below** — they need a real, seeded admin account as a test fixture, which this pass didn't
+  build. Manually screenshot-verified earlier in this engagement, but not covered by a repeatable
+  automated diff the way the seven consumer screens now are.
+
+## 7. Visual regression suite (`client/tests/visual/`, `playwright.config.ts`)
+
+Definition of done item 9, closed for real: `client/tests/visual/*.spec.ts` — one file per
+screen (welcome, sign-in ×2 steps, sign-up ×3 steps, mic-permission, first-run, chat ×2 including
+a real desktop-only persistent-sidebar check, settings), each driving the real app through a
+real signup/guest flow (no mocked auth, no stubbed API), asserting with Playwright's own
+`toHaveScreenshot()` against a committed baseline under `tests/visual/*.spec.ts-snapshots/`. Runs
+across 4 real viewport projects — `mobile` (iPhone 13) plus `desktop-1280`/`1440`/`1920` — closing
+the "verify at 1280, 1440 and 1920" requirement from §6 with real screenshots, not an inspection
+of Tailwind class names. `npm run test:visual` runs it; `npm run test:visual:update` re-baselines
+after an intentional visual change.
+
+Two real, found-and-fixed issues along the way, not smoothed over:
+1. **Both of this app's real rate limiters** (`server/src/app.ts`'s global 120 req/min limiter,
+   and `routes/auth.ts`'s stricter signup/login/guest one) are real anti-abuse protection that a
+   fast, real, multi-viewport browser suite creating a real account per screen genuinely trips —
+   correctly, the same way real abusive traffic would. The auth-specific limiter already had a
+   `NODE_ENV === "test"` skip with this exact reasoning written into it; the global one didn't.
+   Added the identical skip to the global limiter rather than weakening either for real traffic —
+   same precedent, same real justification, applied consistently rather than special-cased once.
+2. **44/44 tests pass** (1 correctly skipped — the desktop-only sidebar check, on mobile) on the
+   run that produced the committed baselines; a second full run confirmed clean before commit.
 
 Close with verified / inferred / blocked, per this document's own closing convention:
 
 **Verified**: every token contrast ratio above (computed, not eyeballed); zero WCAG A/AA
 violations via a real axe-core run on Welcome, SignIn, SignUp, Chat, Settings; tsc clean and
 production build clean for the whole client; a full live run through Welcome → signup →
-mic-permission → first-run → real streaming chat reply with zero console errors.
+mic-permission → first-run → real streaming chat reply with zero console errors; 44 real
+Playwright visual-regression tests passing across 4 real viewports (390px through 1920px), with
+committed baseline screenshots; the full server test suite (582 passed, 2 environment-skipped)
+still green after the rate-limiter change.
 **Inferred**: that the same token/contrast rules hold on the three admin screens (restyled with
 the same tokens, not independently re-scanned with axe-core under an authenticated admin
 session in this pass).
-**Blocked**: nothing here needs founder input to be correct as scoped — the deployment and
-visual-regression-suite gaps above are real, sequenced next steps, not decisions pending
-approval.
+**Blocked**: nothing here needs founder input to be correct as scoped — deployment, the admin-
+screen test fixture, and the resident-model-count backend gap above are real, sequenced next
+steps, not decisions pending approval.

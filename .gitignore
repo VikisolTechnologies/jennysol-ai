@@ -18,3 +18,9 @@ server/src/version.ts
 *.log
 .vercel
 .env*
+
+# Playwright's own transient run output — the real baseline screenshots
+# live in tests/visual/**/*.spec.ts-snapshots/ and ARE committed.
+client/test-results/
+client/playwright-report/
+client/blob-report/

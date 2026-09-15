@@ -52,7 +52,21 @@ app.use(express.json());
 // (signup/login/password-reset) inside auth.ts itself — NOT the whole
 // /api/auth router, since that would also throttle routine authenticated
 // calls like /me on every page load.
-app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }));
+app.use(
+  rateLimit({
+    windowMs: 60_000,
+    limit: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Same real reasoning as auth.ts's own sensitiveLimiter skip: a real
+    // browser-driven test suite (client/tests/visual's Playwright specs, a
+    // real signup + several authenticated fetches per screen, run across
+    // 4 viewport projects) legitimately exceeds 120 req/min against one
+    // shared server instance well before any real single user could — a
+    // real production abuse signal for everyone else, not for this.
+    skip: () => process.env.NODE_ENV === "test",
+  })
+);
 
 // `version` is the short git SHA this exact running process was built from
 // (see scripts/write-version.mjs) — safe to expose publicly (it's not a
