@@ -97,6 +97,13 @@ export function ChatWindow({
   const [spokenReplies, setSpokenRepliesState] = useState(getStoredSpokenReplies);
   const [voice, setVoiceState] = useState<VoiceId>(getStoredVoice);
   const [assistantSpeaking, setAssistantSpeaking] = useState(false);
+  // JENNYSOL-UI-BUILD.md §3's other real "unavailable" trigger — "provider
+  // chain fails" — distinct from voiceConv.error (a mic/permission problem).
+  // Set only when a real send never even reaches run.started (no runId to
+  // recover — the server itself didn't respond, not a mid-stream drop) and
+  // cleared the moment a request actually succeeds again, so a transient
+  // blip doesn't leave the orb reading "unavailable" forever.
+  const [chatUnavailable, setChatUnavailable] = useState(false);
   const [lastTurnMeta, setLastTurnMeta] = useState<{ provider: string; ms: number } | null>(null);
   const navigate = useNavigate();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -183,7 +190,7 @@ export function ChatWindow({
   // looking alive." voiceConv.error is real (mic-denied / no device found —
   // see useVoiceConversation.ts) — before this the orb had no way to show
   // that state at all and just kept breathing as if everything were fine.
-  const orbState: OrbState = voiceConv.error
+  const orbState: OrbState = voiceConv.error || chatUnavailable
     ? "unavailable"
     : assistantSpeaking
       ? "speaking"
@@ -452,6 +459,7 @@ export function ChatWindow({
           if (generationRef.current !== myGeneration) return;
           capturedRunId = runId;
           currentRunIdRef.current = runId;
+          setChatUnavailable(false); // real proof the server is reachable again
           if (loadedIdRef.current !== id) {
             loadedIdRef.current = id;
             onConversationChange(id);
@@ -536,6 +544,13 @@ export function ChatWindow({
       setSending(false);
       setSendingStatus(null);
       currentRunIdRef.current = null;
+      // A real send that never even reached run.started (no runId was ever
+      // captured to attempt recovery on) means the backend itself didn't
+      // respond — the real "provider chain fails" case, not a mid-stream
+      // network blip. Cleared automatically the next time a send succeeds
+      // (onRunStarted above), never by a timer — the orb stays honest about
+      // "still down" for exactly as long as it actually still is.
+      if (!capturedRunId) setChatUnavailable(true);
       setMessages((prev) => {
         const copy = [...prev];
         copy[copy.length - 1] = {
@@ -794,14 +809,25 @@ export function ChatWindow({
           above an open keyboard, only above the home indicator when it's
           the actual bottom edge of the screen. */}
       <div className="shrink-0 border-t border-jenny-hairline bg-jenny-surface/95 px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl sm:px-4 sm:pt-4 sm:pb-[calc(1rem+env(safe-area-inset-bottom))]">
-        {messages.length > 0 && voiceConv.state !== "off" && (
+        {/* JENNYSOL-UI-BUILD.md §3 rule 3: "Unavailable must actually
+            render ... Never leave a dead orb looking alive." Previously
+            gated on voiceConv.state !== "off", which meant a typing-only
+            user (never touched voice) would never see this row even while
+            orbState was genuinely "unavailable" (chatUnavailable, the real
+            provider-down case) — the one state this rule exists for was
+            exactly the one case that could silently not render. */}
+        {messages.length > 0 && (voiceConv.state !== "off" || orbState === "unavailable") && (
           <div className="mx-auto mb-3 flex max-w-3xl animate-fade-in items-center gap-2.5 rounded-2xl bg-jenny-raised px-3 py-2">
             <VoiceOrb state={orbState} size="sm" onInterrupt={handleInterrupt} />
             <span className="text-xs text-jenny-muted">
               {orbState === "unavailable"
                 ? voiceConv.error === "mic-denied"
                   ? "Microphone blocked — allow it in your browser settings"
-                  : "No microphone found on this device"
+                  : voiceConv.error === "mic-unavailable"
+                    ? "No microphone found on this device"
+                    : voiceConv.error === "unsupported"
+                      ? "Voice isn't supported in this browser"
+                      : "Jenny can't reach the server right now"
                 : orbState === "speaking"
                   ? "Speaking — tap the orb to interrupt"
                   : orbState === "listening"

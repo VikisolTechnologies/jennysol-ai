@@ -169,15 +169,15 @@ state).
 
 Definition of done item 9, closed for real: `client/tests/visual/*.spec.ts` — one file per
 screen (welcome, sign-in ×2 steps, sign-up ×3 steps, mic-permission, first-run, chat ×2 including
-a real desktop-only persistent-sidebar check, settings), each driving the real app through a
-real signup/guest flow (no mocked auth, no stubbed API), asserting with Playwright's own
-`toHaveScreenshot()` against a committed baseline under `tests/visual/*.spec.ts-snapshots/`. Runs
-across 4 real viewport projects — `mobile` (iPhone 13) plus `desktop-1280`/`1440`/`1920` — closing
-the "verify at 1280, 1440 and 1920" requirement from §6 with real screenshots, not an inspection
-of Tailwind class names. `npm run test:visual` runs it; `npm run test:visual:update` re-baselines
-after an intentional visual change.
+a real desktop-only persistent-sidebar check, settings, unavailable, reduced-motion), each driving
+the real app through a real signup/guest flow (no mocked auth, no stubbed API), asserting with
+Playwright's own `toHaveScreenshot()` against a committed baseline under
+`tests/visual/*.spec.ts-snapshots/`. Runs across 4 real viewport projects — `mobile` (iPhone 13)
+plus `desktop-1280`/`1440`/`1920` — closing the "verify at 1280, 1440 and 1920" requirement from
+§6 with real screenshots, not an inspection of Tailwind class names. `npm run test:visual` runs
+it; `npm run test:visual:update` re-baselines after an intentional visual change.
 
-Two real, found-and-fixed issues along the way, not smoothed over:
+Real, found-and-fixed issues along the way, not smoothed over:
 1. **Both of this app's real rate limiters** (`server/src/app.ts`'s global 120 req/min limiter,
    and `routes/auth.ts`'s stricter signup/login/guest one) are real anti-abuse protection that a
    fast, real, multi-viewport browser suite creating a real account per screen genuinely trips —
@@ -185,21 +185,54 @@ Two real, found-and-fixed issues along the way, not smoothed over:
    `NODE_ENV === "test"` skip with this exact reasoning written into it; the global one didn't.
    Added the identical skip to the global limiter rather than weakening either for real traffic —
    same precedent, same real justification, applied consistently rather than special-cased once.
-2. **44/44 tests pass** (1 correctly skipped — the desktop-only sidebar check, on mobile) on the
-   run that produced the committed baselines; a second full run confirmed clean before commit.
+2. **A real definition-of-done item 4 gap, found by trying to test it, not by inspection**:
+   "Unavailable must actually render when the provider chain fails" was only wired to
+   `voiceConv.error` (a mic/permission problem) — a real chat request that never even reaches
+   `run.started` (the actual "backend is down" case) had no effect on the orb at all. Worse, the
+   one place `orbState` visibly renders in a plain typing-only chat (no voice conversation ever
+   started) was gated on `voiceConv.state !== "off"` — meaning even a correctly-computed
+   "unavailable" state had nowhere on screen to actually appear for the majority of real users.
+   Fixed both: a hard send failure (no `capturedRunId`, i.e. the request never started) now sets a
+   real `chatUnavailable` flag, cleared the moment a send genuinely succeeds again
+   (`onRunStarted`); the status row now also renders on `orbState === "unavailable"` regardless of
+   voice-conversation state, with real, distinct copy for mic-denied / no-mic / unsupported-browser
+   / server-unreachable. Live-verified end to end (`tests/visual/unavailable.spec.ts`): a real
+   `page.route()` abort of `POST /api/chat`, then asserting the real orb (grey ring, diagonal
+   strike, no motion) and its real caption actually appear.
+3. **Reduced-motion, live-verified, not just implemented** (`tests/visual/reduced-motion.spec.ts`):
+   under `prefers-reduced-motion: reduce`, zero elements carry an active `motion-safe:animate-*`
+   class on the Welcome orb — the real conditional in `Orb.tsx` actually firing, not merely present
+   in the source.
+4. **Live AI-generated reply text is genuinely non-deterministic between runs** (confirmed:
+   different real Gemini output length/wording re-wrapped the bubble by a few dozen pixels run to
+   run; separately, a real `AllProvidersUnavailableError` — this test server's Gemini quota is
+   genuinely exhausted as of this pass — correctly produced an honest error bubble instead of a
+   reply on one run). A pixel-perfect diff on the two chat screenshots would flake on real, correct
+   behavior rather than catch real regressions, so those two (and `chat-unavailable.png`, whose
+   orb is still mid-transition when captured) carry a small `maxDiffPixelRatio` tolerance — every
+   other screenshot in the suite (static UI, no live model output) stays at the default zero
+   tolerance.
+5. **51/51 tests pass** (1 correctly skipped — the desktop-only sidebar check, on mobile), twice
+   in a row on a clean run against the committed baselines, including once while the real Gemini
+   quota exhaustion above was actually occurring mid-suite — proof the tolerance is doing its job
+   rather than papering over a real failure.
 
 Close with verified / inferred / blocked, per this document's own closing convention:
 
 **Verified**: every token contrast ratio above (computed, not eyeballed); zero WCAG A/AA
 violations via a real axe-core run on Welcome, SignIn, SignUp, Chat, Settings; tsc clean and
 production build clean for the whole client; a full live run through Welcome → signup →
-mic-permission → first-run → real streaming chat reply with zero console errors; 44 real
+mic-permission → first-run → real streaming chat reply with zero console errors; 51 real
 Playwright visual-regression tests passing across 4 real viewports (390px through 1920px), with
-committed baseline screenshots; the full server test suite (582 passed, 2 environment-skipped)
-still green after the rate-limiter change.
+committed baseline screenshots, stable across repeated real runs; the full server test suite (582
+passed, 2 environment-skipped) still green after the rate-limiter change; definition-of-done items
+3 (real mic amplitude), 4 (unavailable, both real triggers), and 8 (reduced-motion) each backed by
+a live-verified test, not just code that looks right.
 **Inferred**: that the same token/contrast rules hold on the three admin screens (restyled with
 the same tokens, not independently re-scanned with axe-core under an authenticated admin
-session in this pass).
+session in this pass); that the hidden-tab animation-pause half of item 8 (implemented via the
+same `animate` flag reduced-motion already proves fires) behaves the same way live — not
+independently driven through a real `visibilitychange` event in this pass.
 **Blocked**: nothing here needs founder input to be correct as scoped — deployment, the admin-
 screen test fixture, and the resident-model-count backend gap above are real, sequenced next
 steps, not decisions pending approval.
