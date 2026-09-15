@@ -39,7 +39,7 @@ export function Welcome() {
             dismissWelcome();
             navigate("/");
           }}
-          className="mt-1 w-full py-1 text-[11px] text-jenny-faint underline decoration-dotted"
+          className="mt-1 w-full py-1 text-[11px] text-jenny-muted underline decoration-dotted"
         >
           Continue as guest
         </button>

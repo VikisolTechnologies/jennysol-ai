@@ -117,7 +117,7 @@ export function SignUp() {
           </div>
           {GOOGLE_SIGN_IN_ENABLED && (
             <div className="mt-8">
-              <div className="mb-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-jenny-dim">
+              <div className="mb-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-jenny-muted">
                 <div className="h-px flex-1 bg-jenny-hairline" />
                 or
                 <div className="h-px flex-1 bg-jenny-hairline" />
@@ -130,7 +130,7 @@ export function SignUp() {
       {step === "email" && (
         <>
           <JennyQuestion>Good to meet you, {firstName}.</JennyQuestion>
-          <p className="font-voice text-[28px] leading-[1.2] text-jenny-dim sm:text-[31px]">What&rsquo;s your email?</p>
+          <p className="font-voice text-[28px] leading-[1.2] text-jenny-muted sm:text-[31px]">What&rsquo;s your email?</p>
           <div className="mt-9 border-b border-jenny-gold pb-3">
             <input
               autoFocus
@@ -160,7 +160,7 @@ export function SignUp() {
             <button
               type="button"
               onClick={() => setShowPassword((v) => !v)}
-              className="shrink-0 text-jenny-dim"
+              className="shrink-0 text-jenny-muted"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
@@ -172,7 +172,7 @@ export function SignUp() {
             ))}
           </div>
           <p className="mt-3 text-[13px] leading-relaxed text-jenny-muted">{strength.label}</p>
-          <p className="mt-6 text-[11px] leading-relaxed text-jenny-faint">
+          <p className="mt-6 text-[11px] leading-relaxed text-jenny-muted">
             By continuing you agree to the terms and privacy policy.
           </p>
         </>

@@ -75,7 +75,7 @@ export function Providers() {
       </div>
 
       {error && <p className="text-sm text-jenny-bad">{error}</p>}
-      {!error && !rows && <p className="text-sm text-jenny-dim">Loading…</p>}
+      {!error && !rows && <p className="text-sm text-jenny-muted">Loading…</p>}
 
       {rows && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -106,23 +106,23 @@ export function Providers() {
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                     <div>
                       <p className="font-voice text-lg text-jenny-text">{ms(stats?.p50FirstTokenMs ?? null)}</p>
-                      <p className="text-[10px] uppercase tracking-wide text-jenny-faint">P50 TTFT</p>
+                      <p className="text-[10px] uppercase tracking-wide text-jenny-muted">P50 TTFT</p>
                     </div>
                     <div>
                       <p className="font-voice text-lg text-jenny-text">{ms(stats?.p95FirstTokenMs ?? null)}</p>
-                      <p className="text-[10px] uppercase tracking-wide text-jenny-faint">P95</p>
+                      <p className="text-[10px] uppercase tracking-wide text-jenny-muted">P95</p>
                     </div>
                     <div>
                       <p className="font-voice text-lg text-jenny-text">
                         {stats ? `${Math.round(stats.errorRate * 100)}%` : "—"}
                       </p>
-                      <p className="text-[10px] uppercase tracking-wide text-jenny-faint">Errors</p>
+                      <p className="text-[10px] uppercase tracking-wide text-jenny-muted">Errors</p>
                     </div>
                   </div>
                 )}
 
                 {row.name === "ollama" && hardware && (
-                  <p className="mt-3 border-t border-jenny-hairline-card pt-2.5 text-[11px] text-jenny-dim">
+                  <p className="mt-3 border-t border-jenny-hairline-card pt-2.5 text-[11px] text-jenny-muted">
                     {hardware.profile.label} · {hardware.freeMemoryGb}GB free of {hardware.totalMemoryGb}GB ·{" "}
                     {ollamaModels.length} model{ollamaModels.length === 1 ? "" : "s"} installed (not necessarily
                     resident — live residency isn&rsquo;t tracked yet)

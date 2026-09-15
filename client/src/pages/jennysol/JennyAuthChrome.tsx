@@ -39,7 +39,14 @@ export function JennyAuthChrome({
         >
           <IconArrowLeft size={19} />
         </button>
-        <div className="flex gap-1.5" role="progressbar" aria-valuenow={step} aria-valuemin={1} aria-valuemax={totalSteps}>
+        <div
+          className="flex gap-1.5"
+          role="progressbar"
+          aria-label={`Step ${step} of ${totalSteps}`}
+          aria-valuenow={step}
+          aria-valuemin={1}
+          aria-valuemax={totalSteps}
+        >
           {Array.from({ length: totalSteps }, (_, i) => (
             <span key={i} className={`block h-0.5 w-4 rounded-full ${i < step ? "bg-jenny-gold" : "bg-jenny-raised-2"}`} />
           ))}

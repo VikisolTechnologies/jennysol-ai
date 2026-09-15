@@ -87,7 +87,7 @@ export function SignIn() {
           </div>
           {GOOGLE_SIGN_IN_ENABLED && (
             <div className="mt-8">
-              <div className="mb-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-jenny-dim">
+              <div className="mb-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-jenny-muted">
                 <div className="h-px flex-1 bg-jenny-hairline" />
                 or
                 <div className="h-px flex-1 bg-jenny-hairline" />
@@ -111,7 +111,7 @@ export function SignIn() {
             <button
               type="button"
               onClick={() => setShowPassword((v) => !v)}
-              className="shrink-0 text-jenny-dim"
+              className="shrink-0 text-jenny-muted"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
               {showPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}

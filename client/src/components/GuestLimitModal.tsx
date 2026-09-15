@@ -60,7 +60,7 @@ export function GuestLimitModal({
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="shrink-0 rounded-lg p-1 text-jenny-dim hover:bg-jenny-raised hover:text-jenny-text-3" aria-label="Dismiss">
+          <button onClick={onClose} className="shrink-0 rounded-lg p-1 text-jenny-muted hover:bg-jenny-raised hover:text-jenny-text-3" aria-label="Dismiss">
             <IconX size={16} />
           </button>
         </div>

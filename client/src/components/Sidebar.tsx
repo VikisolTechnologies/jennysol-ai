@@ -207,7 +207,7 @@ export function Sidebar({
           <Orb state="asleep" size="sm" />
           <div>
             <h1 className="text-sm font-bold leading-tight text-jenny-text">JennySol</h1>
-            <p className="text-[11px] text-jenny-dim">Grounded chat assistant</p>
+            <p className="text-[11px] text-jenny-muted">Grounded chat assistant</p>
           </div>
         </div>
         <button
@@ -228,10 +228,10 @@ export function Sidebar({
       </button>
 
       <div className="flex-1 overflow-y-auto">
-        {conversations.length === 0 && <p className="px-2.5 py-3 text-xs text-jenny-faint">No chats yet — say something!</p>}
+        {conversations.length === 0 && <p className="px-2.5 py-3 text-xs text-jenny-muted">No chats yet — say something!</p>}
         {groupConversations(conversations).map((group) => (
           <div key={group.label} className="mb-3">
-            <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-jenny-faint">{group.label}</h3>
+            <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-jenny-muted">{group.label}</h3>
             <ul className="space-y-0.5">
               {group.items.map((c) => (
                 <li key={c.id} className="relative">
@@ -264,7 +264,7 @@ export function Sidebar({
                         menuTriggerRef.current = e.currentTarget;
                         setMenuOpenForId((prev) => (prev === c.id ? null : c.id));
                       }}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-jenny-dim transition hover:bg-jenny-raised-2 hover:text-jenny-text-2"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-jenny-muted transition hover:bg-jenny-raised-2 hover:text-jenny-text-2"
                       aria-label={`More options for "${c.title}"`}
                       aria-haspopup="menu"
                       aria-expanded={menuOpenForId === c.id}
@@ -272,7 +272,7 @@ export function Sidebar({
                       <IconDotsVertical size={15} />
                     </button>
                   </div>
-                  <span className="ml-2.5 block px-0.5 text-[10px] text-jenny-faint">{relativeTime(c.updatedAt)}</span>
+                  <span className="ml-2.5 block px-0.5 text-[10px] text-jenny-muted">{relativeTime(c.updatedAt)}</span>
 
                   {menuOpenForId === c.id && (
                     <div
@@ -327,7 +327,7 @@ export function Sidebar({
       <div className="shrink-0 border-t border-jenny-hairline pt-3">
         <button
           onClick={() => setDocumentsExpanded((v) => !v)}
-          className="flex min-h-11 w-full items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-jenny-faint hover:text-jenny-text-3"
+          className="flex min-h-11 w-full items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-jenny-muted hover:text-jenny-text-3"
         >
           <span>Documents {documents.length > 0 && `(${documents.length})`}</span>
           {documentsExpanded ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}
@@ -353,12 +353,12 @@ export function Sidebar({
             >
               <IconUpload
                 size={18}
-                className={uploading ? "animate-bounce text-jenny-gold" : "text-jenny-dim group-hover:text-jenny-gold"}
+                className={uploading ? "animate-bounce text-jenny-gold" : "text-jenny-muted group-hover:text-jenny-gold"}
               />
               <span className="text-[11px] font-medium text-jenny-text-3">
                 {uploading ? "Uploading…" : "Drop a file or click to upload"}
               </span>
-              <span className="text-[10px] text-jenny-faint">PDF, TXT, or MD</span>
+              <span className="text-[10px] text-jenny-muted">PDF, TXT, or MD</span>
               <input
                 ref={fileInput}
                 type="file"
@@ -387,14 +387,14 @@ export function Sidebar({
                       setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
                       await deleteDocument(doc.id);
                     }}
-                    className="shrink-0 text-jenny-dim opacity-0 transition hover:text-jenny-bad group-hover:opacity-100"
+                    className="shrink-0 text-jenny-muted opacity-0 transition hover:text-jenny-bad group-hover:opacity-100"
                     aria-label={`Delete ${doc.filename}`}
                   >
                     <IconTrash size={12} />
                   </button>
                 </li>
               ))}
-              {documents.length === 0 && <li className="px-2 py-2 text-[11px] text-jenny-faint">None yet — answers use general knowledge until you add some.</li>}
+              {documents.length === 0 && <li className="px-2 py-2 text-[11px] text-jenny-muted">None yet — answers use general knowledge until you add some.</li>}
             </ul>
           </div>
         )}
@@ -486,7 +486,7 @@ export function Sidebar({
               history now really does live only for this browser session
               (sessionStorage-backed identity, short server-side TTL), so
               this is no longer just a sign-up pitch, it's accurate. */}
-          <p className="px-2.5 text-[10px] text-jenny-faint">Your chat history is temporary and will be cleared when this browser session ends.</p>
+          <p className="px-2.5 text-[10px] text-jenny-muted">Your chat history is temporary and will be cleared when this browser session ends.</p>
           {/* Shared-device escape hatch — see docs/SECURITY_AUDIT.md. On a
               shared phone/computer, whoever opens Jennysol next would
               otherwise silently continue THIS guest's session (and see its
@@ -503,7 +503,7 @@ export function Sidebar({
                 void startNewGuestSession();
               }
             }}
-            className="px-2.5 text-left text-[10px] text-jenny-faint underline decoration-dotted transition hover:text-jenny-text-3"
+            className="px-2.5 text-left text-[10px] text-jenny-muted underline decoration-dotted transition hover:text-jenny-text-3"
           >
             Not you? Start a new session
           </button>
@@ -514,15 +514,15 @@ export function Sidebar({
         <div className="flex shrink-0 items-center justify-between gap-2 rounded-lg px-1 py-1">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold text-jenny-text-2">{user.name}</p>
-            <p className="truncate text-[10px] text-jenny-faint">{ROLES.find((r) => r.value === user.role)?.label ?? user.role}</p>
+            <p className="truncate text-[10px] text-jenny-muted">{ROLES.find((r) => r.value === user.role)?.label ?? user.role}</p>
           </div>
-          <button onClick={logout} className="shrink-0 rounded-lg p-1.5 text-jenny-dim transition hover:bg-jenny-raised hover:text-jenny-text-2" aria-label="Log out" title="Log out">
+          <button onClick={logout} className="shrink-0 rounded-lg p-1.5 text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2" aria-label="Log out" title="Log out">
             <IconLogout size={14} />
           </button>
         </div>
       )}
 
-      <p className="shrink-0 text-center text-[10px] text-jenny-faint">Powered by Vikisol · runs locally on your data</p>
+      <p className="shrink-0 text-center text-[10px] text-jenny-muted">Powered by Vikisol · runs locally on your data</p>
 
       {/* Lets two devices be compared directly (e.g. "are these actually
           two different identities, and the same app build?") instead of
@@ -530,7 +530,7 @@ export function Sidebar({
           is secret: user.id is already returned by /api/auth/me, and both
           build SHAs are the same information a repo commit log shows. */}
       {user && (
-        <details className="shrink-0 text-[10px] text-jenny-faint">
+        <details className="shrink-0 text-[10px] text-jenny-muted">
           <summary className="cursor-pointer select-none text-center hover:text-jenny-text-3">Diagnostics</summary>
           <div className="mt-1.5 space-y-1 rounded-lg bg-jenny-raised px-2 py-1.5 font-mono">
             <p>account: {user.isGuest ? "guest" : "full"}</p>

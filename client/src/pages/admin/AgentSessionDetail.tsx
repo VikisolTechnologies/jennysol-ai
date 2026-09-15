@@ -267,7 +267,7 @@ export function AgentSessionDetail() {
   }
 
   if (error && !session) return <p className="text-sm text-jenny-bad">{error}</p>;
-  if (!session) return <p className="text-sm text-jenny-dim">Loading…</p>;
+  if (!session) return <p className="text-sm text-jenny-muted">Loading…</p>;
 
   const taskById = new Map(tasks.map((t) => [t.id, t]));
   const agentById = new Map(agents.map((a) => [a.id, a]));
@@ -290,7 +290,7 @@ export function AgentSessionDetail() {
             {isActive && tasks.length > 0 && ` · ${tasks.filter((t) => t.status === "completed").length} OF ${tasks.length}`}
           </p>
           <h1 className="mt-1 font-voice text-xl text-jenny-text">{session.objective}</h1>
-          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-jenny-dim">
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-jenny-muted">
             <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${SESSION_STATUS_STYLES[session.status] ?? SESSION_STATUS_STYLES.planning}`}>
               {session.status}
             </span>
@@ -399,9 +399,9 @@ export function AgentSessionDetail() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <section className="rounded-2xl bg-jenny-raised p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">Agents ({agents.length})</h3>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-muted">Agents ({agents.length})</h3>
           {agents.length === 0 ? (
-            <p className="text-xs text-jenny-dim">No agents spawned yet.</p>
+            <p className="text-xs text-jenny-muted">No agents spawned yet.</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {agents.map((a) => {
@@ -411,21 +411,21 @@ export function AgentSessionDetail() {
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-jenny-text-2">{a.displayName}</span>
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="text-jenny-dim">{a.status}</span>
+                        <span className="text-jenny-muted">{a.status}</span>
                         {killable && (
                           <button
                             type="button"
                             title="Kill this agent"
                             onClick={() => handleKill(a.id)}
                             disabled={!!controlBusy}
-                            className="rounded-md p-1 text-jenny-dim transition hover:bg-jenny-bad/10 hover:text-jenny-bad disabled:opacity-50"
+                            className="rounded-md p-1 text-jenny-muted transition hover:bg-jenny-bad/10 hover:text-jenny-bad disabled:opacity-50"
                           >
                             {controlBusy === `kill:${a.id}` ? <IconLoader2 size={12} className="animate-spin" /> : <IconSkull size={12} />}
                           </button>
                         )}
                       </div>
                     </div>
-                    <p className="mt-0.5 text-jenny-dim">{a.modelProvider ?? "no model yet"} · {a.tokensUsed} tokens</p>
+                    <p className="mt-0.5 text-jenny-muted">{a.modelProvider ?? "no model yet"} · {a.tokensUsed} tokens</p>
                   </li>
                 );
               })}
@@ -434,11 +434,11 @@ export function AgentSessionDetail() {
         </section>
 
         <section className="rounded-2xl bg-jenny-raised p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-muted">
             Tasks ({tasks.filter((t) => t.status === "completed").length}/{tasks.length})
           </h3>
           {tasks.length === 0 ? (
-            <p className="text-xs text-jenny-dim">No tasks yet.</p>
+            <p className="text-xs text-jenny-muted">No tasks yet.</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {tasks.map((t) => (
@@ -455,14 +455,14 @@ export function AgentSessionDetail() {
                           title="Retry this task from where it failed"
                           onClick={() => handleRetry(t.id)}
                           disabled={!!controlBusy}
-                          className="rounded-md p-1 text-jenny-dim transition hover:bg-jenny-gold/10 hover:text-jenny-gold disabled:opacity-50"
+                          className="rounded-md p-1 text-jenny-muted transition hover:bg-jenny-gold/10 hover:text-jenny-gold disabled:opacity-50"
                         >
                           {controlBusy === `retry:${t.id}` ? <IconLoader2 size={12} className="animate-spin" /> : <IconRefresh size={12} />}
                         </button>
                       )}
                     </div>
                   </div>
-                  <p className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-jenny-dim">
+                  <p className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-jenny-muted">
                     {t.startedAt && <span>{elapsed(t.startedAt, t.completedAt)}</span>}
                     {t.dependsOn.length > 0 && <span>depends on: {t.dependsOn.map((depId) => taskById.get(depId)?.title ?? depId).join(", ")}</span>}
                   </p>
@@ -473,15 +473,15 @@ export function AgentSessionDetail() {
         </section>
 
         <section className="rounded-2xl bg-jenny-raised p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">Memory ({memory.length} keys)</h3>
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-muted">Memory ({memory.length} keys)</h3>
           {memory.length === 0 ? (
-            <p className="text-xs text-jenny-dim">No shared memory written yet.</p>
+            <p className="text-xs text-jenny-muted">No shared memory written yet.</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {memory.map((m) => (
                 <li key={m.key} className="rounded-lg bg-jenny-raised-2/60 p-2 text-xs">
                   <span className="font-medium text-jenny-text-2">{m.key}</span>
-                  <p className="mt-0.5 truncate text-jenny-dim">{JSON.stringify(m.value)}</p>
+                  <p className="mt-0.5 truncate text-jenny-muted">{JSON.stringify(m.value)}</p>
                 </li>
               ))}
             </ul>
@@ -490,9 +490,9 @@ export function AgentSessionDetail() {
       </div>
 
       <section className="rounded-2xl bg-jenny-raised p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">Artifacts ({artifacts.length})</h3>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-muted">Artifacts ({artifacts.length})</h3>
         {artifacts.length === 0 ? (
-          <p className="text-xs text-jenny-dim">Nothing written or run yet.</p>
+          <p className="text-xs text-jenny-muted">Nothing written or run yet.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {artifacts.map((a) => (
@@ -531,7 +531,7 @@ export function AgentSessionDetail() {
         return (
           <section key={t.id} className="rounded-2xl bg-jenny-raised p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-jenny-faint">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-jenny-muted">
                 Visual QA — {r.findings.length} finding{r.findings.length === 1 ? "" : "s"}
               </h3>
               <span
@@ -565,7 +565,7 @@ export function AgentSessionDetail() {
                             return next;
                           })
                         }
-                        className="shrink-0 text-[10px] font-medium uppercase text-jenny-dim hover:text-jenny-text-3"
+                        className="shrink-0 text-[10px] font-medium uppercase text-jenny-muted hover:text-jenny-text-3"
                       >
                         {reviewed ? "Confirmed" : "Confirm"}
                       </button>
@@ -579,14 +579,14 @@ export function AgentSessionDetail() {
       })}
 
       <section className="rounded-2xl bg-jenny-raised p-4">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">Activity</h3>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-muted">Activity</h3>
         {events.length === 0 ? (
-          <p className="text-xs text-jenny-dim">No events yet.</p>
+          <p className="text-xs text-jenny-muted">No events yet.</p>
         ) : (
           <ul className="flex max-h-80 flex-col gap-1 overflow-auto font-mono text-[11px] text-jenny-text-3">
             {events.map((e) => (
               <li key={e.id}>
-                <span className="text-jenny-faint">{new Date(e.createdAt).toLocaleTimeString()}</span> {formatEventLine(e)}
+                <span className="text-jenny-muted">{new Date(e.createdAt).toLocaleTimeString()}</span> {formatEventLine(e)}
               </li>
             ))}
           </ul>

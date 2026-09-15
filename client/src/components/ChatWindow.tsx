@@ -178,19 +178,26 @@ export function ChatWindow({
   );
 
   const lastMessage = messages[messages.length - 1];
-  const orbState: OrbState = assistantSpeaking
-    ? "speaking"
-    : sending
-      ? lastMessage?.imageLoading
-        ? "tool"
-        : "thinking"
-      : voiceConv.state === "listening"
-        ? "listening"
-        : voiceConv.state === "sleeping"
-          ? "sleeping"
-          : voiceConv.state === "paused"
-            ? "paused"
-            : "idle";
+  // JENNYSOL-UI-BUILD.md §3: "Unavailable must actually render when the
+  // provider chain fails or the mic is muted. Never leave a dead orb
+  // looking alive." voiceConv.error is real (mic-denied / no device found —
+  // see useVoiceConversation.ts) — before this the orb had no way to show
+  // that state at all and just kept breathing as if everything were fine.
+  const orbState: OrbState = voiceConv.error
+    ? "unavailable"
+    : assistantSpeaking
+      ? "speaking"
+      : sending
+        ? lastMessage?.imageLoading
+          ? "tool"
+          : "thinking"
+        : voiceConv.state === "listening"
+          ? "listening"
+          : voiceConv.state === "sleeping"
+            ? "sleeping"
+            : voiceConv.state === "paused"
+              ? "paused"
+              : "idle";
 
   function handleInterrupt() {
     stopSpeaking(); // resolves the in-flight speak() promise too, so playback state never gets stuck
@@ -623,7 +630,7 @@ export function ChatWindow({
                 {voiceConv.state !== "off" && (
                   <button
                     onClick={voiceConv.stop}
-                    className="rounded-lg p-2 text-jenny-dim transition hover:bg-jenny-raised hover:text-jenny-text-3"
+                    className="rounded-lg p-2 text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-3"
                     aria-label="End voice conversation"
                     title="End voice conversation"
                   >
@@ -639,7 +646,7 @@ export function ChatWindow({
               // beats a feature that just isn't there.
               <button
                 disabled
-                className="flex cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-jenny-faint"
+                className="flex cursor-not-allowed items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-jenny-muted"
                 aria-label="Voice isn't supported in this browser"
                 title="Voice isn't supported in this browser — try Chrome, Edge, or Safari"
               >
@@ -755,7 +762,7 @@ export function ChatWindow({
               ))}
             </div>
             <p
-              className={`text-[10px] text-jenny-faint transition-opacity duration-300 ${
+              className={`text-[10px] text-jenny-muted transition-opacity duration-300 ${
                 keyboardOpen ? "opacity-0" : "opacity-100"
               }`}
             >
@@ -791,17 +798,21 @@ export function ChatWindow({
           <div className="mx-auto mb-3 flex max-w-3xl animate-fade-in items-center gap-2.5 rounded-2xl bg-jenny-raised px-3 py-2">
             <VoiceOrb state={orbState} size="sm" onInterrupt={handleInterrupt} />
             <span className="text-xs text-jenny-muted">
-              {orbState === "speaking"
-                ? "Speaking — tap the orb to interrupt"
-                : orbState === "listening"
-                  ? "Listening…"
-                  : orbState === "thinking"
-                    ? "Thinking…"
-                    : orbState === "tool"
-                      ? "Working on it…"
-                      : orbState === "paused"
-                        ? "Paused"
-                        : "Listening for “Hey Jenny”…"}
+              {orbState === "unavailable"
+                ? voiceConv.error === "mic-denied"
+                  ? "Microphone blocked — allow it in your browser settings"
+                  : "No microphone found on this device"
+                : orbState === "speaking"
+                  ? "Speaking — tap the orb to interrupt"
+                  : orbState === "listening"
+                    ? "Listening…"
+                    : orbState === "thinking"
+                      ? "Thinking…"
+                      : orbState === "tool"
+                        ? "Working on it…"
+                        : orbState === "paused"
+                          ? "Paused"
+                          : "Listening for “Hey Jenny”…"}
             </span>
           </div>
         )}
@@ -813,6 +824,7 @@ export function ChatWindow({
                 !imageMode ? "bg-jenny-gold text-jenny-ink-on-gold" : "text-jenny-muted hover:text-jenny-text-2"
               }`}
               aria-pressed={!imageMode}
+              aria-label="Chat mode"
             >
               <IconMessage size={13} />
               <span className="hidden sm:inline">Chat</span>
@@ -823,6 +835,7 @@ export function ChatWindow({
                 imageMode ? "bg-jenny-gold text-jenny-ink-on-gold" : "text-jenny-muted hover:text-jenny-text-2"
               }`}
               aria-pressed={imageMode}
+              aria-label="Image mode"
             >
               <IconPhoto size={13} />
               <span className="hidden sm:inline">Image</span>
@@ -838,7 +851,7 @@ export function ChatWindow({
                     ? "animate-pulse bg-jenny-bad text-jenny-void"
                     : speech.error
                       ? "text-jenny-warn"
-                      : "text-jenny-dim hover:bg-jenny-raised-2 hover:text-jenny-text-3"
+                      : "text-jenny-muted hover:bg-jenny-raised-2 hover:text-jenny-text-3"
                 }`}
                 aria-label={speech.listening ? "Stop listening" : "Speak your message"}
                 title={
@@ -869,7 +882,7 @@ export function ChatWindow({
               }}
               rows={1}
               placeholder={imageMode ? "Describe…" : "Ask Jenny…"}
-              className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-base text-jenny-text outline-none placeholder:text-jenny-dim"
+              className="max-h-40 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-base text-jenny-text outline-none placeholder:text-jenny-muted"
             />
             {sending ? (
               <button
@@ -893,7 +906,7 @@ export function ChatWindow({
             )}
           </div>
         </div>
-        <p className="mt-2 text-center text-[10px] text-jenny-faint">
+        <p className="mt-2 text-center text-[10px] text-jenny-muted">
           JennySol can make mistakes. Verify important information.
         </p>
       </div>

@@ -81,7 +81,7 @@ export function MessageBubble({
                 <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current [animation-delay:-0.15s]" />
                 <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-current" />
               </span>
-              {statusLabel && <span className="text-xs text-jenny-dim">{statusLabel}</span>}
+              {statusLabel && <span className="text-xs text-jenny-muted">{statusLabel}</span>}
             </span>
           ) : (
             // Not streaming and no content — a genuinely finished reply with
@@ -89,11 +89,11 @@ export function MessageBubble({
             // non-empty guarantee — but covers any pre-existing message and
             // any future edge case) rather than looking identical to "still
             // thinking forever".
-            <span className="italic text-jenny-dim">No response.</span>
+            <span className="italic text-jenny-muted">No response.</span>
           )}
         </div>
 
-        {provenance && <p className="px-1 text-[11px] text-jenny-dim">Arena · {provenance}</p>}
+        {provenance && <p className="px-1 text-[11px] text-jenny-muted">Arena · {provenance}</p>}
 
         {sources && sources.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1">
@@ -130,7 +130,7 @@ export function MessageBubble({
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             }}
-            className="ml-1 flex items-center gap-1 text-[10px] text-jenny-dim opacity-0 transition hover:text-jenny-text-3 group-hover:opacity-100"
+            className="ml-1 flex items-center gap-1 text-[10px] text-jenny-muted opacity-0 transition hover:text-jenny-text-3 group-hover:opacity-100"
           >
             {copied ? <Check size={11} /> : <Copy size={11} />}
             {copied ? "Copied" : "Copy"}

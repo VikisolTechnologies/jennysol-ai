@@ -45,20 +45,20 @@ export function Settings() {
           <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-jenny-gold">Routing</h2>
           <div className="rounded-2xl bg-jenny-raised p-4">
             {providers === null ? (
-              <p className="text-xs text-jenny-dim">Only visible to admin accounts on this deployment.</p>
+              <p className="text-xs text-jenny-muted">Only visible to admin accounts on this deployment.</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {providers.map((p) => (
                   <li key={p.name} className="flex items-center justify-between text-sm">
                     <span className="text-jenny-text-2">{p.name}</span>
-                    <span className="text-xs text-jenny-dim">
+                    <span className="text-xs text-jenny-muted">
                       {!p.configured ? "not configured" : p.inActiveChain ? "in chain" : "not in chain"}
                     </span>
                   </li>
                 ))}
               </ul>
             )}
-            <p className="mt-3 text-[11px] text-jenny-faint">
+            <p className="mt-3 text-[11px] text-jenny-muted">
               Read-only — changing which model answers your questions isn&rsquo;t a per-user setting on this
               deployment.
             </p>
@@ -84,7 +84,7 @@ export function Settings() {
                 <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-jenny-text transition-transform ${spokenReplies ? "translate-x-5" : "translate-x-0.5"}`} />
               </button>
             </label>
-            <p className="mt-2 text-[11px] text-jenny-faint">
+            <p className="mt-2 text-[11px] text-jenny-muted">
               When on, a typed or spoken question gets a spoken answer too. The voice itself is picked from the
               speaker icon in chat.
             </p>
@@ -100,7 +100,7 @@ export function Settings() {
                 <IconLock size={11} /> Locked
               </span>
             </div>
-            <p className="mt-2 text-[11px] text-jenny-faint">
+            <p className="mt-2 text-[11px] text-jenny-muted">
               Not a toggle by design — every file write or command an agent proposes waits for your explicit
               approval, one at a time, with no setting that turns it off.
             </p>

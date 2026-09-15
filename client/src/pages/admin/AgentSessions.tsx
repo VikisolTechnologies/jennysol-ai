@@ -72,7 +72,7 @@ export function AgentSessions() {
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
             placeholder="Describe a real, small objective — e.g. &ldquo;Add a health-check endpoint that returns the build version&rdquo;"
-            className="w-full resize-none rounded-xl bg-jenny-raised-2 px-3 py-2.5 text-sm text-jenny-text outline-none placeholder:text-jenny-dim focus:ring-1 focus:ring-jenny-gold"
+            className="w-full resize-none rounded-xl bg-jenny-raised-2 px-3 py-2.5 text-sm text-jenny-text outline-none placeholder:text-jenny-muted focus:ring-1 focus:ring-jenny-gold"
           />
           {startError && <p className="mt-1.5 text-xs text-jenny-bad">{startError}</p>}
         </div>
@@ -87,7 +87,7 @@ export function AgentSessions() {
       </form>
 
       {error && <p className="text-sm text-jenny-bad">{error}</p>}
-      {!error && !sessions && <p className="text-sm text-jenny-dim">Loading…</p>}
+      {!error && !sessions && <p className="text-sm text-jenny-muted">Loading…</p>}
 
       {sessions && sessions.length === 0 && (
         <div className="flex items-start gap-2.5 rounded-xl border border-dashed border-jenny-border bg-jenny-raised px-4 py-3 text-sm text-jenny-text-3">
@@ -106,7 +106,7 @@ export function AgentSessions() {
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-jenny-text">{s.objective}</p>
-                <p className="mt-1 flex items-center gap-1 text-xs text-jenny-dim">
+                <p className="mt-1 flex items-center gap-1 text-xs text-jenny-muted">
                   <IconClock size={12} /> {new Date(s.createdAt).toLocaleString()}
                 </p>
               </div>

@@ -84,7 +84,7 @@ export function AgentApprovals() {
       </div>
 
       {error && <p className="text-sm text-jenny-bad">{error}</p>}
-      {!error && !actions && <p className="text-sm text-jenny-dim">Loading…</p>}
+      {!error && !actions && <p className="text-sm text-jenny-muted">Loading…</p>}
 
       {actions && actions.length === 0 && (
         <div className="flex items-start gap-2.5 rounded-xl border border-dashed border-jenny-border bg-jenny-raised px-4 py-3 text-sm text-jenny-text-3">

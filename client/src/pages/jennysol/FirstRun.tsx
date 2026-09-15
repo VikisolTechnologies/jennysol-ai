@@ -68,7 +68,7 @@ export function FirstRun() {
           >
             <Icon size={19} className="shrink-0 text-jenny-text-3" />
             <span className="flex-1 text-[14px] text-jenny-text-2">{label}</span>
-            <IconArrowUpRight size={16} className="shrink-0 text-jenny-faint" />
+            <IconArrowUpRight size={16} className="shrink-0 text-jenny-muted" />
           </button>
         ))}
       </div>
@@ -85,7 +85,7 @@ export function FirstRun() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask Jenny"
-            className="w-full bg-transparent text-[14px] text-jenny-text outline-none placeholder:text-jenny-dim"
+            className="w-full bg-transparent text-[14px] text-jenny-text outline-none placeholder:text-jenny-muted"
           />
         </form>
         <button

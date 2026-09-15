@@ -1,7 +1,7 @@
 import { Wrench } from "lucide-react";
 import { Orb, type OrbState as JennyOrbState } from "./orb/Orb";
 
-export type OrbState = "idle" | "sleeping" | "paused" | "listening" | "thinking" | "tool" | "speaking";
+export type OrbState = "idle" | "sleeping" | "paused" | "listening" | "thinking" | "tool" | "speaking" | "unavailable";
 
 // Thin adapter over the real shared Orb (components/orb/Orb.tsx) —
 // JENNYSOL-UI-BUILD.md §3's "one single component" requirement, satisfied
@@ -21,6 +21,7 @@ const STATE_MAP: Record<OrbState, JennyOrbState> = {
   thinking: "thinking",
   tool: "thinking",
   speaking: "speaking",
+  unavailable: "unavailable",
 };
 
 // Old "lg" was the large chat-hero orb (112-144px) — closer to the new
