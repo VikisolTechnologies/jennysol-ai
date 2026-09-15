@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  ArrowLeft,
-  AlertTriangle,
-  Check,
-  FileEdit,
-  Loader2,
-  Pause,
-  Play,
-  RotateCcw,
-  Skull,
-  Terminal,
-  X,
-  XCircle,
-} from "lucide-react";
+  IconArrowLeft,
+  IconAlertTriangle,
+  IconCheck,
+  IconFileText,
+  IconLoader2,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconRefresh,
+  IconSkull,
+  IconTerminal2,
+  IconX,
+  IconPlayerStop,
+} from "@tabler/icons-react";
 import {
   approveAgentAction,
   cancelAgentSession,
@@ -33,25 +33,28 @@ import {
   type SessionMemoryEntryRow,
 } from "../../lib/admin";
 
+// JENNYSOL-UI-BUILD.md §6.3 "Run view" — completed nodes dim to muted, the
+// running node stays text-colored with a gold outline; §6.2's RUNNING
+// gold / COMPLETED ok / FAILED bad / CANCELLED muted carries over here too.
 const TASK_STATUS_STYLES: Record<string, string> = {
-  pending: "bg-neutral-100 text-neutral-500 dark:bg-white/5 dark:text-neutral-400",
-  ready: "bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-200",
-  queued: "bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-200",
-  running: "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200",
-  blocked: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200",
-  awaiting_approval: "bg-amber-100 text-amber-800 dark:bg-amber-500/25 dark:text-amber-100",
-  completed: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200",
-  failed: "bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-200",
-  cancelled: "bg-neutral-100 text-neutral-500 dark:bg-white/5 dark:text-neutral-400",
+  pending: "bg-jenny-raised-2 text-jenny-muted",
+  ready: "bg-jenny-champagne/15 text-jenny-champagne",
+  queued: "bg-jenny-champagne/15 text-jenny-champagne",
+  running: "bg-jenny-gold/15 text-jenny-gold",
+  blocked: "bg-jenny-warn/15 text-jenny-warn",
+  awaiting_approval: "bg-jenny-gold/20 text-jenny-champagne",
+  completed: "bg-jenny-ok/15 text-jenny-ok",
+  failed: "bg-jenny-bad/15 text-jenny-bad",
+  cancelled: "bg-jenny-raised-2 text-jenny-muted",
 };
 
 const SESSION_STATUS_STYLES: Record<string, string> = {
-  planning: "bg-neutral-100 text-neutral-500 dark:bg-white/5 dark:text-neutral-400",
-  running: "bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200",
-  paused: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200",
-  completed: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200",
-  cancelled: "bg-neutral-100 text-neutral-500 dark:bg-white/5 dark:text-neutral-400",
-  failed: "bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-200",
+  planning: "bg-jenny-raised-2 text-jenny-muted",
+  running: "bg-jenny-gold/15 text-jenny-champagne",
+  paused: "bg-jenny-warn/15 text-jenny-warn",
+  completed: "bg-jenny-ok/15 text-jenny-ok",
+  cancelled: "bg-jenny-raised-2 text-jenny-muted",
+  failed: "bg-jenny-bad/15 text-jenny-bad",
 };
 
 function formatEventLine(event: SessionEventRow): string {
@@ -80,6 +83,17 @@ interface ArtifactRow {
   exitCode?: number | null;
   stdout?: string;
   stderr?: string;
+}
+
+interface VisualQaResult {
+  verdict: "pass" | "concerns";
+  findings: string[];
+  screenshotBase64: string;
+}
+function isVisualQaResult(result: unknown): result is VisualQaResult {
+  if (!result || typeof result !== "object") return false;
+  const r = result as Record<string, unknown>;
+  return typeof r.screenshotBase64 === "string" && (r.verdict === "pass" || r.verdict === "concerns");
 }
 
 // The real, sole source of truth (architecture doc §3/§8): every artifact shown here is a real
@@ -120,6 +134,13 @@ export function AgentSessionDetail() {
   const [connected, setConnected] = useState(false);
   const [controlBusy, setControlBusy] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
+  // Visual QA §6.6 "Confirm/Dismiss actions per finding" — ephemeral,
+  // client-only review state (a checked-off box, not a persisted decision):
+  // there is no real backend endpoint for "this finding was reviewed", and
+  // inventing one just to make this toggle survive a reload would be
+  // exactly the fabricated-capability failure mode this whole build avoids
+  // everywhere else. Resets on refresh/navigation, honestly.
+  const [reviewedFindings, setReviewedFindings] = useState<Set<string>>(new Set());
   const lastEventId = useRef(0);
   const [, forceTick] = useState(0);
 
@@ -245,8 +266,8 @@ export function AgentSessionDetail() {
     }
   }
 
-  if (error && !session) return <p className="text-sm text-rose-500">{error}</p>;
-  if (!session) return <p className="text-sm text-neutral-400">Loading…</p>;
+  if (error && !session) return <p className="text-sm text-jenny-bad">{error}</p>;
+  if (!session) return <p className="text-sm text-jenny-dim">Loading…</p>;
 
   const taskById = new Map(tasks.map((t) => [t.id, t]));
   const agentById = new Map(agents.map((a) => [a.id, a]));
@@ -254,25 +275,23 @@ export function AgentSessionDetail() {
   const totalTokens = agents.reduce((sum, a) => sum + a.tokensUsed, 0);
   const artifacts = extractArtifacts(events);
   const isActive = session.status === "running" || session.status === "planning" || session.status === "paused";
+  const visualQaTasks = tasks.filter((t) => isVisualQaResult(t.result));
 
   return (
-    <div className="flex flex-col gap-6">
-      <Link
-        to="/admin/agent-sessions"
-        className="inline-flex w-fit items-center gap-1.5 text-sm text-neutral-500 hover:text-brand-500 dark:text-neutral-400"
-      >
-        <ArrowLeft size={14} /> Back to sessions
+    <div className="-m-6 flex min-h-[calc(var(--app-vh)-0px)] flex-col gap-6 bg-jenny-void p-6 sm:-m-8 sm:p-8">
+      <Link to="/admin/agent-sessions" className="inline-flex w-fit items-center gap-1.5 text-sm text-jenny-muted hover:text-jenny-champagne">
+        <IconArrowLeft size={14} /> Back to sessions
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-lg font-bold text-neutral-800 dark:text-neutral-100">{session.objective}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-400">
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                SESSION_STATUS_STYLES[session.status] ?? SESSION_STATUS_STYLES.planning
-              }`}
-            >
+          <p className="text-[10px] tracking-[0.25em] text-jenny-gold">
+            {session.status.toUpperCase()}
+            {isActive && tasks.length > 0 && ` · ${tasks.filter((t) => t.status === "completed").length} OF ${tasks.length}`}
+          </p>
+          <h1 className="mt-1 font-voice text-xl text-jenny-text">{session.objective}</h1>
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-jenny-dim">
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${SESSION_STATUS_STYLES[session.status] ?? SESSION_STATUS_STYLES.planning}`}>
               {session.status}
             </span>
             <span>{connected ? "live" : "reconnecting…"}</span>
@@ -289,61 +308,61 @@ export function AgentSessionDetail() {
                 type="button"
                 onClick={() => handleControl("resume")}
                 disabled={!!controlBusy}
-                className="flex items-center gap-1.5 rounded-xl bg-brand-500 px-3.5 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-xl bg-jenny-gold px-3.5 py-2.5 text-xs font-semibold text-jenny-ink-on-gold transition hover:opacity-90 disabled:opacity-50"
               >
-                {controlBusy === "resume" ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Resume
+                {controlBusy === "resume" ? <IconLoader2 size={14} className="animate-spin" /> : <IconPlayerPlay size={14} />} Resume
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => handleControl("pause")}
                 disabled={!!controlBusy}
-                className="flex items-center gap-1.5 rounded-xl border border-neutral-200 px-3.5 py-2.5 text-xs font-semibold text-neutral-600 transition hover:border-amber-300 hover:text-amber-700 disabled:opacity-50 dark:border-white/10 dark:text-neutral-300"
+                className="flex items-center gap-1.5 rounded-xl border border-jenny-border px-3.5 py-2.5 text-xs font-semibold text-jenny-text-3 transition hover:border-jenny-warn hover:text-jenny-warn disabled:opacity-50"
               >
-                {controlBusy === "pause" ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />} Pause
+                {controlBusy === "pause" ? <IconLoader2 size={14} className="animate-spin" /> : <IconPlayerPause size={14} />} Pause
               </button>
             )}
             <button
               type="button"
               onClick={() => handleControl("cancel")}
               disabled={!!controlBusy}
-              className="flex items-center gap-1.5 rounded-xl border border-rose-200 px-3.5 py-2.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50 dark:border-rose-500/30 dark:hover:bg-rose-500/10"
+              className="flex items-center gap-1.5 rounded-xl border border-jenny-bad/40 px-3.5 py-2.5 text-xs font-semibold text-jenny-bad transition hover:bg-jenny-bad/10 disabled:opacity-50"
             >
-              {controlBusy === "cancel" ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />} Cancel
+              {controlBusy === "cancel" ? <IconLoader2 size={14} className="animate-spin" /> : <IconPlayerStop size={14} />} Cancel
             </button>
           </div>
         )}
       </div>
 
-      {error && <p className="text-sm text-rose-500">{error}</p>}
+      {error && <p className="text-sm text-jenny-bad">{error}</p>}
 
-      {/* Stage B §2.3: the single most important state in the system, made unmissable. */}
+      {/* JENNYSOL-UI-BUILD.md §6.3: "Anything awaiting approval renders as a
+          gold-bordered block on #2A1C06. This is the most important state
+          in the system and must be impossible to miss." */}
       {(blockedOrWaiting.length > 0 || pending.length > 0) && (
-        <section className="rounded-2xl border-2 border-amber-300 bg-amber-50/50 p-4 dark:border-amber-500/40 dark:bg-amber-500/10">
-          <h3 className="flex items-center gap-1.5 text-sm font-bold text-amber-800 dark:text-amber-200">
-            <AlertTriangle size={16} /> Waiting on you ({pending.length || blockedOrWaiting.length})
+        <section className="rounded-2xl border-2 border-jenny-gold bg-jenny-ink-on-gold p-4">
+          <h3 className="flex items-center gap-1.5 text-sm font-bold text-jenny-champagne">
+            <IconAlertTriangle size={16} /> Waiting on you ({pending.length || blockedOrWaiting.length})
           </h3>
           <ul className="mt-3 flex flex-col gap-3">
             {pending.map((a) => (
-              <li key={a.id} className="rounded-xl border border-amber-200 bg-white p-3 dark:border-amber-500/30 dark:bg-black/20">
+              <li key={a.id} className="rounded-xl border border-jenny-gold-mid bg-black/20 p-3">
                 {a.toolName === "file.write" ? (
                   <div>
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-                      <FileEdit size={14} className="text-brand-500" /> Write{" "}
-                      <code className="font-mono">{String(a.args.filePath ?? "?")}</code>
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-jenny-text">
+                      <IconFileText size={14} className="text-jenny-gold" /> Write <code className="font-mono">{String(a.args.filePath ?? "?")}</code>
                     </p>
-                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-neutral-50 p-2 font-mono text-[11px] text-neutral-600 dark:bg-black/30 dark:text-neutral-300">
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 p-2 font-mono text-[11px] text-jenny-text-3">
                       {String(a.args.content ?? "")}
                     </pre>
                   </div>
                 ) : (
                   <div>
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-                      <Terminal size={14} className="text-brand-500" /> Run a command
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-jenny-text">
+                      <IconTerminal2 size={14} className="text-jenny-gold" /> Run a command
                     </p>
-                    <pre className="mt-2 overflow-auto rounded-lg bg-neutral-50 p-2 font-mono text-[11px] text-neutral-600 dark:bg-black/30 dark:text-neutral-300">
-                      cd {String(a.args.cwd ?? ".")} && {String(a.args.command ?? "?")}{" "}
-                      {Array.isArray(a.args.args) ? (a.args.args as unknown[]).join(" ") : ""}
+                    <pre className="mt-2 overflow-auto rounded-lg bg-black/30 p-2 font-mono text-[11px] text-jenny-text-3">
+                      cd {String(a.args.cwd ?? ".")} && {String(a.args.command ?? "?")} {Array.isArray(a.args.args) ? (a.args.args as unknown[]).join(" ") : ""}
                     </pre>
                   </div>
                 )}
@@ -352,24 +371,24 @@ export function AgentSessionDetail() {
                     type="button"
                     onClick={() => decide(a.id, "approve")}
                     disabled={!!deciding}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50 sm:flex-none sm:px-5"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-jenny-ok py-2.5 text-xs font-semibold text-jenny-void transition hover:opacity-90 disabled:opacity-50 sm:flex-none sm:px-5"
                   >
-                    {deciding === a.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Approve
+                    {deciding === a.id ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />} Approve
                   </button>
                   <button
                     type="button"
                     onClick={() => decide(a.id, "reject")}
                     disabled={!!deciding}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-rose-600 py-2.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50 sm:flex-none sm:px-5"
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-jenny-bad py-2.5 text-xs font-semibold text-jenny-void transition hover:opacity-90 disabled:opacity-50 sm:flex-none sm:px-5"
                   >
-                    {deciding === a.id ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} Reject
+                    {deciding === a.id ? <IconLoader2 size={13} className="animate-spin" /> : <IconX size={13} />} Reject
                   </button>
                 </div>
               </li>
             ))}
             {pending.length === 0 &&
               blockedOrWaiting.map((t) => (
-                <li key={t.id} className="text-xs text-amber-700 dark:text-amber-200">
+                <li key={t.id} className="text-xs text-jenny-champagne">
                   <code className="font-mono">{t.title}</code> is {t.status.replace("_", " ")}
                   {t.agentId && agentById.get(t.agentId) ? ` (${agentById.get(t.agentId)!.displayName})` : ""}
                 </li>
@@ -379,42 +398,34 @@ export function AgentSessionDetail() {
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-            Agents ({agents.length})
-          </h3>
+        <section className="rounded-2xl bg-jenny-raised p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">Agents ({agents.length})</h3>
           {agents.length === 0 ? (
-            <p className="text-xs text-neutral-400">No agents spawned yet.</p>
+            <p className="text-xs text-jenny-dim">No agents spawned yet.</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {agents.map((a) => {
                 const killable = a.status !== "cancelled" && a.status !== "completed" && a.status !== "failed";
                 return (
-                  <li key={a.id} className="rounded-lg border border-neutral-100 p-2 text-xs dark:border-white/10">
+                  <li key={a.id} className="rounded-lg bg-jenny-raised-2/60 p-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-neutral-700 dark:text-neutral-200">{a.displayName}</span>
+                      <span className="font-medium text-jenny-text-2">{a.displayName}</span>
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="text-neutral-400">{a.status}</span>
+                        <span className="text-jenny-dim">{a.status}</span>
                         {killable && (
                           <button
                             type="button"
                             title="Kill this agent"
                             onClick={() => handleKill(a.id)}
                             disabled={!!controlBusy}
-                            className="rounded-md p-1 text-neutral-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 dark:hover:bg-rose-500/10"
+                            className="rounded-md p-1 text-jenny-dim transition hover:bg-jenny-bad/10 hover:text-jenny-bad disabled:opacity-50"
                           >
-                            {controlBusy === `kill:${a.id}` ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Skull size={12} />
-                            )}
+                            {controlBusy === `kill:${a.id}` ? <IconLoader2 size={12} className="animate-spin" /> : <IconSkull size={12} />}
                           </button>
                         )}
                       </div>
                     </div>
-                    <p className="mt-0.5 text-neutral-400">
-                      {a.modelProvider ?? "no model yet"} · {a.tokensUsed} tokens
-                    </p>
+                    <p className="mt-0.5 text-jenny-dim">{a.modelProvider ?? "no model yet"} · {a.tokensUsed} tokens</p>
                   </li>
                 );
               })}
@@ -422,24 +433,20 @@ export function AgentSessionDetail() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+        <section className="rounded-2xl bg-jenny-raised p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">
             Tasks ({tasks.filter((t) => t.status === "completed").length}/{tasks.length})
           </h3>
           {tasks.length === 0 ? (
-            <p className="text-xs text-neutral-400">No tasks yet.</p>
+            <p className="text-xs text-jenny-dim">No tasks yet.</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {tasks.map((t) => (
-                <li key={t.id} className="rounded-lg border border-neutral-100 p-2 text-xs dark:border-white/10">
+                <li key={t.id} className="rounded-lg bg-jenny-raised-2/60 p-2 text-xs">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-neutral-700 dark:text-neutral-200">{t.title}</span>
+                    <span className="truncate text-jenny-text-2">{t.title}</span>
                     <div className="flex shrink-0 items-center gap-1.5">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                          TASK_STATUS_STYLES[t.status] ?? TASK_STATUS_STYLES.pending
-                        }`}
-                      >
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${TASK_STATUS_STYLES[t.status] ?? TASK_STATUS_STYLES.pending}`}>
                         {t.status.replace("_", " ")}
                       </span>
                       {t.status === "failed" && (
@@ -448,24 +455,16 @@ export function AgentSessionDetail() {
                           title="Retry this task from where it failed"
                           onClick={() => handleRetry(t.id)}
                           disabled={!!controlBusy}
-                          className="rounded-md p-1 text-neutral-400 transition hover:bg-brand-50 hover:text-brand-600 disabled:opacity-50 dark:hover:bg-brand-500/10"
+                          className="rounded-md p-1 text-jenny-dim transition hover:bg-jenny-gold/10 hover:text-jenny-gold disabled:opacity-50"
                         >
-                          {controlBusy === `retry:${t.id}` ? (
-                            <Loader2 size={12} className="animate-spin" />
-                          ) : (
-                            <RotateCcw size={12} />
-                          )}
+                          {controlBusy === `retry:${t.id}` ? <IconLoader2 size={12} className="animate-spin" /> : <IconRefresh size={12} />}
                         </button>
                       )}
                     </div>
                   </div>
-                  <p className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-neutral-400">
+                  <p className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-jenny-dim">
                     {t.startedAt && <span>{elapsed(t.startedAt, t.completedAt)}</span>}
-                    {t.dependsOn.length > 0 && (
-                      <span>
-                        depends on: {t.dependsOn.map((depId) => taskById.get(depId)?.title ?? depId).join(", ")}
-                      </span>
-                    )}
+                    {t.dependsOn.length > 0 && <span>depends on: {t.dependsOn.map((depId) => taskById.get(depId)?.title ?? depId).join(", ")}</span>}
                   </p>
                 </li>
               ))}
@@ -473,18 +472,16 @@ export function AgentSessionDetail() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-            Memory ({memory.length} keys)
-          </h3>
+        <section className="rounded-2xl bg-jenny-raised p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">Memory ({memory.length} keys)</h3>
           {memory.length === 0 ? (
-            <p className="text-xs text-neutral-400">No shared memory written yet.</p>
+            <p className="text-xs text-jenny-dim">No shared memory written yet.</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {memory.map((m) => (
-                <li key={m.key} className="rounded-lg border border-neutral-100 p-2 text-xs dark:border-white/10">
-                  <span className="font-medium text-neutral-700 dark:text-neutral-200">{m.key}</span>
-                  <p className="mt-0.5 truncate text-neutral-400">{JSON.stringify(m.value)}</p>
+                <li key={m.key} className="rounded-lg bg-jenny-raised-2/60 p-2 text-xs">
+                  <span className="font-medium text-jenny-text-2">{m.key}</span>
+                  <p className="mt-0.5 truncate text-jenny-dim">{JSON.stringify(m.value)}</p>
                 </li>
               ))}
             </ul>
@@ -492,39 +489,27 @@ export function AgentSessionDetail() {
         </section>
       </div>
 
-      <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-          Artifacts ({artifacts.length})
-        </h3>
+      <section className="rounded-2xl bg-jenny-raised p-4">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">Artifacts ({artifacts.length})</h3>
         {artifacts.length === 0 ? (
-          <p className="text-xs text-neutral-400">Nothing written or run yet.</p>
+          <p className="text-xs text-jenny-dim">Nothing written or run yet.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {artifacts.map((a) => (
-              <li key={a.id} className="rounded-lg border border-neutral-100 p-2.5 text-xs dark:border-white/10">
+              <li key={a.id} className="rounded-lg bg-jenny-raised-2/60 p-2.5 text-xs">
                 <div className="flex items-center gap-1.5">
+                  {a.kind === "file.write" ? <IconFileText size={13} className="shrink-0 text-jenny-gold" /> : <IconTerminal2 size={13} className="shrink-0 text-jenny-gold" />}
                   {a.kind === "file.write" ? (
-                    <FileEdit size={13} className="shrink-0 text-brand-500" />
+                    <code className="truncate font-mono text-jenny-text-2">{a.filePath}</code>
                   ) : (
-                    <Terminal size={13} className="shrink-0 text-brand-500" />
+                    <code className="truncate font-mono text-jenny-text-2">{a.command} {a.args?.join(" ")}</code>
                   )}
-                  {a.kind === "file.write" ? (
-                    <code className="truncate font-mono text-neutral-700 dark:text-neutral-200">{a.filePath}</code>
-                  ) : (
-                    <code className="truncate font-mono text-neutral-700 dark:text-neutral-200">
-                      {a.command} {a.args?.join(" ")}
-                    </code>
-                  )}
-                  <span
-                    className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${
-                      a.ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200" : "bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-200"
-                    }`}
-                  >
+                  <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase ${a.ok ? "bg-jenny-ok/15 text-jenny-ok" : "bg-jenny-bad/15 text-jenny-bad"}`}>
                     {a.kind === "exec.command" ? `exit ${a.exitCode}` : a.ok ? "written" : "failed"}
                   </span>
                 </div>
                 {(a.stdout || a.stderr) && (
-                  <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-neutral-50 p-2 font-mono text-[10px] text-neutral-500 dark:bg-black/30 dark:text-neutral-400">
+                  <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 p-2 font-mono text-[10px] text-jenny-text-3">
                     {a.stdout}
                     {a.stderr}
                   </pre>
@@ -535,16 +520,73 @@ export function AgentSessionDetail() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">Activity</h3>
+      {/* JENNYSOL-UI-BUILD.md §6.6 "Visual QA" — real screenshot + real
+          findings from a completed visual_qa task's own result column (see
+          agentOrchestrator.ts's runVisualQaTask). The trust block is
+          unconditional per spec ("until measured detection rates justify
+          removing it") — this model's own real, measured accuracy
+          (JENNY_VISION_MODEL_EVALUATION.md) has not cleared that bar. */}
+      {visualQaTasks.map((t) => {
+        const r = t.result as VisualQaResult;
+        return (
+          <section key={t.id} className="rounded-2xl bg-jenny-raised p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-jenny-faint">
+                Visual QA — {r.findings.length} finding{r.findings.length === 1 ? "" : "s"}
+              </h3>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                  r.verdict === "pass" ? "bg-jenny-ok/15 text-jenny-ok" : "bg-jenny-warn/15 text-jenny-warn"
+                }`}
+              >
+                {r.verdict}
+              </span>
+            </div>
+            <img src={`data:image/png;base64,${r.screenshotBase64}`} alt="Captured screenshot" className="w-full rounded-xl" />
+            <div className="mt-3 rounded-xl border border-jenny-gold-mid bg-jenny-ink-on-gold p-3 text-xs text-jenny-champagne">
+              This model is known to miss real defects — treat this list as incomplete, not exhaustive.
+            </div>
+            {r.findings.length > 0 && (
+              <ul className="mt-3 flex flex-col gap-2">
+                {r.findings.map((finding, i) => {
+                  const key = `${t.id}:${i}`;
+                  const reviewed = reviewedFindings.has(key);
+                  return (
+                    <li key={key} className={`flex items-start gap-2.5 rounded-lg bg-jenny-raised-2/60 p-2.5 text-xs ${reviewed ? "opacity-50" : ""}`}>
+                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-jenny-warn" />
+                      <span className="flex-1 text-jenny-text-2">{finding}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReviewedFindings((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
+                            return next;
+                          })
+                        }
+                        className="shrink-0 text-[10px] font-medium uppercase text-jenny-dim hover:text-jenny-text-3"
+                      >
+                        {reviewed ? "Confirmed" : "Confirm"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+
+      <section className="rounded-2xl bg-jenny-raised p-4">
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-jenny-faint">Activity</h3>
         {events.length === 0 ? (
-          <p className="text-xs text-neutral-400">No events yet.</p>
+          <p className="text-xs text-jenny-dim">No events yet.</p>
         ) : (
-          <ul className="flex max-h-80 flex-col gap-1 overflow-auto font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+          <ul className="flex max-h-80 flex-col gap-1 overflow-auto font-mono text-[11px] text-jenny-text-3">
             {events.map((e) => (
               <li key={e.id}>
-                <span className="text-neutral-300 dark:text-neutral-600">{new Date(e.createdAt).toLocaleTimeString()}</span>{" "}
-                {formatEventLine(e)}
+                <span className="text-jenny-faint">{new Date(e.createdAt).toLocaleTimeString()}</span> {formatEventLine(e)}
               </li>
             ))}
           </ul>

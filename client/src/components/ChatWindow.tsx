@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   IconEar,
   IconEarOff,
@@ -32,7 +33,7 @@ import { useSpeechRecognition } from "../lib/useSpeechRecognition";
 import { useVoiceConversation } from "../lib/useVoiceConversation";
 import { useKeyboardOpen } from "../lib/useKeyboardOpen";
 import { speak, stopSpeaking } from "../lib/speak";
-import { getStoredVoice, storeVoice, type VoiceId } from "../lib/voices";
+import { getStoredVoice, getStoredSpokenReplies, storeSpokenReplies, storeVoice, type VoiceId } from "../lib/voices";
 import { PENDING_FIRST_MESSAGE_KEY } from "../lib/storageKeys";
 
 interface DisplayMessage extends ChatTurn {
@@ -93,10 +94,11 @@ export function ChatWindow({
   // what the server already generated" — see handleSend/recoverRun below.
   const [sendingStatus, setSendingStatus] = useState<string | null>(null);
   const [imageMode, setImageMode] = useState(false);
-  const [spokenReplies, setSpokenReplies] = useState(false);
+  const [spokenReplies, setSpokenRepliesState] = useState(getStoredSpokenReplies);
   const [voice, setVoiceState] = useState<VoiceId>(getStoredVoice);
   const [assistantSpeaking, setAssistantSpeaking] = useState(false);
   const [lastTurnMeta, setLastTurnMeta] = useState<{ provider: string; ms: number } | null>(null);
+  const navigate = useNavigate();
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const keyboardOpen = useKeyboardOpen();
@@ -150,6 +152,11 @@ export function ChatWindow({
   function setVoice(v: VoiceId) {
     setVoiceState(v);
     storeVoice(v);
+  }
+
+  function setSpokenReplies(enabled: boolean) {
+    setSpokenRepliesState(enabled);
+    storeSpokenReplies(enabled);
   }
 
   const speech = useSpeechRecognition((transcript) => {
@@ -646,10 +653,11 @@ export function ChatWindow({
               spokenRepliesEnabled={spokenReplies}
               onToggleSpokenReplies={() => {
                 if (spokenReplies) stopSpeaking();
-                setSpokenReplies((v) => !v);
+                setSpokenReplies(!spokenReplies);
               }}
             />
             <button
+              onClick={() => navigate("/settings")}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2"
               aria-label="Settings"
               title="Settings"

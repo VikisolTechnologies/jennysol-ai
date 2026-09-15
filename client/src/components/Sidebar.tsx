@@ -19,6 +19,7 @@ import {
   IconSquarePlus,
   IconTrash,
   IconUpload,
+  IconUserCircle,
   IconX,
 } from "@tabler/icons-react";
 import { Orb } from "./orb/Orb";
@@ -447,10 +448,16 @@ export function Sidebar({
       )}
 
       {user && (
-        <Link to="/account" className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
-          <IconSettings size={13} />
-          Account &amp; settings
-        </Link>
+        <div className="flex shrink-0 flex-col gap-0.5">
+          <Link to="/settings" className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
+            <IconSettings size={13} />
+            Settings
+          </Link>
+          <Link to="/account" className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
+            <IconUserCircle size={13} />
+            Account
+          </Link>
+        </div>
       )}
 
       {user?.role === "admin" && (

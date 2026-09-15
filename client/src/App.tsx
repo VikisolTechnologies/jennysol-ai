@@ -22,6 +22,7 @@ const SignIn = lazy(() => import("./pages/jennysol/SignIn").then((m) => ({ defau
 const SignUp = lazy(() => import("./pages/jennysol/SignUp").then((m) => ({ default: m.SignUp })));
 const MicPermission = lazy(() => import("./pages/jennysol/MicPermission").then((m) => ({ default: m.MicPermission })));
 const FirstRun = lazy(() => import("./pages/jennysol/FirstRun").then((m) => ({ default: m.FirstRun })));
+const JennySettings = lazy(() => import("./pages/jennysol/Settings").then((m) => ({ default: m.Settings })));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword").then((m) => ({ default: m.ForgotPassword })));
 const ResetPassword = lazy(() => import("./pages/ResetPassword").then((m) => ({ default: m.ResetPassword })));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail").then((m) => ({ default: m.VerifyEmail })));
@@ -35,6 +36,7 @@ const AgentSessionDetail = lazy(() =>
   import("./pages/admin/AgentSessionDetail").then((m) => ({ default: m.AgentSessionDetail }))
 );
 const AgentApprovals = lazy(() => import("./pages/admin/AgentApprovals").then((m) => ({ default: m.AgentApprovals })));
+const Providers = lazy(() => import("./pages/admin/Providers").then((m) => ({ default: m.Providers })));
 const AccountLayout = lazy(() => import("./pages/account/AccountLayout").then((m) => ({ default: m.AccountLayout })));
 const AccountProfile = lazy(() => import("./pages/account/AccountProfile").then((m) => ({ default: m.AccountProfile })));
 const AccountSecurity = lazy(() => import("./pages/account/AccountSecurity").then((m) => ({ default: m.AccountSecurity })));
@@ -67,6 +69,14 @@ export default function App() {
             real user (guest or full) already exists. */}
         <Route path="/mic-permission" element={<MicPermission />} />
         <Route path="/first-run" element={<FirstRun />} />
+        <Route
+          path="/settings"
+          element={
+            <RequireAuth>
+              <JennySettings />
+            </RequireAuth>
+          }
+        />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
@@ -149,6 +159,7 @@ export default function App() {
           <Route path="agent-sessions" element={<AgentSessions />} />
           <Route path="agent-sessions/:id" element={<AgentSessionDetail />} />
           <Route path="agent-approvals" element={<AgentApprovals />} />
+          <Route path="providers" element={<Providers />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -60,3 +60,26 @@ export function storeVoice(voice: VoiceId) {
     // ignore — non-critical
   }
 }
+
+// "Spoken replies" was chat-session-local state before JENNYSOL-UI-BUILD.md's
+// Settings screen (§6.7) needed it to actually mean something outside of
+// ChatWindow.tsx — persisted the same way the voice choice above already is,
+// so Settings and chat both read/write the one real value instead of Settings
+// showing a toggle that quietly diverges from what chat is actually doing.
+const SPOKEN_REPLIES_KEY = "jennysol-spoken-replies";
+
+export function getStoredSpokenReplies(): boolean {
+  try {
+    return localStorage.getItem(SPOKEN_REPLIES_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function storeSpokenReplies(enabled: boolean) {
+  try {
+    localStorage.setItem(SPOKEN_REPLIES_KEY, enabled ? "1" : "0");
+  } catch {
+    // ignore — non-critical
+  }
+}

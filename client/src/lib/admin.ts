@@ -25,6 +25,76 @@ export async function fetchAdminStats(): Promise<{ stats: AdminStats; errorsLast
   return parseOrThrow(res);
 }
 
+// JENNYSOL-UI-BUILD.md §6.5 "Providers" — real server-side data
+// (server/src/routes/admin.ts's existing /provider-health and
+// /request-metrics routes, built for JENNYSOL-LOCAL-CUTOVER.md's own
+// "you cannot decide what you cannot see" — not new backend work).
+export interface ProviderRouteStatus {
+  name: string;
+  inActiveChain: boolean;
+  configured: boolean;
+  usable: boolean;
+}
+export interface ProviderStats {
+  successCount: number;
+  failureCount: number;
+  consecutiveFailures: number;
+  count503: number;
+  count429: number;
+  countQuota: number;
+  countTimeout: number;
+  countAuth: number;
+  countOther: number;
+  lastSuccess: number | null;
+}
+export interface HardwareProfile {
+  id: string;
+  label: string;
+  totalMemoryGb: number;
+  usableMemoryGb: number;
+  maxSingleModelGb: number;
+  maxConcurrentLocalRuns: number;
+}
+export interface HardwareSnapshot {
+  platform: string;
+  arch: string;
+  totalMemoryGb: number;
+  freeMemoryGb: number;
+  profile: HardwareProfile;
+}
+export interface OllamaModelInfo {
+  name: string;
+  size: number;
+}
+export async function fetchProviderHealth(): Promise<{
+  providers: (ProviderRouteStatus & { health: (ProviderStats & { healthy: boolean }) | null })[];
+  hardware: HardwareSnapshot;
+  ollamaModels: OllamaModelInfo[];
+}> {
+  const res = await authFetch("/api/admin/provider-health");
+  return parseOrThrow(res);
+}
+
+export interface ProviderWindowSummary {
+  requestCount: number;
+  fallbackCount: number;
+  fallbackRate: number;
+  errorCount: number;
+  errorRate: number;
+  p50FirstTokenMs: number | null;
+  p95FirstTokenMs: number | null;
+  p99FirstTokenMs: number | null;
+}
+export interface WindowSummary {
+  windowMs: number;
+  totalRequests: number;
+  byProvider: Record<string, ProviderWindowSummary>;
+}
+export async function fetchRequestMetrics(): Promise<{ last1h: WindowSummary; last24h: WindowSummary }> {
+  const res = await authFetch("/api/admin/request-metrics");
+  return parseOrThrow(res);
+}
+
 export interface AdminUserRow {
   id: string;
   email: string;

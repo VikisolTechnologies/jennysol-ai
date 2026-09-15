@@ -40,7 +40,9 @@ export function FirstRun() {
     <div className="flex h-[var(--app-vh)] flex-col overflow-y-auto bg-jenny-void text-jenny-text">
       <div className="flex shrink-0 items-center justify-between px-5 pt-[calc(1.1rem+env(safe-area-inset-top))]">
         <span className="text-[10px] tracking-[0.3em] text-jenny-muted">JENNYSOL</span>
-        <IconSettings size={17} className="text-jenny-muted" />
+        <button onClick={() => navigate("/settings")} aria-label="Settings">
+          <IconSettings size={17} className="text-jenny-muted" />
+        </button>
       </div>
 
       <div className="px-5 pt-7">
