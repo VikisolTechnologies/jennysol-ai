@@ -65,6 +65,27 @@ function hasDigit(value: string): boolean {
   return /\d/.test(value);
 }
 
+// Same real defense as hasDigit, for the one other slot type with an
+// actual structural shape to check against: a real email address has an
+// "@" with a non-empty name and a domain containing a dot. Catches the same
+// failure class as the phone-number bug ("mom" for a number) if an LLM ever
+// invents a plausible-looking placeholder like "the recipient" instead of
+// correctly leaving `to` unset.
+function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+// query/destination/place/message/subject/body are deliberately left
+// without a validate() below. Unlike a phone number or an email address,
+// free-text values like these have no real structural signature — "biryani
+// near me" and "Viceroy" are both perfectly plausible whether the user
+// actually said them or an LLM invented them, so any check here (e.g. a
+// minimum length) would be theater, not a real defense. Prompt discipline
+// ("never invent a value") plus the missing-required-slot clarify loop
+// (intentParser.ts) are the only honest defense for these — same as the
+// exchange in this engagement that caught the phone-number bug in the first
+// place: don't pretend a fabricated check catches something it can't.
+
 export const ACTION_REGISTRY: ActionTarget[] = [
   {
     id: "web_search",
@@ -133,7 +154,7 @@ export const ACTION_REGISTRY: ActionTarget[] = [
     category: "email",
     triggerKeywords: ["email ", "mail "],
     slots: [
-      { name: "to", required: true, description: "recipient email address" },
+      { name: "to", required: true, description: "recipient email address", validate: looksLikeEmail },
       { name: "subject", required: false, description: "email subject" },
       { name: "body", required: false, description: "email body" },
     ],

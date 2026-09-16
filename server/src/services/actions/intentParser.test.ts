@@ -48,6 +48,22 @@ describe("parseActionIntent", () => {
     expect(result?.slots.number).toBeUndefined();
   });
 
+  // Same defense-in-depth class as the phone-number bug above, applied to
+  // the one other slot with a real structural shape: an email address.
+  it("treats a non-email placeholder value as missing, not known (email's real validator)", async () => {
+    mockLlmReply({ targetId: "email", slots: { to: "my boss" } });
+    const result = await parseActionIntent("email my boss");
+    expect(result?.missingRequiredSlots).toEqual(["to"]);
+    expect(result?.slots.to).toBeUndefined();
+  });
+
+  it("accepts a real email address for email's `to` slot", async () => {
+    mockLlmReply({ targetId: "email", slots: { to: "priya@example.com" } });
+    const result = await parseActionIntent("email priya@example.com");
+    expect(result?.missingRequiredSlots).toEqual([]);
+    expect(result?.slots.to).toBe("priya@example.com");
+  });
+
   it("returns null when the model says nothing matches", async () => {
     mockLlmReply({ targetId: null, slots: {} });
     const result = await parseActionIntent("what's the weather like");
