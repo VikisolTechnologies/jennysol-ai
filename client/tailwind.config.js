@@ -247,13 +247,13 @@ export default {
           "100%": { opacity: 1, transform: "translateY(0)" },
         },
         "jenny-orb-ripple": {
-          "0%": { transform: "scale(0.5)", opacity: 0.5 },
+          "0%": { transform: "scale(0.5)", opacity: 0.75 },
           "80%": { opacity: 0 },
           "100%": { transform: "scale(1.7)", opacity: 0 },
         },
         "jenny-orb-core": {
           "0%, 100%": { transform: "scale(1)" },
-          "50%": { transform: "scale(1.14)" },
+          "50%": { transform: "scale(1.22)" },
         },
         "jenny-orb-breathe": {
           "0%, 100%": { opacity: 0.45 },

@@ -205,10 +205,17 @@ export function Orb({
       }
       title={isInteractive ? "Tap to interrupt" : undefined}
     >
-      {/* ASLEEP — outline only, slow breath, no core. */}
+      {/* ASLEEP — outline only, slow breath, no core. Real bug found live:
+          at sm (34px) a 1px jenny-gold-deep (#5A4720, deliberately low-
+          contrast) ring was faint enough to read as invisible, leaving only
+          whatever solid-core state was rendered next to it (e.g. the old
+          hardcoded "speaking" on auth screens) as "the thing you can see" --
+          exactly the "small static filled dot" complaint. gold-mid + a
+          thicker stroke keeps this the calmest state (still the only one
+          with no core) while actually being visible at small sizes. */}
       {state === "asleep" && (
         <span
-          className={`block rounded-full border border-jenny-gold-deep ${animate ? "motion-safe:animate-jenny-orb-breathe" : "opacity-60"}`}
+          className={`block rounded-full border-[1.5px] border-jenny-gold-mid ${animate ? "motion-safe:animate-jenny-orb-breathe" : "opacity-60"}`}
           style={{ width: px * 0.65, height: px * 0.65 }}
         />
       )}
@@ -217,16 +224,16 @@ export function Orb({
       {state === "speaking" && (
         <>
           <span
-            className={`absolute rounded-full border border-jenny-gold ${animate ? "motion-safe:animate-jenny-orb-ripple" : "opacity-0"}`}
+            className={`absolute rounded-full border-[1.5px] border-jenny-gold ${animate ? "motion-safe:animate-jenny-orb-ripple" : "opacity-0"}`}
             style={{ width: px, height: px }}
           />
           <span
-            className={`absolute rounded-full border border-jenny-gold-mid ${animate ? "motion-safe:animate-jenny-orb-ripple" : "opacity-0"}`}
+            className={`absolute rounded-full border-[1.5px] border-jenny-gold-mid ${animate ? "motion-safe:animate-jenny-orb-ripple" : "opacity-0"}`}
             style={{ width: px, height: px, animationDelay: "0.9s" }}
           />
           {size === "xl" && (
             <span
-              className={`absolute rounded-full border border-jenny-gold-deep ${animate ? "motion-safe:animate-jenny-orb-ripple" : "opacity-0"}`}
+              className={`absolute rounded-full border-[1.5px] border-jenny-gold-deep ${animate ? "motion-safe:animate-jenny-orb-ripple" : "opacity-0"}`}
               style={{ width: px, height: px, animationDelay: "1.8s" }}
             />
           )}

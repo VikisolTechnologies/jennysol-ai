@@ -61,7 +61,14 @@ export function JennyAuthChrome({
         className="flex flex-1 flex-col px-6 pt-8 sm:mx-auto sm:w-full sm:max-w-sm"
       >
         <div className="mb-6 flex items-center gap-3">
-          <Orb state="speaking" size="sm" />
+          {/* "asleep", not "speaking" -- nothing is actually being spoken on
+              a typed form screen (this is also the exact reason the
+              voice-driven auth mockup was dropped: no real audio state
+              exists here to represent honestly). Showing "speaking" (a
+              filled, pulsing core) when nothing is playing is what read as
+              a dead, meaningless dot -- asleep's plain outline ring is the
+              only state that's actually true here. */}
+          <Orb state="asleep" size="sm" />
           <span className="text-[10px] tracking-[0.3em] text-jenny-muted">JENNY</span>
         </div>
 
