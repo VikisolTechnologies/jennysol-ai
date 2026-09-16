@@ -8,6 +8,7 @@ import { getProviderRouteStatus } from "../services/modelRouter.js";
 import { getHealthSnapshot } from "../services/providerHealth.js";
 import { getHardwareSnapshot } from "../services/models/hardwareProfile.js";
 import { listInstalledOllamaModels } from "../services/providers/ollama.js";
+import { getResidentModels, getEvictionsToday } from "../services/providers/ollamaResidency.js";
 import { getMetricsSummary } from "../services/requestMetrics.js";
 import { getSessionUnscoped, listAllSessions, listMemory, listTasksForSession, createSession, updateSessionStatus } from "../services/agentSessionStore.js";
 import { listAgentsForSession } from "../services/agentRegistry.js";
@@ -48,10 +49,18 @@ adminRouter.get("/provider-health", async (_req, res) => {
   const health = getHealthSnapshot();
   const hardware = getHardwareSnapshot();
   const ollamaModels = await listInstalledOllamaModels().catch(() => []);
+  // Real resident-model snapshot (Ollama's own /api/ps, queried live) and a
+  // real, DB-persisted eviction count — see ollamaResidency.ts. Both
+  // best-effort: an unreachable Ollama reports an empty resident list here
+  // rather than failing this whole response, same reasoning as ollamaModels
+  // just above.
+  const residentModels = await getResidentModels().catch(() => []);
   res.json({
     providers: providers.map((p) => ({ ...p, health: health[p.name] ?? null })),
     hardware,
     ollamaModels,
+    residentModels,
+    evictionsToday: getEvictionsToday(),
   });
 });
 

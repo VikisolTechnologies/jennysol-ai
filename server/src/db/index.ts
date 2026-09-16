@@ -361,3 +361,21 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 `);
+
+// Real eviction history (JENNY_VISION_MODEL_EVALUATION.md's own root-caused
+// finding: OLLAMA_MAX_LOADED_MODELS defaulting to 1 forces an early unload
+// on any model switch) — see ollamaResidency.ts, which is the only writer.
+// Persisted rather than kept in memory alongside the rest of that module's
+// state specifically so "evictions today" survives a server restart
+// (Railway redeploys routinely, and an in-memory counter resetting to 0 on
+// every deploy would make the number actively misleading, not just
+// incomplete).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ollama_evictions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model TEXT NOT NULL,
+    replaced_by TEXT,
+    evicted_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_ollama_evictions_evicted_at ON ollama_evictions(evicted_at);
+`);

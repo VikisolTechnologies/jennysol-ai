@@ -3,6 +3,7 @@ import { app } from "./app.js";
 import { noProviderConfigured } from "./services/llm.js";
 import { warmUpGemini } from "./services/providers/gemini.js";
 import { startKeepWarm } from "./services/keepWarm.js";
+import { startOllamaResidencyPolling } from "./services/providers/ollamaResidency.js";
 import { logError } from "./services/errorLog.js";
 import { deleteExpiredSessions } from "./services/auth/sessions.js";
 import { resumeInFlightSessionsOnBoot } from "./services/agentSessionRunner.js";
@@ -25,6 +26,13 @@ warmUpGemini();
 // deployment where Ollama isn't in the active chain (Railway today) — see
 // keepWarm.ts.
 startKeepWarm();
+
+// Real resident-model tracking + eviction detection for the admin Providers
+// screen (JENNYSOL-UI-BUILD.md §6.5's "resident model count, evictions
+// today" — previously an honest omission, no backend existed for either).
+// Same no-op-when-not-in-chain guard as keepWarm.ts, checked on every tick
+// rather than once here, since the active chain can change at runtime.
+startOllamaResidencyPolling();
 
 // Stage C §5.3 (checkpoints): a session left "running" when the process last exited (crash, deploy,
 // manual restart) has no in-memory driver loop left — resume each one from where it really left off

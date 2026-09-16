@@ -26,9 +26,13 @@ export function getActiveOllamaRuns(): number {
   return activeRuns;
 }
 
-// Best-effort warm/cold signal for observability, not a real query of
-// Ollama's own residency state (Ollama exposes no API for "is this model
-// currently loaded") — approximated from our own request history instead.
+// Best-effort warm/cold signal for observability, approximated from our own
+// request history rather than a real query of Ollama's residency state.
+// Correction: Ollama does expose that (`/api/ps`, confirmed live — see
+// ollamaResidency.ts, which is the real query this file's own comment used
+// to say didn't exist) — this heuristic stays as the cheap, synchronous,
+// no-network check call sites elsewhere already rely on; ollamaResidency.ts
+// is the source of truth for anything that needs the real, current answer.
 // Default window matches Ollama's own default model unload timeout (5
 // minutes) so "warm" here means "recently used enough that Ollama probably
 // hasn't evicted it yet," not a guarantee.

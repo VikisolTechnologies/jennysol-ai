@@ -66,10 +66,20 @@ export interface OllamaModelInfo {
   name: string;
   size: number;
 }
+// Real, live-queried resident state (Ollama's own /api/ps) — distinct from
+// OllamaModelInfo above, which only lists what's *installed* on disk. See
+// server/src/services/providers/ollamaResidency.ts.
+export interface ResidentModel {
+  name: string;
+  sizeVramBytes: number;
+  expiresAt: string;
+}
 export async function fetchProviderHealth(): Promise<{
   providers: (ProviderRouteStatus & { health: (ProviderStats & { healthy: boolean }) | null })[];
   hardware: HardwareSnapshot;
   ollamaModels: OllamaModelInfo[];
+  residentModels: ResidentModel[];
+  evictionsToday: number;
 }> {
   const res = await authFetch("/api/admin/provider-health");
   return parseOrThrow(res);

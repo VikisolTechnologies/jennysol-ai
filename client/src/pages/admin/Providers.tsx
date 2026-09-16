@@ -4,6 +4,7 @@ import {
   fetchProviderHealth,
   fetchRequestMetrics,
   type OllamaModelInfo,
+  type ResidentModel,
   type HardwareSnapshot,
   type ProviderRouteStatus,
   type ProviderStats,
@@ -25,19 +26,21 @@ function ms(v: number | null): string {
 }
 
 // JENNYSOL-UI-BUILD.md §6.5 "Providers" — real data end to end: this page
-// adds no new backend, it's a restyled client for the /provider-health and
-// /request-metrics routes server/src/routes/admin.ts already exposes (built
-// for JENNYSOL-LOCAL-CUTOVER.md's own "you cannot decide what you cannot
-// see"). One real gap, stated rather than invented: neither route tracks a
-// live "resident model" flag or an "evictions today" counter (see this
-// session's own eviction-policy findings in JENNY_VISION_MODEL_EVALUATION.md)
-// — the doc's "resident model count, evictions today" line is left out
-// rather than filled with a fabricated number; the installed-models list is
-// shown instead, correctly labeled as installed, not resident.
+// is a restyled client for the /provider-health and /request-metrics routes
+// server/src/routes/admin.ts already exposes (built for
+// JENNYSOL-LOCAL-CUTOVER.md's own "you cannot decide what you cannot see"),
+// plus the one real gap this pass closed: a live "resident model" snapshot
+// and a real "evictions today" counter, both now backed by
+// ollamaResidency.ts (Ollama's own /api/ps, and a DB-persisted eviction
+// history keyed off the exact mechanism JENNY_VISION_MODEL_EVALUATION.md's
+// eviction-policy section root-caused — see that module's own comments for
+// how an eviction is told apart from a normal idle unload).
 export function Providers() {
   const [rows, setRows] = useState<ProviderRow[] | null>(null);
   const [hardware, setHardware] = useState<HardwareSnapshot | null>(null);
   const [ollamaModels, setOllamaModels] = useState<OllamaModelInfo[]>([]);
+  const [residentModels, setResidentModels] = useState<ResidentModel[]>([]);
+  const [evictionsToday, setEvictionsToday] = useState<number | null>(null);
   const [metrics, setMetrics] = useState<WindowSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +53,8 @@ export function Providers() {
         setRows(health.providers);
         setHardware(health.hardware);
         setOllamaModels(health.ollamaModels);
+        setResidentModels(health.residentModels);
+        setEvictionsToday(health.evictionsToday);
         setMetrics(reqMetrics.last24h);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load provider health");
@@ -124,8 +129,11 @@ export function Providers() {
                 {row.name === "ollama" && hardware && (
                   <p className="mt-3 border-t border-jenny-hairline-card pt-2.5 text-[11px] text-jenny-muted">
                     {hardware.profile.label} · {hardware.freeMemoryGb}GB free of {hardware.totalMemoryGb}GB ·{" "}
-                    {ollamaModels.length} model{ollamaModels.length === 1 ? "" : "s"} installed (not necessarily
-                    resident — live residency isn&rsquo;t tracked yet)
+                    {ollamaModels.length} model{ollamaModels.length === 1 ? "" : "s"} installed ·{" "}
+                    {residentModels.length === 0
+                      ? "none resident right now"
+                      : `${residentModels.map((m) => m.name).join(", ")} resident right now`}
+                    {evictionsToday !== null && ` · ${evictionsToday} eviction${evictionsToday === 1 ? "" : "s"} today`}
                   </p>
                 )}
               </div>
