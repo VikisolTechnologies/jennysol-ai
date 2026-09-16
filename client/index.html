@@ -18,6 +18,15 @@
     />
     <meta name="description" content="Jennysol AI — a retrieval-augmented chat assistant. Upload documents and ask questions grounded in them." />
     <meta name="theme-color" content="#0b0b12" />
+    <!-- vite-plugin-pwa auto-injects the manifest link + SW registration
+         script — these three are iOS-specific and need adding by hand
+         regardless (Apple never reads the Web App Manifest for any of
+         them). apple-touch-icon must be an opaque PNG (no alpha) — see
+         scripts/generate-icons.mjs's own flatten step for why. -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="JennySol" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

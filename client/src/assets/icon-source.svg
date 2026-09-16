@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Same real brand tokens as Orb.tsx / tailwind.config.js jenny-* colors
+       (#0B0A09 void, #D6A84F gold, #8A6A2E gold-mid) — this app's actual
+       orb, not a separate logo invented for the icon alone. -->
+  <rect width="512" height="512" fill="#0B0A09" />
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#8A6A2E" stroke-width="4" opacity="0.5" />
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#D6A84F" stroke-width="6" opacity="0.7" />
+  <circle cx="256" cy="256" r="88" fill="#D6A84F" />
+</svg>
