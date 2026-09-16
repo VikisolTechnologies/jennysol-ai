@@ -37,6 +37,7 @@ import {
 import { useAuth } from "../lib/AuthContext";
 import { resendVerification, fetchServerVersion } from "../lib/auth";
 import { ROLES } from "../lib/auth";
+import { fetchPendingActions } from "../lib/admin";
 
 function iconFor(filename: string) {
   if (filename.toLowerCase().endsWith(".pdf")) return <IconFile size={16} className="text-jenny-bad" />;
@@ -104,6 +105,30 @@ export function Sidebar({
   useEffect(() => {
     void fetchServerVersion().then(setServerVersion);
   }, []);
+  // Real "something needs you" signal on the Admin dashboard link — the
+  // same global queue AgentApprovals.tsx itself renders (GET
+  // /api/admin/agent-actions/pending with no sessionId), not a separate
+  // count invented for this badge. Admin-only (the route itself is
+  // requireAdmin-gated server-side regardless), polled at the same 15s
+  // cadence Providers.tsx already uses elsewhere in the admin surface.
+  const [pendingApprovals, setPendingApprovals] = useState<number | null>(null);
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    let cancelled = false;
+    function load() {
+      fetchPendingActions()
+        .then((actions) => {
+          if (!cancelled) setPendingApprovals(actions.length);
+        })
+        .catch(() => {});
+    }
+    load();
+    const interval = setInterval(load, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user?.role]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   // Which row's "⋯" menu is open, plus the two dialogs it can lead to.
   // Replaces the old hover-only pencil/trash icons (opacity-0 until
@@ -461,9 +486,16 @@ export function Sidebar({
       )}
 
       {user?.role === "admin" && (
-        <Link to="/admin" className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
-          <IconLayoutDashboard size={13} />
-          Admin dashboard
+        <Link to="/admin" className="flex shrink-0 items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
+          <span className="flex items-center gap-2">
+            <IconLayoutDashboard size={13} />
+            Admin dashboard
+          </span>
+          {!!pendingApprovals && (
+            <span className="rounded-full bg-jenny-gold px-1.5 py-0.5 text-[10px] font-semibold text-jenny-ink-on-gold">
+              {pendingApprovals}
+            </span>
+          )}
         </Link>
       )}
 
