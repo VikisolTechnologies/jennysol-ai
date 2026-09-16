@@ -27,10 +27,10 @@ test("orb shows unavailable when the provider chain is broken", async ({ page })
   // condition) — asserting at least one is enough to prove the real state
   // actually reaches the screen, not a specific count of them.
   await expect(page.locator('[aria-label="Jenny is unavailable"]').first()).toBeVisible({ timeout: 8000 });
-  // Small tolerance, same reasoning as chat.spec.ts's LIVE_CONTENT_TOLERANCE
-  // — the orb's own real animation (still transitioning state right as this
-  // frame is captured) can shift a handful of pixels run to run; the
-  // toBeVisible() assertion above is what actually proves the real state.
+  // Small tolerance: the orb's own real animation (still transitioning
+  // state right as this frame is captured) can shift a handful of pixels
+  // run to run; the toBeVisible() assertion above is what actually proves
+  // the real state.
   await expect(page).toHaveScreenshot("chat-unavailable.png", { maxDiffPixelRatio: 0.02 });
 
   await page.unroute("**/api/chat");
