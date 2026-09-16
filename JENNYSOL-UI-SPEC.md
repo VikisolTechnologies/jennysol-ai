@@ -152,26 +152,36 @@ state).
 
 ## 6. Real gaps, not silently carried forward
 
-- **No deployment yet.** Everything above is verified against a local dev server
-  (`npm run dev`, port 5173) proxied to the real backend. Nothing has been pushed to any
-  staging/production hosting as part of this pass — "deployed and verified live from a real
-  phone and a laptop" (definition of done item 2) is not yet true.
-- **Ollama "resident model count, evictions today"** (§6.5's exact wording) isn't shown on
-  Providers — no backend counter for either exists (see this engagement's own
-  `JENNY_VISION_MODEL_EVALUATION.md` eviction-policy findings). The installed-models list is
-  shown instead, correctly labeled as installed, not resident, rather than a fabricated number.
-- **Admin screens (Sessions/Run view/Approval/Providers) aren't in the visual-regression suite
-  below** — they need a real, seeded admin account as a test fixture, which this pass didn't
-  build. Manually screenshot-verified earlier in this engagement, but not covered by a repeatable
-  automated diff the way the seven consumer screens now are.
+- **Deployed and live.** Server on Railway (`api.jennysol.vikisol.in`), client on Vercel
+  (`jennysol.vikisol.in`), both via this project's own documented CLI deploy recipe
+  (`GIT_COMMIT_SHA` set, then `railway up` / `vercel --prod`). Verified live: `/health` reports
+  the exact deployed commit, all 7 consumer screens screenshotted for real at mobile and 1440px
+  against production itself (not local dev), one real desktop reply completing end to end
+  (`GEMINI · 2.0S` eyebrow, real content). Definition of done item 2 is now true.
+- **Ollama "resident model count, evictions today"** (§6.5's exact wording) is now real, not
+  omitted. `server/src/services/providers/ollamaResidency.ts` queries Ollama's own `/api/ps` live
+  for current residency, and persists a real eviction to `ollama_evictions` only when a model
+  disappears *before* its own previously-reported `expires_at` — the exact mechanism
+  `JENNY_VISION_MODEL_EVALUATION.md`'s eviction-policy section root-caused
+  (`OLLAMA_MAX_LOADED_MODELS` forcing an early unload), distinguished from a normal idle unload,
+  which this correctly does not count. Polls every 30s (`startOllamaResidencyPolling`, no-ops when
+  Ollama isn't in the active chain, same guard as `keepWarm.ts`); the eviction count persists
+  across restarts (SQLite, not in-memory) specifically so a Railway redeploy doesn't silently reset
+  it to a misleadingly-low number. 6 unit tests, `Providers.tsx` renders both live.
+- **Admin screens (Sessions/Run view/Approval/Providers) are now in the visual-regression suite**
+  — `completeAdminSignup()` (`tests/visual/fixtures.ts`) reuses this project's own existing
+  `scripts/promote-admin.ts` bootstrap script against the suite's real local test DB, the same one
+  `npm run dev` uses, rather than inventing a second way to mint an admin. All four screens render
+  real historical data already in that DB (131 real `agent_sessions` rows, etc.), not fixtures
+  invented for the test.
 
 ## 7. Visual regression suite (`client/tests/visual/`, `playwright.config.ts`)
 
 Definition of done item 9, closed for real: `client/tests/visual/*.spec.ts` — one file per
 screen (welcome, sign-in ×2 steps, sign-up ×3 steps, mic-permission, first-run, chat ×2 including
-a real desktop-only persistent-sidebar check, settings, unavailable, reduced-motion), each driving
-the real app through a real signup/guest flow (no mocked auth, no stubbed API), asserting with
-Playwright's own `toHaveScreenshot()` against a committed baseline under
+a real desktop-only persistent-sidebar check, settings, unavailable, reduced-motion, hidden-tab,
+and the four admin screens), each driving the real app through a real signup/guest flow (no mocked
+auth), asserting with Playwright's own `toHaveScreenshot()` against a committed baseline under
 `tests/visual/*.spec.ts-snapshots/`. Runs across 4 real viewport projects — `mobile` (iPhone 13)
 plus `desktop-1280`/`1440`/`1920` — closing the "verify at 1280, 1440 and 1920" requirement from
 §6 with real screenshots, not an inspection of Tailwind class names. `npm run test:visual` runs
@@ -203,36 +213,55 @@ Real, found-and-fixed issues along the way, not smoothed over:
    under `prefers-reduced-motion: reduce`, zero elements carry an active `motion-safe:animate-*`
    class on the Welcome orb — the real conditional in `Orb.tsx` actually firing, not merely present
    in the source.
-4. **Live AI-generated reply text is genuinely non-deterministic between runs** (confirmed:
-   different real Gemini output length/wording re-wrapped the bubble by a few dozen pixels run to
-   run; separately, a real `AllProvidersUnavailableError` — this test server's Gemini quota is
-   genuinely exhausted as of this pass — correctly produced an honest error bubble instead of a
-   reply on one run). A pixel-perfect diff on the two chat screenshots would flake on real, correct
-   behavior rather than catch real regressions, so those two (and `chat-unavailable.png`, whose
-   orb is still mid-transition when captured) carry a small `maxDiffPixelRatio` tolerance — every
-   other screenshot in the suite (static UI, no live model output) stays at the default zero
-   tolerance.
-5. **51/51 tests pass** (1 correctly skipped — the desktop-only sidebar check, on mobile), twice
-   in a row on a clean run against the committed baselines, including once while the real Gemini
-   quota exhaustion above was actually occurring mid-suite — proof the tolerance is doing its job
-   rather than papering over a real failure.
+4. **The suite's own real Gemini calls were a genuine, real contributor to a real quota/timeout
+   incident on the shared backend** — found and fixed, not just noticed: `chat.spec.ts` now uses
+   `mockChatReply()` (`fixtures.ts`) instead of a real `sendChatMessage`, mirroring `lib/api.ts`'s
+   exact SSE event shape and `AgentRun` field names so `ChatWindow`'s real parsing/rendering code
+   runs unmodified — only the network boundary is fake. Two real subtleties surfaced and were fixed
+   while building this, not smoothed over: (a) a naive `Date.now()`-derived timestamp pair for the
+   eyebrow's elapsed-time math rounds unpredictably once truncated to the second-precision strings
+   the real backend persists, silently flipping the displayed value by ±1s between runs — fixed by
+   anchoring both ends to the same whole-second instant with a full 2-second offset; (b) the mock
+   initially had no `conversationId`/`/api/agent/runs/active` fidelity, which let `ChatWindow`'s own
+   real reconciliation effect (triggered the instant a new conversation's id is set) find "no
+   matching run in progress" against the real server and collapse `sending` back to `false` within
+   tens of milliseconds — invisible in real production (the real backend has already created the
+   real row by the time the client sees it) but a genuine gap in this mock specifically, closed by
+   making the run-status endpoints honestly report "still streaming" for the requested delay window.
+   `chat.spec.ts` now runs at the same strict zero-tolerance every other screen in this suite uses —
+   the `maxDiffPixelRatio` hack this used to need is gone because the underlying nondeterminism is
+   gone, not tolerated.
+5. **The hidden-tab half of item 8, live-verified for real** (`tests/visual/hidden-tab.spec.ts`):
+   Playwright has no `emulateMedia`-style helper for tab visibility, so this drives the real
+   underlying primitive directly — overriding `document.visibilityState` and dispatching a real
+   `visibilitychange` event, the standard way to exercise Page-Visibility-API code under test.
+   Reuses the same real, persistently-animating `state="speaking"` orb `reduced-motion.spec.ts`
+   already relies on (Welcome.tsx) rather than chasing `ChatWindow`'s own genuinely-real but much
+   narrower ~420ms mid-send "thinking" window (see `ChatWindow.tsx`'s `heroPhase` effect) — animation
+   present, then confirmed absent the instant the tab is hidden, then confirmed present again the
+   instant it's visible again, proving both directions of `usePageVisible()`, not just the pause.
+6. **Admin screens closed the loop on their own stated gap**: `completeAdminSignup()` reuses
+   `promote-admin.ts` (this project's existing, real first-admin bootstrap script) against the
+   suite's own local test DB. All four screens (`admin.spec.ts`) render real historical data.
+7. **71/72 tests pass** (1 correctly skipped — the desktop-only sidebar check, on mobile), stable
+   across multiple consecutive clean runs, with **zero real external API calls anywhere in the
+   suite** — the Gemini quota-exhaustion incident that forced tolerance hacks earlier in this pass
+   cannot recur from this suite's own traffic again.
 
 Close with verified / inferred / blocked, per this document's own closing convention:
 
 **Verified**: every token contrast ratio above (computed, not eyeballed); zero WCAG A/AA
 violations via a real axe-core run on Welcome, SignIn, SignUp, Chat, Settings; tsc clean and
 production build clean for the whole client; a full live run through Welcome → signup →
-mic-permission → first-run → real streaming chat reply with zero console errors; 51 real
-Playwright visual-regression tests passing across 4 real viewports (390px through 1920px), with
-committed baseline screenshots, stable across repeated real runs; the full server test suite (582
-passed, 2 environment-skipped) still green after the rate-limiter change; definition-of-done items
-3 (real mic amplitude), 4 (unavailable, both real triggers), and 8 (reduced-motion) each backed by
-a live-verified test, not just code that looks right.
-**Inferred**: that the same token/contrast rules hold on the three admin screens (restyled with
-the same tokens, not independently re-scanned with axe-core under an authenticated admin
-session in this pass); that the hidden-tab animation-pause half of item 8 (implemented via the
-same `animate` flag reduced-motion already proves fires) behaves the same way live — not
-independently driven through a real `visibilitychange` event in this pass.
-**Blocked**: nothing here needs founder input to be correct as scoped — deployment, the admin-
-screen test fixture, and the resident-model-count backend gap above are real, sequenced next
-steps, not decisions pending approval.
+mic-permission → first-run → real streaming chat reply with zero console errors; deployed and
+verified live in production (jennysol.vikisol.in / api.jennysol.vikisol.in), screenshotted for
+real at mobile and 1440px against production itself; 71 real Playwright visual-regression tests
+passing across 4 real viewports (390px through 1920px) with zero real external API calls, stable
+across repeated real runs; the full server test suite (588 passed, 2 environment-skipped) still
+green; definition-of-done items 3 (real mic amplitude), 4 (unavailable, both real triggers), and 8
+(both reduced-motion and hidden-tab halves) each backed by a live-verified test, not just code that
+looks right; the Providers screen's resident-model-count and evictions-today numbers are real,
+backed by Ollama's own `/api/ps` and a persisted eviction history, not a fabricated placeholder.
+**Inferred**: that the same token/contrast rules hold on the four admin screens (restyled with the
+same tokens, not independently re-scanned with axe-core under an authenticated admin session).
+**Blocked**: nothing here needs founder input to be correct as scoped.
