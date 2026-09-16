@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { resetPassword } from "../lib/auth";
-import { AuthLayout, AuthError, AuthField, AuthSubmit } from "./AuthLayout";
+import { JennyAuthChrome, JennyQuestion, JennyCommentary, JennyError } from "./jennysol/JennyAuthChrome";
 
 export function ResetPassword() {
   const [params] = useSearchParams();
@@ -12,16 +12,17 @@ export function ResetPassword() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handlePrimary() {
+    if (done) return;
     setError(null);
+    if (!password) return setError("Enter a new password to continue.");
     setLoading(true);
     try {
       await resetPassword(token, password);
       setDone(true);
       setTimeout(() => navigate("/login"), 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reset failed");
+      setError(err instanceof Error ? err.message : "Reset failed.");
     } finally {
       setLoading(false);
     }
@@ -29,40 +30,43 @@ export function ResetPassword() {
 
   if (!token) {
     return (
-      <AuthLayout title="Reset your password">
-        <p className="text-sm text-rose-500">
-          This link is missing its reset token. Request a new one from the{" "}
-          <Link to="/forgot-password" className="text-brand-500 hover:underline">
-            forgot password
-          </Link>{" "}
-          page.
-        </p>
-      </AuthLayout>
+      <JennyAuthChrome step={1} totalSteps={1} onBack={() => navigate("/forgot-password")} onPrimary={() => navigate("/forgot-password")}>
+        <JennyQuestion>This link is missing its token.</JennyQuestion>
+        <JennyCommentary>Request a new reset link and try again.</JennyCommentary>
+      </JennyAuthChrome>
     );
   }
 
   return (
-    <AuthLayout title="Choose a new password">
+    <JennyAuthChrome
+      step={1}
+      totalSteps={1}
+      onBack={() => navigate("/login")}
+      onPrimary={handlePrimary}
+      primaryLoading={loading}
+    >
+      <JennyError message={error} />
       {done ? (
-        <p className="text-sm text-neutral-600 dark:text-neutral-300">
-          Password updated — every other session was signed out for safety. Taking you to login…
-        </p>
+        <>
+          <JennyQuestion>Password updated.</JennyQuestion>
+          <JennyCommentary>Every other session was signed out for safety. Taking you to sign in…</JennyCommentary>
+        </>
       ) : (
-        <form onSubmit={handleSubmit}>
-          <AuthError message={error} />
-          <AuthField
-            label="New password"
-            type="password"
-            value={password}
-            onChange={setPassword}
-            autoComplete="new-password"
-          />
-          <p className="-mt-2 mb-3 text-[11px] text-neutral-400">
-            At least 10 characters, with upper and lower case letters and a number.
-          </p>
-          <AuthSubmit loading={loading}>Update password</AuthSubmit>
-        </form>
+        <>
+          <JennyQuestion>Choose a new password.</JennyQuestion>
+          <div className="mt-9 border-b border-jenny-gold pb-3">
+            <input
+              autoFocus
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-transparent text-[19px] tracking-widest text-jenny-text outline-none"
+            />
+          </div>
+          <JennyCommentary>At least 10 characters, with upper and lower case letters and a number.</JennyCommentary>
+        </>
       )}
-    </AuthLayout>
+    </JennyAuthChrome>
   );
 }

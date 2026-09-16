@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { verifyEmail } from "../lib/auth";
-import { AuthLayout } from "./AuthLayout";
+import { JennyAuthChrome, JennyQuestion, JennyCommentary } from "./jennysol/JennyAuthChrome";
 
 export function VerifyEmail() {
   const [params] = useSearchParams();
   const token = params.get("token") ?? "";
+  const navigate = useNavigate();
   const [status, setStatus] = useState<"checking" | "ok" | "error">("checking");
 
   useEffect(() => {
@@ -19,22 +20,30 @@ export function VerifyEmail() {
   }, [token]);
 
   return (
-    <AuthLayout title="Email verification">
-      {status === "checking" && <p className="text-sm text-neutral-500">Verifying…</p>}
+    <JennyAuthChrome
+      step={1}
+      totalSteps={1}
+      onBack={() => navigate("/login")}
+      onPrimary={() => navigate(status === "ok" ? "/" : "/login")}
+      primaryDisabled={status === "checking"}
+    >
+      {status === "checking" && (
+        <>
+          <JennyQuestion>Verifying your email…</JennyQuestion>
+        </>
+      )}
       {status === "ok" && (
-        <p className="text-sm text-neutral-600 dark:text-neutral-300">
-          Your email is verified.{" "}
-          <Link to="/" className="text-brand-500 hover:underline">
-            Continue to JennySol AI
-          </Link>
-          .
-        </p>
+        <>
+          <JennyQuestion>Your email is verified.</JennyQuestion>
+          <JennyCommentary>Continue to JennySol whenever you're ready.</JennyCommentary>
+        </>
       )}
       {status === "error" && (
-        <p className="text-sm text-rose-500">
-          That verification link is invalid or has expired. Request a new one from the app once you're logged in.
-        </p>
+        <>
+          <JennyQuestion>That link is invalid or expired.</JennyQuestion>
+          <JennyCommentary>Request a new one from the app once you're signed in.</JennyCommentary>
+        </>
       )}
-    </AuthLayout>
+    </JennyAuthChrome>
   );
 }

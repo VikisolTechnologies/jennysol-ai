@@ -33,19 +33,19 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="flex h-[var(--app-vh)] w-screen flex-col items-center justify-center gap-4 bg-white px-6 text-center dark:bg-neutral-950">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 text-rose-500 dark:bg-rose-500/10">
+      <div className="flex h-[var(--app-vh)] w-screen flex-col items-center justify-center gap-4 bg-jenny-void px-6 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-jenny-bad/10 text-jenny-bad">
           <AlertTriangle size={22} />
         </div>
         <div>
-          <h1 className="text-base font-semibold text-neutral-800 dark:text-neutral-100">Something went wrong</h1>
-          <p className="mt-1 max-w-sm text-sm text-neutral-500 dark:text-neutral-400">
+          <h1 className="text-base font-semibold text-jenny-text">Something went wrong</h1>
+          <p className="mt-1 max-w-sm text-sm text-jenny-muted">
             JennySol hit an unexpected error. It's been reported — reloading usually fixes it.
           </p>
         </div>
         <button
           onClick={() => window.location.reload()}
-          className="rounded-xl bg-brand-gradient px-4 py-2 text-sm font-semibold text-white shadow-md shadow-brand-500/25 transition hover:opacity-90"
+          className="rounded-xl bg-jenny-gold px-4 py-2 text-sm font-semibold text-jenny-ink-on-gold transition hover:opacity-90"
         >
           Reload
         </button>
