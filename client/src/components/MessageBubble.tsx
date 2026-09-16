@@ -1,9 +1,47 @@
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy, ImageIcon, Globe } from "lucide-react";
 import type { ChatTurn, GeneratedImage, Source } from "../lib/api";
 import { Orb } from "./orb/Orb";
+
+// A real markdown link in an assistant reply (an action-handoff target from
+// JENNYSOL-MOBILE-AND-ACTIONS.md's registry, or an inline citation from
+// Gemini's own grounding) navigating in the *same* tab would leave this PWA
+// entirely — tapping "Open Zomato" from inside JennySol shouldn't lose the
+// chat underneath it. Native-scheme links (tel:/sms:/mailto:) are left
+// alone: a browser's own handler for those already does the right thing,
+// and target="_blank" on a non-http(s) scheme is meaningless at best.
+const MARKDOWN_LINK_COMPONENT: Components = {
+  // Only href/children are actually used — react-markdown also passes its
+  // own internal `node` (the raw AST node) alongside the real DOM props,
+  // which isn't destructured out here just to be thrown away; spreading it
+  // onto a real <a> instead leaks a bogus node="[object Object]" attribute
+  // into the real markup, found live while debugging the urlTransform issue
+  // above.
+  a: ({ href, children }) => {
+    const isWebLink = href?.startsWith("http://") || href?.startsWith("https://");
+    return (
+      <a href={href} {...(isWebLink ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+        {children}
+      </a>
+    );
+  },
+};
+
+// react-markdown's own real default urlTransform only allows
+// http(s)/irc(s)/mailto/xmpp and silently blanks every other scheme's href
+// (found live: a real action-handoff `tel:` link rendered with href="" —
+// react-markdown's own documented sanitization, not a bug in this app's own
+// code). tel:/sms: are the two real schemes actionRegistry.ts's own targets
+// can produce beyond what's already allowed — added deliberately, by name,
+// rather than disabling the sanitizer altogether (which would also let
+// through javascript:/data: from any untrusted content that ever reaches
+// this renderer).
+const ALLOWED_EXTRA_SCHEMES = /^(tel|sms):/i;
+function urlTransform(url: string): string {
+  return ALLOWED_EXTRA_SCHEMES.test(url) ? url : defaultUrlTransform(url);
+}
 
 export function MessageBubble({
   role,
@@ -69,7 +107,9 @@ export function MessageBubble({
             />
           ) : content ? (
             <div className="prose prose-sm prose-invert max-w-none prose-p:my-1.5 prose-pre:my-2 prose-pre:bg-jenny-void prose-pre:text-jenny-text-2 prose-code:before:content-none prose-code:after:content-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_LINK_COMPONENT} urlTransform={urlTransform}>
+                {content}
+              </ReactMarkdown>
               {streaming && (
                 <span className="ml-0.5 inline-block h-[1em] w-[0.5em] translate-y-[0.15em] animate-pulse bg-current align-middle" />
               )}

@@ -5,6 +5,7 @@ import { buildContext, summarizeIfNeeded, type BuiltContext } from "./contextMan
 import { classifyTask } from "./models/modelRegistry.js";
 import { isIdentityQuestion, CANONICAL_IDENTITY_RESPONSE } from "./identity.js";
 import { detectDateTimeIntent, getCurrentDateTimeResponse } from "./dateTime.js";
+import { tryResolveAction } from "./actions/actionResolver.js";
 import { needsCurrentInfo, CURRENT_INFO_UNAVAILABLE_RESPONSE } from "./currentInfo.js";
 import { hasAnySearchProviderConfigured } from "./search/searchRouter.js";
 import { isGeminiGroundingAvailable } from "./providers/gemini.js";
@@ -73,15 +74,52 @@ interface RunTimings {
   completedAt?: number;
 }
 
+// Maps the router's own internal reason codes (modelRouter.ts's "not
+// configured"/"in cooldown", retryClassifier.ts's ErrorKind values) to the
+// same short, real, human-readable phrases regardless of which provider hit
+// them — never a raw provider SDK error body (see describeError's own
+// comment on why not).
+function describeReason(reason: string): string {
+  switch (reason) {
+    case "not configured":
+      return "no API key";
+    case "in cooldown":
+      return "temporarily disabled after recent failures";
+    case "quota":
+      return "out of quota";
+    case "429":
+      return "rate-limited";
+    case "auth":
+      return "authentication failed";
+    case "invalid_request":
+      return "rejected the request";
+    case "timeout":
+      return "not responding";
+    case "at_capacity":
+      return "at capacity";
+    case "503":
+      return "overloaded";
+    default:
+      return "failed";
+  }
+}
+
 function describeError(err: unknown): string {
   // Shown verbatim as Jenny's reply — never forward raw provider error
   // bodies here (a provider SDK's err.message is often literally a
   // JSON-stringified blob of the underlying HTTP error).
   if (err instanceof AllProvidersUnavailableError) {
     console.error("[router] all providers exhausted:", err.attempts);
-    return noProviderConfigured()
-      ? "AI isn't set up on this server yet — no provider has valid credentials configured. Check the server's environment variables."
-      : "I can't reach any AI engine right now — they're all temporarily unavailable. Give it a moment and try again.";
+    if (noProviderConfigured()) {
+      return "AI isn't set up on this server yet — no provider has valid credentials configured. Check the server's environment variables.";
+    }
+    // Real, specific, per-provider reasons — the same data this failure
+    // already carries (err.attempts), previously discarded in favor of a
+    // single generic line. JENNYSOL-UI-BUILD.md's own "unavailable" concept
+    // is "never a dead end without saying why" — naming which provider
+    // failed and why is what makes that real rather than aspirational.
+    const breakdown = err.attempts.map((a) => `${a.name} — ${describeReason(a.reason)}`).join("; ");
+    return `I can't reach any AI engine right now: ${breakdown}. Give it a moment and try again.`;
   }
   const apiStatus = (err as { status?: number })?.status;
   return apiStatus === 429
@@ -225,6 +263,42 @@ export async function executeChatRun(
           runId,
           userId,
           provider: "datetime",
+          fellBack: false,
+          totalMs: timings.completedAt - timings.startedAt,
+        })
+      );
+      return;
+    }
+
+    // JENNYSOL-MOBILE-AND-ACTIONS.md Part A — real deep-link handoff for a
+    // bounded, registered set of action targets (maps, calls, texts,
+    // search, food/ride-hailing search). Same short-circuit philosophy as
+    // identity/datetime above: actionRegistry.ts's own cheap keyword
+    // pre-filter runs first inside tryResolveAction, so normal chat traffic
+    // never pays for the extra LLM classification call this needs. Jenny
+    // never completes the transaction herself — this only ever produces a
+    // real, correct link the user opens and finishes themselves, per that
+    // document's own explicit rule.
+    const actionResolution = await tryResolveAction(conversationId, message);
+    if (actionResolution) {
+      timings.firstTokenAt = Date.now();
+      runStore.markFirstToken(runId);
+      emit(runId, "agent.status", { status: "streaming" });
+      runStore.appendResponseText(runId, actionResolution.text);
+      emit(runId, "message.delta", { delta: actionResolution.text });
+
+      addMessage(userId, conversationId, "assistant", actionResolution.text, []);
+      const provider = actionResolution.kind === "resolved" ? "action_handoff" : "action_clarify";
+      runStore.markCompleted(runId, provider, []);
+      timings.completedAt = Date.now();
+      emit(runId, "done", { sources: [] });
+      console.log(
+        JSON.stringify({
+          event: "chat_timing",
+          requestId,
+          runId,
+          userId,
+          provider,
           fellBack: false,
           totalMs: timings.completedAt - timings.startedAt,
         })
