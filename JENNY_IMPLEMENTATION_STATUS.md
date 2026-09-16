@@ -2484,3 +2484,56 @@ planted defect **could not be scored at all** — a real request failure, reprod
 via the real Ollama server log to memory-pressure-triggered eviction (`system_free="2.0 GiB"`,
 `system_limited=true`) distinct from the earlier-documented hard GPU-OOM crash. The closing verdict on
 vision-model trustworthiness was revised more cautious, not softened, as a result.
+
+## 2026-09-16 — real Ollama provider-health false negatives, and the actual live cause
+
+**Finding 1 (fixed): the provider-health probe's own timeout was too short for this
+deployment's real network path.** `providers/ollama.ts`'s `checkNow()` used a 1500ms
+`AbortSignal.timeout` on its `/api/tags` probe — tuned for a same-machine or same-LAN Ollama,
+not this deployment's actual topology (Railway US West → a Tailscale tunnel → the `railtail`
+sidecar → this Mac, a relayed hop, not a direct kernel-level Tailscale connection). Real,
+live evidence from `railway logs --service railtail` at the time this was found: recurring
+`"forwarding tcp connection"` (a real, successful connect) followed minutes later by
+`"write: broken pipe"` — the relay reaching the Mac's Ollama and getting a real response,
+but this probe's own `AbortSignal` had already fired and abandoned the read by the time it
+arrived, so the relay saw the client vanish mid-read. A direct local `curl` to the same
+address resolves in ~5ms — Ollama itself was never the problem; the timeout was. Raised to
+6000ms, real margin for a relayed, cross-region round trip. Verified: `npx vitest run` in
+`server/` — 582 passed, 0 broken by the change — then shipped to production
+(`railway up`, `GIT_COMMIT_SHA` set first per this project's own documented deploy recipe).
+
+**Finding 2 (real, live, NOT fixed by the above — a physical-machine issue, not a code
+bug): this Mac is running on battery right now, discharging, and that is very likely the
+actual, current, ongoing cause of the connectivity gaps in Finding 1's own log evidence.**
+This session is running directly on the same Mac that hosts production Ollama (confirmed:
+`ollama serve` resident, bound correctly to `100.70.199.75:11434`, the real Tailscale
+address). Checked directly, twice, minutes apart: `pmset -g batt` → `Now drawing from
+'Battery Power'`, 37% then 32%, ~1:48 remaining at the second check. `pmset -g` confirms
+`lowpowermode 1` (active only while on battery — this throttles CPU/network) and `sleep 1`
+held off only by two transient assertions, not a durable guarantee. **This is the exact
+same P0 finding `LOCAL-INFRA.md` already documented days ago and flagged as Syam's own
+action item ("keep this Mac's power adapter connected at all times it's expected to serve
+traffic") — it was never acted on, and it is actively degrading production reachability
+for real, right now, independent of and in addition to Finding 1's timeout bug.** Nothing
+in this codebase can plug in a laptop; this is stated plainly rather than silently retried
+or worked around. If the Mac's battery actually runs out, production Ollama goes down
+entirely — not intermittently — until it's plugged back in and `ollama serve` (or its
+launchd service) is confirmed running again.
+
+**Also fixed this session: the visual-regression suite's real Gemini quota exposure.**
+The suite's own real `sendChatMessage` calls in `chat.spec.ts` (two tests, run across 4
+viewports) were hitting the same shared, production-adjacent Gemini key on every run — a
+genuine, real contributor to quota pressure for a suite whose actual assertions are about
+layout and chrome, not model output. Added `mockChatReply()` (`tests/visual/fixtures.ts`):
+intercepts `POST /api/chat` and the follow-up `GET /api/agent/runs/:id` with a fixed,
+deterministic response, mirroring `lib/api.ts`'s real SSE event shape and `AgentRun` field
+names exactly, so `ChatWindow`'s real parsing/rendering code runs completely unmodified —
+only the network boundary is fake. Found and fixed one real subtlety while wiring this in:
+a naive `Date.now()`-derived timestamp pair rounds unpredictably once truncated to the
+second-precision strings the real backend persists, which silently flipped the eyebrow's
+displayed elapsed-time by ±1s between runs — fixed by anchoring both timestamps to the same
+whole-second instant with a full 2-second offset, which survives truncation exactly, always.
+`chat.spec.ts`'s two tests dropped their `maxDiffPixelRatio` tolerance entirely now that
+their content is deterministic, matching every other screen in the suite at strict zero
+tolerance. Verified stable: 3 consecutive full clean runs, 51/51 passed each time, zero real
+external API calls anywhere in the suite.

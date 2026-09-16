@@ -120,9 +120,23 @@ let available: boolean | null = null;
 let lastCheckedAt = 0;
 const RECHECK_INTERVAL_MS = 60_000;
 
+// Real, live-diagnosed finding (2026-09-15): 1500ms was tuned for a
+// same-machine or same-LAN Ollama. In this deployment's actual real
+// topology — Railway (US West) -> a Tailscale tunnel -> the `railtail`
+// sidecar -> the founder's Mac, relayed rather than a direct kernel-level
+// tailscale connection — a real round trip regularly exceeds 1.5s. The
+// live symptom, confirmed in railtail's own logs: a connection genuinely
+// reaches the Mac's Ollama ("forwarding tcp connection"), but this fetch's
+// AbortSignal fires first, so the client-side read is already gone by the
+// time Ollama's real response comes back — the relay sees that as
+// "write: broken pipe" on effectively every single probe. Direct local
+// curl to the same address resolves in ~5ms — Ollama itself was never the
+// problem; this timeout was. Raised to a value with real margin for a
+// relayed, cross-region round trip, still short enough to never
+// meaningfully delay this probe's own next cycle.
 async function checkNow(): Promise<void> {
   try {
-    const res = await fetch(`${BASE_URL}/api/tags`, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(`${BASE_URL}/api/tags`, { signal: AbortSignal.timeout(6000) });
     available = res.ok;
   } catch {
     available = false;
