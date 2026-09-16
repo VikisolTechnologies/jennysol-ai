@@ -4,17 +4,14 @@ import {
   IconBrain,
   IconChevronDown,
   IconChevronRight,
-  IconCompass,
   IconFile,
   IconFileText,
   IconLayoutDashboard,
-  IconListCheck,
   IconLogout,
   IconMailExclamation,
   IconMessage,
   IconDotsVertical,
   IconPencil,
-  IconPlug,
   IconSettings,
   IconSquarePlus,
   IconTrash,
@@ -457,12 +454,18 @@ export function Sidebar({
 
       {user && (
         <div className="flex shrink-0 flex-col gap-0.5">
+          {/* Agents/Tasks/Integrations dropped from nav, not restyled in
+              place -- each is a real, honest "not built yet" page (see
+              their own file comments), but a nav link to a placeholder is
+              still a dead link. They stay reachable by direct URL for
+              anyone who wants to see the roadmap; they just don't get a
+              permanent spot in primary navigation for something that isn't
+              there yet. Files and Memory stay -- both back onto real data
+              (the same /api/documents and /api/conversations endpoints
+              this sidebar itself already uses). */}
           {[
-            { to: "/agents", label: "Agents", Icon: IconCompass },
             { to: "/files", label: "Files", Icon: IconFileText },
             { to: "/memory", label: "Memory", Icon: IconBrain },
-            { to: "/tasks", label: "Tasks", Icon: IconListCheck },
-            { to: "/integrations", label: "Integrations", Icon: IconPlug },
           ].map(({ to, label, Icon }) => (
             <Link key={to} to={to} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
               <Icon size={13} />
