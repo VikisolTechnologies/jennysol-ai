@@ -6,6 +6,8 @@ import {
   type RouteResult,
 } from "./modelRouter.js";
 import type { TaskCapability } from "./models/modelRegistry.js";
+import { hasAnySearchProviderConfigured } from "./search/searchRouter.js";
+import { hasWorkingImageProvider } from "./imageRouter.js";
 
 export type { ChatTurn, WebSource, RouteResult };
 export { AllProvidersUnavailableError };
@@ -63,8 +65,49 @@ const PERSONA_INTRO = [
   "over an older one for the SAME claim rather than treating every result as equally current.",
 ].join(" ");
 
+// Without this the model falls back on its generic self-description and
+// tells users it's "text-only", can't browse, can't hear them, and to go use
+// DALL-E instead (seen in production 2026-09-25). Built from the same live
+// checks the features themselves use, so it never claims one that isn't set up.
+function capabilitiesSection(): string {
+  const lines = [
+    "WHAT JENNYSOL CAN DO — describe yourself accurately; never say you're \"text-only\" or",
+    "\"just a text-based AI\", and never send people to other AI apps for something JennySol does:",
+    "- Voice: people can talk to you with the microphone button (their speech reaches you as",
+    "  text), and can turn on spoken replies with the speaker icon so your answers are read aloud.",
+    "- Documents: people can upload files in the sidebar, and you can answer from them. Only bring",
+    "  this up when it's actually relevant — e.g. they ask about their own files or notes — not as",
+    "  a routine reminder.",
+  ];
+  if (hasAnySearchProviderConfigured()) {
+    lines.push(
+      "- Current information: when a question needs up-to-date facts, JennySol looks it up on the",
+      "  web automatically and gives you the results (see LIVE WEB RESULTS when present). Don't say",
+      "  you can't access the internet; follow the time-sensitive rules above instead."
+    );
+  }
+  if (hasWorkingImageProvider()) {
+    lines.push(
+      "- Images: JennySol generates images. If someone asks for a picture in chat, tell them to tap",
+      "  the picture icon next to the chat icon at the bottom left, then describe what they want —",
+      "  and offer a short, vivid description they could use. Don't say you can't make images."
+    );
+  } else {
+    lines.push(
+      "- Images: JennySol's image generation isn't available yet. If someone asks for a picture, say",
+      "  that briefly and warmly — don't call yourself text-only, and don't recommend other AI image",
+      "  apps or websites. Offer to help another way, like describing the scene in words."
+    );
+  }
+  lines.push(
+    "- You can't run code, open apps, or act on the person's device yourself; you can write the code",
+    "  or steps for them."
+  );
+  return lines.join("\n");
+}
+
 function buildPersona(): string {
-  return `${currentDateLine()} ${PERSONA_INTRO}`;
+  return `${currentDateLine()} ${PERSONA_INTRO}\n\n${capabilitiesSection()}`;
 }
 
 export function buildSystemPrompt(ctx: {
@@ -96,16 +139,10 @@ export function buildSystemPrompt(ctx: {
     );
   }
 
-  if (ctx.documentChunks.length === 0) {
-    if (ctx.webChunks.length === 0) {
-      sections.push(
-        "",
-        "No documents have been uploaded yet, so answer from general knowledge — mention once,",
-        "naturally, that uploading documents would let you ground answers in them, but don't",
-        "belabor it."
-      );
-    }
-  } else {
+  // No "you could upload documents" nudge when there are none: this prompt
+  // is rebuilt every turn with no memory of having said it, so "mention it
+  // once" turned into a reminder tacked onto nearly every reply.
+  if (ctx.documentChunks.length > 0) {
     sections.push(
       "",
       "Answer the user's question using the DOCUMENT CONTEXT below when it's relevant. If it",

@@ -2,13 +2,11 @@ import { test, expect } from "@playwright/test";
 import { completeSignup, mockChatReply } from "./fixtures";
 
 async function enterChat(page: import("@playwright/test").Page) {
-  // ChatWindow's real timeOfDayGreeting() reads the real system clock
-  // (Wednesday afternoon/evening/...) — found live: this suite's own
-  // baseline, recorded hours earlier the same day, drifted and failed once
-  // real wall-clock time crossed into a different part of the day. Freezing
-  // only Date() (not setTimeout/rAF — see setFixedTime's own docs) makes
-  // this genuinely deterministic forever, rather than a baseline that will
-  // keep drifting every time real time moves on, today or any other day.
+  // Freezes only Date() (not setTimeout/rAF — see setFixedTime's own docs)
+  // so anything clock-derived on screen can't drift the baseline. The
+  // header used to show a time-of-day greeting that did exactly that; it
+  // now shows the conversation title, but relative times elsewhere still
+  // read the clock.
   await page.clock.setFixedTime(new Date("2026-01-07T15:00:00"));
   await mockChatReply(page);
   await completeSignup(page);

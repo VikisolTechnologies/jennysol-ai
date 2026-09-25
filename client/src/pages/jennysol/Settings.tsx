@@ -25,9 +25,8 @@ export function Settings() {
     fetchProviderHealth()
       .then((h) => setProviders(h.providers))
       .catch(() => {
-        // Non-admin users can't reach this (401/403) — Routing simply shows
-        // "not available" below rather than an error banner for the common,
-        // expected case of a regular account viewing their own settings.
+        // Non-admin users can't reach this (401/403) — the Routing section
+        // just doesn't render for them; there's nothing for them to see.
       });
   }, []);
 
@@ -41,12 +40,10 @@ export function Settings() {
       </div>
 
       <div className="flex flex-col gap-6 px-5 py-6">
-        <section>
-          <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-jenny-gold">Routing</h2>
-          <div className="rounded-2xl bg-jenny-raised p-4">
-            {providers === null ? (
-              <p className="text-xs text-jenny-muted">Only visible to admin accounts on this deployment.</p>
-            ) : (
+        {providers !== null && (
+          <section>
+            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-jenny-gold">Routing</h2>
+            <div className="rounded-2xl bg-jenny-raised p-4">
               <ul className="flex flex-col gap-2">
                 {providers.map((p) => (
                   <li key={p.name} className="flex items-center justify-between text-sm">
@@ -57,13 +54,13 @@ export function Settings() {
                   </li>
                 ))}
               </ul>
-            )}
-            <p className="mt-3 text-[11px] text-jenny-muted">
-              Read-only — changing which model answers your questions isn&rsquo;t a per-user setting on this
-              deployment.
-            </p>
-          </div>
-        </section>
+              <p className="mt-3 text-[11px] text-jenny-muted">
+                Read-only — changing which model answers your questions isn&rsquo;t a per-user setting on this
+                deployment.
+              </p>
+            </div>
+          </section>
+        )}
 
         <section>
           <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-jenny-gold">Voice</h2>
@@ -81,7 +78,7 @@ export function Settings() {
                 }}
                 className={`relative h-6 w-11 shrink-0 rounded-full transition ${spokenReplies ? "bg-jenny-gold" : "bg-jenny-raised-2"}`}
               >
-                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-jenny-text transition-transform ${spokenReplies ? "translate-x-5" : "translate-x-0.5"}`} />
+                <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-jenny-text transition-transform ${spokenReplies ? "translate-x-[22px]" : "translate-x-0.5"}`} />
               </button>
             </label>
             <p className="mt-2 text-[11px] text-jenny-muted">

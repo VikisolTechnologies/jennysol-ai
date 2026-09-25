@@ -557,7 +557,7 @@ export function Sidebar({
         </div>
       )}
 
-      <p className="shrink-0 text-center text-[10px] text-jenny-muted">Powered by Vikisol · runs locally on your data</p>
+      <p className="shrink-0 text-center text-[10px] text-jenny-muted">Powered by Vikisol</p>
 
       {/* Lets two devices be compared directly (e.g. "are these actually
           two different identities, and the same app build?") instead of

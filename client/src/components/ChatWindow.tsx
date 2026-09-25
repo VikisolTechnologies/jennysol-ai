@@ -19,8 +19,10 @@ import {
   cancelChatRun,
   fetchActiveRuns,
   fetchConversationMessages,
+  fetchConversations,
   fetchRun,
   generateImage,
+  markRunSeen,
   sendChatMessage,
   type ChatTurn,
   type GeneratedImage,
@@ -48,27 +50,17 @@ const SUGGESTIONS = [
   "Explain this in simple terms",
 ];
 
-// JENNYSOL-UI-BUILD.md §6.1's "eyebrow showing the provider and response
-// time" — real data (server/src/services/agentRunStore.ts's own `provider`
-// and start/complete timestamps on every AgentRun), not a design flourish:
-// fetched once per completed turn via fetchRun, since the SSE stream itself
-// only ever carries sources on `done` (see lib/api.ts's ChatStreamHandlers).
-function formatProvider(provider: string | null): string {
-  if (!provider) return "LOCAL";
-  return provider.toUpperCase();
-}
+// Response time of the last turn, from the AgentRun's own timestamps. The
+// provider name is deliberately not shown: users talk to JennySol, never to
+// "Gemini" or "Qwen" (JENNY_MODEL_FLEET.md's first principle).
 function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}S`;
 }
-// A real, computed greeting for a brand-new conversation that has no title
-// yet — not a fabricated "session name", the actual current weekday and
-// time of day, matching the mockup's "Tuesday evening" register.
-function timeOfDayGreeting(): string {
-  const now = new Date();
-  const weekday = now.toLocaleDateString(undefined, { weekday: "long" });
-  const hour = now.getHours();
-  const part = hour < 5 ? "night" : hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
-  return `${weekday} ${part}`;
+// Same rule as the server's conversationStore.titleFrom, so the header
+// matches the sidebar before the saved title has been fetched.
+function titleFromFirstMessage(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > 48 ? `${oneLine.slice(0, 48)}…` : oneLine;
 }
 
 export function ChatWindow({
@@ -104,7 +96,8 @@ export function ChatWindow({
   // cleared the moment a request actually succeeds again, so a transient
   // blip doesn't leave the orb reading "unavailable" forever.
   const [chatUnavailable, setChatUnavailable] = useState(false);
-  const [lastTurnMeta, setLastTurnMeta] = useState<{ provider: string; ms: number } | null>(null);
+  const [lastTurnMeta, setLastTurnMeta] = useState<{ ms: number } | null>(null);
+  const [savedTitle, setSavedTitle] = useState<string | null>(null);
   const navigate = useNavigate();
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -218,10 +211,20 @@ export function ChatWindow({
     setSending(false); // any in-flight request now belongs to a generation nothing here cares about
     setSendingStatus(null);
     currentRunIdRef.current = null;
+    setLastTurnMeta(null);
+    setSavedTitle(null);
     if (!conversationId) {
       setMessages([]);
       return;
     }
+    // Picks up a title renamed from the sidebar; the first user message
+    // stands in until this resolves.
+    fetchConversations()
+      .then((list) => {
+        if (generationRef.current !== myGeneration) return;
+        setSavedTitle(list.find((c) => c.id === conversationId)?.title ?? null);
+      })
+      .catch(() => {});
     fetchConversationMessages(conversationId)
       .then(async (msgs) => {
         if (generationRef.current !== myGeneration) return;
@@ -285,6 +288,7 @@ export function ChatWindow({
         setSendingStatus(null);
         currentRunIdRef.current = null;
         applyRunMeta(run);
+        void markRunSeen(runId);
         setMessages((prev) => {
           const copy = [...prev];
           const last = copy.length - 1;
@@ -312,15 +316,15 @@ export function ChatWindow({
     return false;
   }
 
-  // Real provider + response time for the header eyebrow (§6.1) — best
+  // Response time for the header eyebrow (§6.1) — best
   // effort: a failure here just means the eyebrow doesn't update for this
   // turn, never blocks or delays showing the reply itself.
-  function applyRunMeta(run: { provider: string | null; startedAt: string; completedAt: string | null }) {
+  function applyRunMeta(run: { startedAt: string; completedAt: string | null }) {
     if (!run.completedAt) return;
     const started = new Date(run.startedAt.replace(" ", "T") + "Z").getTime();
     const completed = new Date(run.completedAt.replace(" ", "T") + "Z").getTime();
     if (!Number.isFinite(started) || !Number.isFinite(completed) || completed < started) return;
-    setLastTurnMeta({ provider: formatProvider(run.provider), ms: completed - started });
+    setLastTurnMeta({ ms: completed - started });
   }
 
   // Covers the specific scenario the latency audit called out: the user
@@ -347,6 +351,7 @@ export function ChatWindow({
           setSendingStatus(null);
           currentRunIdRef.current = null;
           applyRunMeta(run);
+          void markRunSeen(runId);
           setMessages((prev) => {
             const copy = [...prev];
             const last = copy.length - 1;
@@ -369,6 +374,8 @@ export function ChatWindow({
   }, [sending]);
 
   useEffect(() => {
+    // An empty chat is the welcome hero, which should start at its top.
+    if (messages.length === 0) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
@@ -507,7 +514,11 @@ export function ChatWindow({
             copy[copy.length - 1] = { ...copy[copy.length - 1], sources };
             return copy;
           });
-          if (capturedRunId) void fetchRun(capturedRunId).then((run) => run && applyRunMeta(run));
+          if (capturedRunId) {
+            // Finished on screen, so never announce it later as "while you were away".
+            void markRunSeen(capturedRunId);
+            void fetchRun(capturedRunId).then((run) => run && applyRunMeta(run));
+          }
           if (spokenReplies || forceSpeak) {
             voiceConv.notifySpeakingStart();
             setAssistantSpeaking(true);
@@ -689,8 +700,8 @@ export function ChatWindow({
           </div>
         </div>
 
-        {/* §6.1 — eyebrow (provider + response time of the last real turn)
-            and a serif session title, gold rule beneath. Only appears once
+        {/* §6.1 — eyebrow (response time of the last real turn) and the
+            conversation's title, gold rule beneath. Only appears once
             there's something real to show (heroPhase !== "visible" means at
             least one message exists) — no placeholder eyebrow on a truly
             empty chat. */}
@@ -698,10 +709,12 @@ export function ChatWindow({
           <div>
             {lastTurnMeta && (
               <p className="text-[10px] tracking-[0.25em] text-jenny-gold">
-                {lastTurnMeta.provider} · {formatSeconds(lastTurnMeta.ms)}
+                REPLIED IN {formatSeconds(lastTurnMeta.ms)}
               </p>
             )}
-            <p className="mt-1 font-voice text-[20px] text-jenny-text">{timeOfDayGreeting()}</p>
+            <p className="mt-1 truncate font-voice text-[20px] text-jenny-text">
+              {savedTitle ?? titleFromFirstMessage(messages.find((m) => m.role === "user")?.content ?? "")}
+            </p>
             <div className="mt-2.5 h-px w-7 bg-jenny-gold" />
           </div>
         )}
@@ -742,7 +755,9 @@ export function ChatWindow({
           // the transition ends the hero unmounts entirely (heroPhase
           // "gone") so its idle glow animation stops costing anything.
           <div
-            className={`mx-auto flex h-full max-w-md flex-col items-center text-center transition-all duration-300 ${
+            // min-h-full (not h-full) so on a short screen the hero grows and
+            // the list scrolls, instead of flex squeezing and clipping it.
+            className={`mx-auto flex min-h-full max-w-md flex-col items-center text-center transition-all duration-300 ${
               heroPhase === "collapsing"
                 ? "scale-95 justify-center gap-4 opacity-0 duration-[420ms] ease-out"
                 : keyboardOpen
@@ -752,7 +767,7 @@ export function ChatWindow({
           >
             <VoiceOrb state={orbState} size={keyboardOpen ? "sm" : "lg"} onInterrupt={handleInterrupt} />
             <div
-              className={`overflow-hidden transition-all duration-300 ${
+              className={`shrink-0 overflow-hidden transition-all duration-300 ${
                 keyboardOpen ? "max-h-0 opacity-0" : "max-h-40 opacity-100"
               }`}
             >
@@ -762,7 +777,7 @@ export function ChatWindow({
               </p>
             </div>
             <div
-              className={`flex flex-col gap-2.5 self-stretch overflow-hidden transition-all duration-300 ${
+              className={`flex shrink-0 flex-col gap-2.5 self-stretch overflow-hidden transition-all duration-300 ${
                 keyboardOpen ? "max-h-0 opacity-0" : "max-h-96 opacity-100"
               }`}
             >

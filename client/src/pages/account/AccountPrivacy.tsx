@@ -37,12 +37,10 @@ export function AccountPrivacy() {
         <div className="flex items-start gap-2.5">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           <div>
-            <p className="font-semibold">Account deletion isn't self-service yet</p>
+            <p className="font-semibold">Deleting your account</p>
             <p className="mt-1 text-amber-700 dark:text-amber-300/90">
-              There's no backend support yet for deleting your account and its data automatically
-              from this page — we're not going to show a delete button that doesn't actually do
-              anything. If you want your account and data removed now, contact Vikisol
-              Technologies directly and it'll be handled manually.
+              You can't delete your account from this page yet. To have your account and all of its
+              data removed, contact Vikisol Technologies and we'll take care of it for you.
             </p>
           </div>
         </div>

@@ -53,6 +53,10 @@ export function MainApp() {
   );
   const [conversationsVersion, setConversationsVersion] = useState(0);
   const { unseenCompleted, dismiss } = useAgentRunRecovery(activeConversationId);
+  const latestUnseen = unseenCompleted.reduce<(typeof unseenCompleted)[number] | null>(
+    (latest, r) => (!latest || (r.completedAt ?? r.startedAt) > (latest.completedAt ?? latest.startedAt) ? r : latest),
+    null
+  );
   // Shared between Sidebar (a proactive "save your chats" prompt) and
   // ChatWindow (reactive, once the server blocks a message past the guest
   // prompt limit) — held here so either one can trigger the same modal.
@@ -69,32 +73,33 @@ export function MainApp() {
 
   return (
     <div className="flex h-[var(--app-vh)] w-screen flex-col overflow-hidden bg-jenny-void text-jenny-text">
-      {unseenCompleted.length > 0 && (
-        <div className="flex shrink-0 flex-col gap-1.5 border-b border-jenny-hairline bg-jenny-raised px-4 py-2">
-          {unseenCompleted.map((run) => (
-            <div key={run.id} className="flex items-center justify-between gap-3 text-xs">
-              <button
-                onClick={() => {
-                  selectConversation(run.conversationId);
-                  void dismiss(run.id);
-                }}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left text-jenny-champagne hover:underline"
-              >
-                <Bell size={13} className="shrink-0" />
-                <span className="truncate">
-                  Jenny {run.status === "completed" ? "finished a reply" : "hit an error"} while you were away —
-                  tap to view
-                </span>
-              </button>
-              <button
-                onClick={() => void dismiss(run.id)}
-                className="shrink-0 rounded-md p-1 text-jenny-gold hover:bg-jenny-raised-2"
-                aria-label="Dismiss"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ))}
+      {latestUnseen && (
+        // One banner however many replies finished, so it never pushes the
+        // chat off a phone screen; it opens the newest one.
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-jenny-hairline bg-jenny-raised px-4 py-2 text-xs">
+          <button
+            onClick={() => {
+              selectConversation(latestUnseen.conversationId);
+              void dismiss(
+                unseenCompleted.filter((r) => r.conversationId === latestUnseen.conversationId).map((r) => r.id)
+              );
+            }}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-jenny-champagne hover:underline"
+          >
+            <Bell size={13} className="shrink-0" />
+            <span className="truncate">
+              {unseenCompleted.length > 1
+                ? `Jenny finished ${unseenCompleted.length} replies while you were away — tap to view`
+                : `Jenny ${latestUnseen.status === "completed" ? "finished a reply" : "hit an error"} while you were away — tap to view`}
+            </span>
+          </button>
+          <button
+            onClick={() => void dismiss(unseenCompleted.map((r) => r.id))}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-jenny-gold hover:bg-jenny-raised-2"
+            aria-label="Dismiss"
+          >
+            <X size={12} />
+          </button>
         </div>
       )}
       <div className="flex min-h-0 flex-1 w-screen overflow-hidden">

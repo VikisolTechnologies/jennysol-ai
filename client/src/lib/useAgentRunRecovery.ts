@@ -14,10 +14,14 @@ export function useAgentRunRecovery(activeConversationId: string | null) {
 
   const check = useCallback(async () => {
     const runs = await fetchActiveRuns().catch(() => []);
-    const finished = runs.filter(
-      (r) => (r.status === "completed" || r.status === "failed") && r.conversationId !== activeConversationId
-    );
-    setUnseenCompleted(finished);
+    const finished = runs.filter((r) => r.status === "completed" || r.status === "failed");
+    // A finished reply in the chat that's open right now is on screen, so it
+    // counts as seen — otherwise switching away later re-announces it as
+    // something that happened "while you were away".
+    for (const r of finished) {
+      if (r.conversationId === activeConversationId) void markRunSeen(r.id);
+    }
+    setUnseenCompleted(finished.filter((r) => r.conversationId !== activeConversationId));
   }, [activeConversationId]);
 
   useEffect(() => {
@@ -40,9 +44,10 @@ export function useAgentRunRecovery(activeConversationId: string | null) {
     };
   }, [check]);
 
-  async function dismiss(runId: string) {
-    setUnseenCompleted((prev) => prev.filter((r) => r.id !== runId));
-    await markRunSeen(runId);
+  async function dismiss(runIds: string[]) {
+    const ids = new Set(runIds);
+    setUnseenCompleted((prev) => prev.filter((r) => !ids.has(r.id)));
+    await Promise.all(runIds.map((id) => markRunSeen(id)));
   }
 
   return { unseenCompleted, dismiss };
