@@ -268,6 +268,7 @@ export const arenaConnector: ProductConnector = {
           required: ["query"],
         },
         tier: "READ",
+        risk: "low",
         execute: search,
       },
       {
@@ -285,6 +286,7 @@ export const arenaConnector: ProductConnector = {
           required: ["lat", "lng"],
         },
         tier: "READ",
+        risk: "low",
         execute: nearbyActivities,
       },
       {
@@ -292,6 +294,7 @@ export const arenaConnector: ProductConnector = {
         description: "Lists Discuss communities, most joined first, optionally matching a query. Use it to pick a community to post a question into.",
         parameters: { type: "object", properties: { query: { type: "string" } }, required: [] },
         tier: "READ",
+        risk: "low",
         execute: listCommunities,
       },
       {
@@ -306,6 +309,7 @@ export const arenaConnector: ProductConnector = {
           required: [],
         },
         tier: "READ",
+        risk: "low",
         execute: searchJobs,
       },
       {
@@ -328,6 +332,7 @@ export const arenaConnector: ProductConnector = {
           required: ["kind", "body"],
         },
         tier: "WRITE",
+        risk: "medium",
         execute: createPost,
       },
       {
@@ -346,6 +351,7 @@ export const arenaConnector: ProductConnector = {
           required: ["title", "description", "budgetMin", "budgetMax", "durationWeeks", "skills"],
         },
         tier: "WRITE",
+        risk: "medium",
         execute: createProject,
       },
       {
@@ -353,6 +359,7 @@ export const arenaConnector: ProductConnector = {
         description: "Joins (or requests to join, if the host approves people) an activity by its post id." + APPROVAL_NOTE,
         parameters: { type: "object", properties: { postId: { type: "string" } }, required: ["postId"] },
         tier: "WRITE",
+        risk: "medium",
         execute: joinActivity,
       },
       {
@@ -360,6 +367,7 @@ export const arenaConnector: ProductConnector = {
         description: "Places a bid (in rupees) on a project that's open for bids." + APPROVAL_NOTE,
         parameters: { type: "object", properties: { projectId: { type: "string" }, amount: { type: "number" } }, required: ["projectId", "amount"] },
         tier: "WRITE",
+        risk: "high",
         execute: placeBid,
       },
       {
@@ -367,6 +375,7 @@ export const arenaConnector: ProductConnector = {
         description: "Applies to a job posting by its id." + APPROVAL_NOTE,
         parameters: { type: "object", properties: { jobId: { type: "string", description: "The Arena job posting id to apply to." } }, required: ["jobId"] },
         tier: "WRITE",
+        risk: "high",
         execute: applyToJob,
       },
     ];

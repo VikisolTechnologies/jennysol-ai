@@ -247,6 +247,7 @@ describe("agentGateway — memory isolation (M8)", () => {
           description: "test",
           parameters: {},
           tier: "WRITE",
+          risk: "critical",
           execute: async () => {
             toolWasCalled = true;
             return { should: "never happen" };

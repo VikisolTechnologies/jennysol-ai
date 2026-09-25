@@ -18,6 +18,7 @@ function acmeConnector(opts?: { configured?: boolean }): ProductConnector {
         description: "Fake test tool — returns a fake widget.",
         parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
         tier: "READ",
+        risk: "low",
         execute: async (_identity, args) => ({ widgetId: args.id, name: "Test Widget" }),
       },
     ],
@@ -34,6 +35,7 @@ function widgetcoConnector(opts?: { configured?: boolean }): ProductConnector {
         description: "Fake test tool — returns a fake gadget, from a completely different fake product.",
         parameters: { type: "object", properties: {}, required: [] },
         tier: "READ",
+        risk: "low",
         execute: async () => ({ gadget: "Test Gadget" }),
       },
     ],
@@ -63,7 +65,7 @@ describe("ToolRegistry (M3)", () => {
     const badConnector: ProductConnector = {
       product: "acme",
       getTools: () => [
-        { name: "notNamespaced", description: "bad", parameters: {}, tier: "READ", execute: async () => null },
+        { name: "notNamespaced", description: "bad", parameters: {}, tier: "READ", risk: "low", execute: async () => null },
       ],
       configured: () => true,
     };
@@ -150,6 +152,7 @@ describe("ToolRegistry (M3)", () => {
           description: "test",
           parameters: {},
           tier: "READ",
+          risk: "low",
           execute: async () => {
             acmeToolWasCalled = true;
             return { should: "never happen" };

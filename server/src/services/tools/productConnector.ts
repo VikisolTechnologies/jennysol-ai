@@ -13,6 +13,16 @@ import type { ProductIdentity } from "../productIdentity.js";
 // dispatch() is even called yet for a given tool call.
 export type ToolTier = "READ" | "WRITE";
 
+// VIKISOL-MASTER-CONTEXT.md §6.6's four risk levels, attached to every tool for audit/reporting
+// (docs/JENNY-ARENA-CONTRACT.md, the eval report). This is documentation of *how consequential a
+// tool is*, layered on top of — never a replacement for — the READ/WRITE tier above, which is
+// what actually gates execution today: every WRITE tool already requires the user's explicit
+// approval regardless of its risk label, so setting `risk` never changes what a tool can do.
+// A future policy ("medium risk can auto-run for a trusted repeat action") would read this field;
+// nothing reads it yet beyond documentation and the "every WRITE tool must be MEDIUM or higher"
+// registration-time check in toolRegistry.ts.
+export type ToolRisk = "low" | "medium" | "high" | "critical";
+
 // What a tool's execute() gets beyond the identity/args, for a tool that needs to act as its own
 // product's specific user rather than just reading public data. rawToken is the exact service
 // token this identity was verified from (see middleware/productIdentity.ts) — a tool that needs
@@ -45,6 +55,9 @@ export interface RegisteredTool {
   // are handed to the model through that same interface once M6 wires a real one in.
   parameters: Record<string, unknown>;
   tier: ToolTier;
+  // How consequential this tool is (see ToolRisk above). Required so nothing silently defaults
+  // to "low" for something that spends money or applies to a job.
+  risk: ToolRisk;
   // The actual side effect. Receives the verified ProductIdentity (never a raw token beyond what
   // context explicitly carries, never a client-supplied user id) so the tool can enforce its own
   // resource-level authorization on top of ToolRegistry's product/scope check — see ADR-003:

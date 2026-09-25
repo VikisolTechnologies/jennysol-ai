@@ -360,4 +360,27 @@ describe("Jenny's Arena tools (Phase 3)", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("https://api-arena.vikisol.in/api/v1/posts/p1/joins");
     expect(fetchMock.mock.calls[1][0]).toBe("https://api-arena.vikisol.in/api/v1/marketplace/projects/pr1/bids");
   });
+
+  // Contract lock (docs/JENNY-ARENA-CONTRACT.md's risk table) - every READ tool is "low", and the
+  // two tools with money/employment stakes (placeBid, applyToJob) are rated at least "high", not
+  // just "medium" like the other WRITE tools. A future tool that forgets its rating, or rates a
+  // money-moving tool too low, fails this test rather than being caught only in a later audit.
+  it("every tool's risk rating matches the published contract", () => {
+    const tools = Object.fromEntries(arenaConnector.getTools().map((t) => [t.name, t]));
+    const expected: Record<string, string> = {
+      "arena.search": "low",
+      "arena.nearbyActivities": "low",
+      "arena.listCommunities": "low",
+      "arena.searchJobs": "low",
+      "arena.createPost": "medium",
+      "arena.createProject": "medium",
+      "arena.joinActivity": "medium",
+      "arena.placeBid": "high",
+      "arena.applyToJob": "high",
+    };
+    expect(Object.keys(tools).sort()).toEqual(Object.keys(expected).sort());
+    for (const [name, risk] of Object.entries(expected)) {
+      expect(tools[name].risk, `${name} risk`).toBe(risk);
+    }
+  });
 });

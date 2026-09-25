@@ -19,3 +19,23 @@ Any agent resuming this should read this file top-to-bottom, then the latest ent
 **Open questions for the founder:** none yet — nothing has been blocking so far. Anything that blocks goes to `docs/BLOCKERS.md`, not here.
 
 **Note to Cursor:** I am not touching any Arena repo. If you need something from JennySol's side (a new gateway field, a new tool, a contract change), it goes in `docs/JENNY-ARENA-CONTRACT.md` as a proposal — I'll pick it up from there, not from your repo.
+
+---
+
+## 2026-09-26 — STEP 1 done, starting STEP 2
+
+**Branch:** `feature/jenny-audit` (same branch — STEP 1 is small and additive; will still be committed separately from STEP 0).
+
+**Done:**
+- Added a `risk: "low" | "medium" | "high" | "critical"` field to every `RegisteredTool` (`services/tools/productConnector.ts`), rated all 9 Arena tools, and made `ToolRegistry.registerConnector` refuse to register any WRITE tool rated "low" or unrated — a structural guard against a future tool silently under-rating itself.
+- Added 2 new HTTP-layer contract tests to `agentGateway.http.test.ts`:
+  - a forged (wrong-secret, well-formed) Arena JWT is rejected through the real route, not just at the `serviceToken.ts` unit level;
+  - the 5-minute pending-action TTL is enforced through the real `/actions/:actionId` route (previously only unit-tested in `pendingActions.test.ts`), including that it reports `code: "expired"` and never dispatches.
+- Added 1 new test to `productConnectors/arena.test.ts` locking every tool's risk rating against the published contract table (a tool that's missing or wrongly rated fails this test, not just a later audit).
+- Fixed 3 existing test fixtures (`toolRegistry.test.ts` ×2 READ tools + 1 intentionally-bad fixture, `agentGateway.memoryIsolation.test.ts`'s `acme.deleteEverything` → rated `critical`) that needed the new field to keep passing under the stricter registration check.
+- Wrote `docs/JENNY-ARENA-CONTRACT.md`: the full contract (endpoints, request/response shapes, the identity/authorization model, the 9-tool risk table, what Cursor must never break, which tests guard it, and an open "proposed additions" section for Cursor to write into).
+- Full suite: **687 tests (685 passed, 2 skipped), 69 files, clean tsc** — up from the 684/2 baseline (+2 new contract tests, +1 risk-table test).
+
+**Next:** STEP 2 — finish `docs/CURRENT-STATE-AUDIT.md` (Codex's audit, already substantial): the 20-prompt routing table with cold/warm latency, an active attempt to break cross-user isolation, a cost pass, dead-code sweep, and the gap against the master plan's v1 DoD.
+
+**Note to Cursor:** `docs/JENNY-ARENA-CONTRACT.md` is now the reference for anything you need from JennySol's side. Section 6 is where to write a proposal if something's missing — I'll pick it up from there.

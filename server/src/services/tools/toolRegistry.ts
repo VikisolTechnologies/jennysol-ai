@@ -61,6 +61,13 @@ export class ToolRegistry {
           `Tool "${tool.name}" from connector "${connector.product}" must be namespaced as "${connector.product}.<name>"`
         );
       }
+      // A WRITE tool that forgot to rate itself risk "low" would be a silent underestimate of
+      // what it does — every side-effect tool is at minimum "medium" (VIKISOL-MASTER-CONTEXT.md
+      // §6.6's own risk table has no "low" WRITE example). Caught at registration time, not
+      // discovered later in an audit.
+      if (tool.tier === "WRITE" && (tool.risk === "low" || !tool.risk)) {
+        throw new ToolRegistryError(`Tool "${tool.name}" is tier WRITE but rated risk "${tool.risk ?? "(missing)"}" — WRITE tools must be at least "medium"`);
+      }
     }
     this.connectors.set(connector.product, connector);
   }

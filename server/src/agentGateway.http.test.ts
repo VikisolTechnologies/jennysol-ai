@@ -13,11 +13,14 @@ vi.mock("./services/modelRouter.js", async (importOriginal) => {
   return { ...actual, routeChatCompletion: vi.fn() };
 });
 
+import jwt from "jsonwebtoken";
 import { app } from "./app.js";
 import { routeChatCompletion } from "./services/modelRouter.js";
 import { signServiceToken } from "./services/serviceToken.js";
+import { ACTION_TTL_MS } from "./services/tools/pendingActions.js";
 
 const ARENA_SECRET = "arena-test-secret-do-not-use-in-production";
+const WRONG_SECRET = "not-arenas-real-secret-do-not-use-in-production";
 
 describe("POST /api/agent/gateway/chat (M6, real HTTP)", () => {
   beforeEach(() => {
@@ -36,6 +39,24 @@ describe("POST /api/agent/gateway/chat (M6, real HTTP)", () => {
       .set("Authorization", "Bearer garbage")
       .send({ message: "hi" })
       .expect(401);
+  });
+
+  // Contract lock (JENNYSOL-FINISH-ALL.md STEP 1): a well-formed JWT that merely claims to be
+  // Arena's, but is signed with a different key, must be rejected through the real HTTP route —
+  // not just at the unit level (serviceToken.test.ts already covers the unit case; this is the
+  // same attack proven through the actual Express app an attacker would hit).
+  it("rejects a forged token — well-formed JWT claiming to be Arena's, signed with the wrong secret", async () => {
+    const forged = jwt.sign(
+      { role: "TALENT", scope: ["arena.searchJobs"] },
+      WRONG_SECRET,
+      { subject: "attacker", issuer: "arena", audience: "jennysol", expiresIn: 60, algorithm: "HS256" }
+    );
+    await request(app)
+      .post("/api/agent/gateway/chat")
+      .set("Authorization", `Bearer ${forged}`)
+      .send({ message: "hi" })
+      .expect(401);
+    expect(routeChatCompletion).not.toHaveBeenCalled();
   });
 
   it("rejects a malformed request body (missing message) with 400, not a 500", async () => {
@@ -225,6 +246,43 @@ describe("POST /api/agent/gateway/chat — WRITE tier tools & POST /api/agent/ga
       .send({ approve: true })
       .expect(404);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // Contract lock: the 5-minute expiry through the real HTTP route, not just pendingActions.test.ts's
+  // direct-function-call coverage of the same rule.
+  it("an action older than the 5-minute TTL is rejected as expired, with a 'code' the caller can branch on, and never dispatches", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      let capturedActionId = "";
+      vi.mocked(routeChatCompletion).mockImplementation(async (_sys, _hist, onDelta, _sources, _cap, _sig, _tools, onToolCall) => {
+        capturedActionId = ((await onToolCall!({ id: "1", name: "arena.applyToJob", args: { jobId: "job-stale" } })) as { actionId: string }).actionId;
+        onDelta("ok");
+        return { providerUsed: "gemini", fellBack: false };
+      });
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const externalUserId = "arena-user-write-expiry";
+      const token = talentToken(externalUserId);
+
+      await request(app).post("/api/agent/gateway/chat").set("Authorization", `Bearer ${token}`).send({ message: "Apply me" }).expect(200);
+
+      vi.advanceTimersByTime(ACTION_TTL_MS + 1000);
+
+      // A fresh service token for the same user — real Arena mints one per request rather than
+      // reusing an old one (see RealAgentServiceClient), so this isolates the pending ACTION's
+      // own 5-minute TTL from the separate, much-shorter service-token TTL.
+      const freshToken = talentToken(externalUserId);
+      const res = await request(app)
+        .post(`/api/agent/gateway/actions/${capturedActionId}`)
+        .set("Authorization", `Bearer ${freshToken}`)
+        .send({ approve: true })
+        .expect(404);
+
+      expect(res.body.code).toBe("expired");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejecting a proposed action discards it without ever calling the real tool", async () => {
