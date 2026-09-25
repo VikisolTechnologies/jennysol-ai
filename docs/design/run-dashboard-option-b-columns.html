@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JennySol mockup — run dashboard, Option B (columns)</title>
+<style>
+  :root { --bg:#09090b; --card:#141416; --border:#232326; --orange:#ff6b35; --text:#f2f2f3; --muted:#8b8b93; --green:#5ec26a; --yellow:#ffc107; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Inter",system-ui,sans-serif; padding:32px; }
+  h1 { font-family:"Space Grotesk",sans-serif; font-size:20px; }
+  .sub { color:var(--muted); font-size:13px; margin-top:-8px; }
+  .board { display:flex; gap:16px; margin-top:20px; }
+  .col { flex:1; min-width:0; }
+  .col h2 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+  .dot { width:8px; height:8px; border-radius:50%; }
+  .dot.orange { background:var(--orange); } .dot.yellow { background:var(--yellow); } .dot.green { background:var(--green); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:10px; font-size:12.5px; }
+  .card .goal { font-weight:600; margin-bottom:6px; }
+  .card .meta { color:var(--muted); font-size:11px; }
+  .approve-btn { margin-top:8px; width:100%; background:var(--orange); color:#1a0900; border:none; border-radius:8px; padding:6px; font-weight:600; font-size:12px; }
+</style>
+</head>
+<body>
+<h1>Runs — Option B: columns by status (like a kanban board)</h1>
+<p class="sub">Every run lives in exactly one column; drag never needed — status changes move it automatically.</p>
+
+<div class="board">
+  <div class="col">
+    <h2><span class="dot orange"></span>Running (1)</h2>
+    <div class="card">
+      <div class="goal">Research: budget headphones under ₹5,000</div>
+      <div class="meta">Step 2 of ~4 · 34s elapsed</div>
+    </div>
+  </div>
+  <div class="col">
+    <h2><span class="dot yellow"></span>Awaiting you (1)</h2>
+    <div class="card">
+      <div class="goal">Join a badminton game tonight</div>
+      <div class="meta">Propose joining "Shuttle smash — Gachibowli"</div>
+      <button class="approve-btn">Review & approve</button>
+    </div>
+  </div>
+  <div class="col">
+    <h2><span class="dot green"></span>Completed (1)</h2>
+    <div class="card">
+      <div class="goal">Draft this week's team update email</div>
+      <div class="meta">2 steps · finished 3m ago</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

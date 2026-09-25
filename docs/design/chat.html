@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JennySol mockup — chat</title>
+<style>
+  :root { --bg:#09090b; --card:#141416; --border:#232326; --orange:#ff6b35; --text:#f2f2f3; --muted:#8b8b93; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Inter",system-ui,sans-serif; display:flex; justify-content:center; }
+  .phone { width:390px; min-height:100vh; display:flex; flex-direction:column; border-left:1px solid var(--border); border-right:1px solid var(--border); }
+  header { padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+  .orb { width:32px; height:32px; border-radius:50%; background:radial-gradient(circle at 32% 30%, #ffb385, var(--orange) 70%); }
+  header h1 { font-size:15px; margin:0; font-family:"Space Grotesk",sans-serif; }
+  header p { font-size:12px; color:var(--muted); margin:0; }
+  .thread { flex:1; padding:16px; display:flex; flex-direction:column; gap:14px; }
+  .msg { max-width:80%; padding:10px 14px; border-radius:16px; font-size:14px; line-height:1.4; }
+  .user { align-self:flex-end; background:var(--orange); color:#1a0900; border-bottom-right-radius:4px; }
+  .jenny { align-self:flex-start; background:var(--card); border:1px solid var(--border); border-bottom-left-radius:4px; }
+  .card { align-self:flex-start; max-width:85%; border:1px solid rgba(255,107,53,.4); background:rgba(255,107,53,.06); border-radius:14px; padding:14px; font-size:13px; }
+  .card h3 { margin:0 0 8px; font-size:14px; }
+  .card dl { margin:0 0 10px; }
+  .card dt { color:var(--muted); font-size:11px; margin-top:6px; }
+  .card dd { margin:0; }
+  .btns { display:flex; gap:8px; margin-top:10px; }
+  .btn { padding:8px 14px; border-radius:999px; font-size:13px; font-weight:600; border:none; }
+  .btn.primary { background:var(--orange); color:#1a0900; }
+  .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
+  .composer { padding:12px 16px 20px; border-top:1px solid var(--border); display:flex; gap:8px; }
+  .composer input { flex:1; background:var(--card); border:1px solid var(--border); border-radius:999px; padding:10px 14px; color:var(--text); font-size:14px; }
+  .composer button { width:40px; height:40px; border-radius:50%; background:var(--orange); border:none; color:#1a0900; font-weight:700; }
+  .note { text-align:center; color:var(--muted); font-size:11px; padding:0 24px 8px; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <header>
+    <div class="orb"></div>
+    <div><h1>Jenny</h1><p>Ready</p></div>
+  </header>
+  <p class="note">Jenny is an AI assistant and can make mistakes. Nothing is posted, joined, applied to or bid on without your approval below.</p>
+  <div class="thread">
+    <div class="msg user">Find a badminton game near me tonight and get me in.</div>
+    <div class="msg jenny">Found "Shuttle smash — Gachibowli", 7pm, 3 spots left. I've set up a request to join.</div>
+    <div class="card">
+      <h3>Join this activity</h3>
+      <dl>
+        <dt>Activity</dt><dd>Shuttle smash — Gachibowli, 7:00 PM</dd>
+      </dl>
+      <p style="color:var(--muted)">Review before approving</p>
+      <div class="btns">
+        <button class="btn primary">Approve</button>
+        <button class="btn ghost">Not now</button>
+      </div>
+    </div>
+    <div class="msg jenny">Anything else — a research question, a document, or something to draft?</div>
+  </div>
+  <div class="composer">
+    <input placeholder="Ask Jenny anything…">
+    <button>➤</button>
+  </div>
+</div>
+</body>
+</html>

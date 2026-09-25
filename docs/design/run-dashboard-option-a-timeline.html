@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JennySol mockup — run dashboard, Option A (timeline)</title>
+<style>
+  :root { --bg:#09090b; --card:#141416; --border:#232326; --orange:#ff6b35; --text:#f2f2f3; --muted:#8b8b93; --green:#5ec26a; --red:#e5534b; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Inter",system-ui,sans-serif; padding:32px; max-width:640px; margin:0 auto; }
+  h1 { font-family:"Space Grotesk",sans-serif; font-size:20px; }
+  .sub { color:var(--muted); font-size:13px; margin-top:-8px; }
+  .run { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; margin-bottom:14px; }
+  .run-head { display:flex; justify-content:space-between; align-items:center; }
+  .goal { font-weight:600; font-size:14px; }
+  .status { font-size:11px; padding:3px 10px; border-radius:999px; font-weight:600; }
+  .status.running { background:rgba(255,107,53,.15); color:var(--orange); }
+  .status.awaiting { background:rgba(255,193,7,.15); color:#ffc107; }
+  .status.done { background:rgba(94,194,106,.15); color:var(--green); }
+  .steps { margin-top:12px; border-left:2px solid var(--border); padding-left:14px; display:flex; flex-direction:column; gap:10px; }
+  .step { font-size:13px; position:relative; }
+  .step::before { content:""; position:absolute; left:-19px; top:4px; width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .step.ok::before { background:var(--green); }
+  .step.wait::before { background:#ffc107; }
+  .step .label { color:var(--muted); font-size:11px; }
+  .stop { margin-top:12px; padding:6px 14px; border-radius:999px; border:1px solid var(--red); color:var(--red); background:transparent; font-size:12px; font-weight:600; }
+</style>
+</head>
+<body>
+<h1>Runs — Option A: a timeline you scroll</h1>
+<p class="sub">Each run is a card; steps stack top-to-bottom in order, like a build log.</p>
+
+<div class="run">
+  <div class="run-head">
+    <div class="goal">Find and join a badminton game tonight</div>
+    <span class="status awaiting">Awaiting approval</span>
+  </div>
+  <div class="steps">
+    <div class="step ok"><span class="label">Step 1 · Plan</span><br>Search nearby activities matching "badminton"</div>
+    <div class="step ok"><span class="label">Step 2 · Tool</span><br>arena.nearbyActivities → 3 results</div>
+    <div class="step wait"><span class="label">Step 3 · Waiting on you</span><br>Propose joining "Shuttle smash — Gachibowli"</div>
+  </div>
+  <button class="stop">Stop this run</button>
+</div>
+
+<div class="run">
+  <div class="run-head">
+    <div class="goal">Research: best budget noise-cancelling headphones under ₹5,000</div>
+    <span class="status running">Running — step 2 of ~4</span>
+  </div>
+  <div class="steps">
+    <div class="step ok"><span class="label">Step 1 · Tool</span><br>web.search → 8 sources found</div>
+    <div class="step"><span class="label">Step 2 · Plan (in progress)</span><br>Reading top 3 sources for spec comparisons…</div>
+  </div>
+</div>
+
+<div class="run">
+  <div class="run-head">
+    <div class="goal">Draft this week's team update email</div>
+    <span class="status done">Completed</span>
+  </div>
+  <div class="steps">
+    <div class="step ok"><span class="label">Step 1 · Tool</span><br>knowledge.search → last week's notes</div>
+    <div class="step ok"><span class="label">Step 2 · Done</span><br>Draft ready — saved, not sent (draft-only tool)</div>
+  </div>
+</div>
+</body>
+</html>

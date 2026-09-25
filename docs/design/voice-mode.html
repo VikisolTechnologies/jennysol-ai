@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>JennySol mockup — voice mode</title>
+<style>
+  :root { --bg:#09090b; --orange:#ff6b35; --text:#f2f2f3; --muted:#8b8b93; --border:#232326; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:"Inter",system-ui,sans-serif; display:flex; justify-content:center; }
+  .phone { width:390px; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:space-between; padding:60px 24px; box-sizing:border-box; border-left:1px solid var(--border); border-right:1px solid var(--border); }
+  .orb { width:180px; height:180px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #ffcaa8, var(--orange) 55%, #a63d12 100%); box-shadow:0 0 60px 10px rgba(255,107,53,.35); animation:pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.04);} }
+  .caption { text-align:center; margin-top:32px; }
+  .caption h2 { font-family:"Space Grotesk",sans-serif; font-size:18px; margin:0 0 6px; }
+  .caption p { color:var(--muted); font-size:13px; margin:0; max-width:280px; }
+  .live { font-size:13px; color:var(--muted); text-align:center; min-height:40px; padding:0 20px; }
+  .controls { display:flex; gap:20px; align-items:center; }
+  .mic { width:64px; height:64px; border-radius:50%; background:var(--orange); border:none; color:#1a0900; font-size:22px; }
+  .end { width:48px; height:48px; border-radius:50%; background:#2a1512; border:1px solid #5a2c1c; color:#ff8a65; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div>
+    <div class="orb"></div>
+    <div class="caption">
+      <h2>Listening…</h2>
+      <p>Say "stop" anytime to end, or tap the mic to pause.</p>
+    </div>
+  </div>
+  <div class="live">"…find me a badminton game tonight and—"</div>
+  <div class="controls">
+    <button class="end">✕</button>
+    <button class="mic">●</button>
+    <div style="width:48px"></div>
+  </div>
+</div>
+</body>
+</html>

@@ -95,3 +95,39 @@ evidence either way.
 
 **Next:** STEP 4 — the architecture blueprint (`docs/JENNYSOL-ARCHITECTURE.md`), using STEP 2's
 audit as the ground truth for what's already built vs what's genuinely still needed.
+
+---
+
+## 2026-09-26 — STEP 4 done, starting STEP 5
+
+**Branch:** `feature/jenny-audit` (docs only).
+
+**Done:**
+- `docs/JENNYSOL-ARCHITECTURE.md`: the target shape (agent runtime + Model Gateway + privacy
+  tiers wrapped around what's already built, never replacing it), the real code contracts for
+  `AgentRun`/`TaskStep` and the Model Gateway's `PrivacyTier`, a genuinely-scoped tools plan to
+  reach 10 (3 trivial wrappers around already-live capabilities), the memory/RAG gap (tenant+
+  purpose scoping and export/delete — not the vector store, which stays as-is), all 6 extension
+  points designed against the current schema (no retrofit needed later), the DoD-to-code mapping
+  table, and the stack/repo-layout/vector-store/One conflicts with a recommendation for each
+  (default: keep everything as-is).
+- `docs/design/`: 5 static HTML mockups — chat, voice mode, memory & privacy settings, and **2
+  real options** for the new run/approval dashboard (Option A: a scrolling timeline of steps per
+  run; Option B: kanban-style columns by status). Not built yet, not deployed — reference only.
+
+**A note on approval:** `VIKISOL-MASTER-CONTEXT.md` §2.5 says UI changes need founder approval
+before building; `JENNYSOL-FINISH-ALL.md`'s STEP 5 item 6 says the run/approval dashboard
+specifically "is new, not a redesign, so it can ship." I'm following the more specific, more
+recent instruction for this one screen — but flagging here, explicitly, that the dashboard in
+STEP 5 will not have had a human look at these two options first. That's a real trade-off of
+running straight through without stopping; the founder should look at both options in
+`docs/design/` before relying on whichever one STEP 5 ends up building.
+
+**Next:** STEP 5 — build the v1 core. Given real time/scope limits on a single continuous run
+against a multi-week roadmap, I'm scoping this honestly rather than claiming full completion:
+building the tools-to-10 addition (trivial, real), the memory export/delete endpoints (real,
+scoped), and a first real cut of the `AgentRun`/`TaskStep` persistence layer with a genuinely
+working but intentionally simple plan→execute→observe loop — not the full "Goal Mode" with
+re-planning sophistication the plan eventually wants. Privacy tiers ship in shadow/log-only mode
+only, per FINISH-ALL's own instruction, and per this run's STEP 3 decision, none of STEP 5's
+production-facing pieces get deployed until STEP 6's evals actually exist and pass.
