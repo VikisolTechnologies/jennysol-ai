@@ -117,7 +117,8 @@ describe("POST /api/agent/gateway/chat (M6, real HTTP)", () => {
       .send({ message: "find me jobs" })
       .expect(200);
 
-    expect(res.body.content).toContain('"content":[]');
+    // arena.searchJobs now returns a trimmed job list (the empty page -> []).
+    expect(res.body.content).toContain("[]");
   });
 
   it("returns 502 with a clear message when the model router has nothing configured (real production-equivalent boundary)", async () => {
@@ -210,7 +211,7 @@ describe("POST /api/agent/gateway/chat — WRITE tier tools & POST /api/agent/ga
       .send({ approve: true })
       .expect(200);
 
-    expect(approveRes.body).toEqual({ status: "executed", result: { id: "app-1", jobId: "job-42" } });
+    expect(approveRes.body).toEqual({ status: "executed", result: expect.objectContaining({ applied: true, url: "https://arena.vikisol.in/jobs/job-42" }) });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/applications"),
@@ -283,6 +284,54 @@ describe("POST /api/agent/gateway/chat — WRITE tier tools & POST /api/agent/ga
       .expect(404);
   });
 
+  async function proposeApply(token: string, jobId: string): Promise<string> {
+    let actionId = "";
+    vi.mocked(routeChatCompletion).mockImplementation(async (_sys, _hist, onDelta, _sources, _cap, _sig, _tools, onToolCall) => {
+      actionId = ((await onToolCall!({ id: "1", name: "arena.applyToJob", args: { jobId } })) as { actionId: string }).actionId;
+      onDelta("ok");
+      return { providerUsed: "gemini", fellBack: false };
+    });
+    await request(app).post("/api/agent/gateway/chat").set("Authorization", `Bearer ${token}`).send({ message: `Apply me to ${jobId}` }).expect(200);
+    return actionId;
+  }
+
+  it("reports a definite 'failed' (422) when Arena answers and refuses the action", async () => {
+    const token = talentToken("arena-user-write-5");
+    const actionId = await proposeApply(token, "job-closed");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false, status: 400, json: async () => ({ success: false, message: "This job is no longer accepting applications" }),
+    }));
+    const res = await request(app).post(`/api/agent/gateway/actions/${actionId}`).set("Authorization", `Bearer ${token}`).send({ approve: true }).expect(422);
+    expect(res.body).toEqual({ status: "failed", error: "This job is no longer accepting applications" });
+  });
+
+  it("keeps a 5xx or network failure ambiguous (502), never 'failed'", async () => {
+    const token = talentToken("arena-user-write-6");
+    const first = await proposeApply(token, "job-5xx");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ success: false }) }));
+    await request(app).post(`/api/agent/gateway/actions/${first}`).set("Authorization", `Bearer ${token}`).send({ approve: true }).expect(502);
+    const second = await proposeApply(token, "job-timeout");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("The operation was aborted due to timeout")));
+    await request(app).post(`/api/agent/gateway/actions/${second}`).set("Authorization", `Bearer ${token}`).send({ approve: true }).expect(502);
+  });
+
+  it("never returns a blank reply: empty text with a proposal gets a default line, without one it's a 502", async () => {
+    const token = talentToken("arena-user-write-7");
+    vi.mocked(routeChatCompletion).mockImplementation(async (_sys, _hist, _onDelta, _sources, _cap, _sig, _tools, onToolCall) => {
+      await onToolCall!({ id: "1", name: "arena.applyToJob", args: { jobId: "job-1" } });
+      return { providerUsed: "gemini", fellBack: false };
+    });
+    const withAction = await request(app).post("/api/agent/gateway/chat").set("Authorization", `Bearer ${token}`).send({ message: "Apply me" }).expect(200);
+    expect(withAction.body.content).toMatch(/review the details/);
+    expect(withAction.body.pendingActions).toHaveLength(1);
+
+    vi.mocked(routeChatCompletion).mockImplementation(async (_sys, _hist, onDelta) => {
+      onDelta("   ");
+      return { providerUsed: "gemini", fellBack: false };
+    });
+    await request(app).post("/api/agent/gateway/chat").set("Authorization", `Bearer ${token}`).send({ message: "Hi" }).expect(502);
+  });
+
   it("rejects an unknown actionId with 404", async () => {
     const token = talentToken("arena-user-write-4");
     await request(app)
@@ -294,5 +343,60 @@ describe("POST /api/agent/gateway/chat — WRITE tier tools & POST /api/agent/ga
 
   it("rejects an actions request with no Authorization header", async () => {
     await request(app).post("/api/agent/gateway/actions/whatever").send({ approve: true }).expect(401);
+  });
+});
+
+// Arena restructure Phase 3 (Jenny): the gateway carries the product's conversation history and
+// user context, adds the product's own assistant instructions, and asks for a difficulty tier
+// with Claude first when it's configured.
+describe("POST /api/agent/gateway/chat - Jenny context (Phase 3)", () => {
+  beforeEach(() => {
+    vi.mocked(routeChatCompletion).mockReset();
+    process.env.SERVICE_TOKEN_SECRET_ARENA = ARENA_SECRET;
+  });
+
+  it("passes history, user context, Jenny's instructions, the tier and a Claude-first chain", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    vi.mocked(routeChatCompletion).mockImplementation(async (_sys, _hist, onDelta) => {
+      onDelta("ok");
+      return { providerUsed: "anthropic", fellBack: false };
+    });
+    const token = signServiceToken({ issuer: "arena", externalUserId: "u-ctx", role: "TALENT", scope: ["arena.search"] });
+
+    await request(app)
+      .post("/api/agent/gateway/chat")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        message: "plan a basketball game this saturday and invite people",
+        history: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: "Hi! What would you like to do?" },
+        ],
+        context: "Name: Priya. Area: Gachibowli (17.44, 78.35).",
+      })
+      .expect(200);
+
+    const args = vi.mocked(routeChatCompletion).mock.calls[0];
+    const [systemPrompt, history] = args;
+    expect(systemPrompt).toContain("Jenny");
+    expect(systemPrompt).toContain("Area: Gachibowli");
+    expect(history).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "Hi! What would you like to do?" },
+      { role: "user", content: "plan a basketball game this saturday and invite people" },
+    ]);
+    expect(args[8]).toBe("deep"); // tier
+    expect(args[9]).toBe("anthropic,gemini"); // chain
+    delete process.env.ANTHROPIC_API_KEY;
+  });
+
+  it("rejects oversized history rather than forwarding it", async () => {
+    const token = signServiceToken({ issuer: "arena", externalUserId: "u-big", scope: [] });
+    await request(app)
+      .post("/api/agent/gateway/chat")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ message: "hi", history: Array.from({ length: 21 }, () => ({ role: "user", content: "x" })) })
+      .expect(400);
+    expect(routeChatCompletion).not.toHaveBeenCalled();
   });
 });

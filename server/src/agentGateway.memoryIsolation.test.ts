@@ -81,7 +81,10 @@ describe("agentGateway — memory isolation (M8)", () => {
       .send({ message: "find me jobs" })
       .expect(200);
 
-    expect(res.body.content).toContain("candidateContact");
+    // The tool result still reaches the answer (Phase 3's trimmed job shape now also drops
+    // fields Jenny doesn't need, like the PII-shaped one in this fixture - fewer places for it
+    // to go); what this test is about is that none of it reaches persistence, asserted below.
+    expect(res.body.content).toContain("Registered Nurse");
     // The tool result really did flow through this request (proven above) — and still never
     // touched either persistence module.
     expect(addMessageSpy).not.toHaveBeenCalled();

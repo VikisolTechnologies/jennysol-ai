@@ -74,6 +74,10 @@ export interface StreamOptions {
   // ignores these fields and answers normally, same pattern already used for `onWebSources`.
   tools?: ToolDefinition[];
   onToolCall?: ToolCallHandler;
+  // How hard the request is (models/modelTiers.ts's classifyDifficulty). Only a provider with
+  // several model sizes reads it - Claude maps it to Haiku/Sonnet/Opus (providers/anthropic.ts);
+  // everything else ignores it and uses its one configured model.
+  tier?: import("./models/modelTiers.js").DifficultyTier;
   // Fired once, after generation finishes, if the provider has anything to report.
   onUsage?: (usage: TokenUsage) => void;
   // Fired on the FIRST sign of life from the provider — any streamed signal

@@ -1,6 +1,8 @@
 import type { ChatTurn, LlmProvider, TokenUsage, ToolCallHandler, ToolDefinition, WebSource } from "./llmProvider.js";
 import { geminiProvider } from "./providers/gemini.js";
 import { deepseekProvider } from "./providers/deepseek.js";
+import { anthropicProvider } from "./providers/anthropic.js";
+import type { DifficultyTier } from "./models/modelTiers.js";
 import { ollamaProvider, isOllamaAvailable, wasModelWarm } from "./providers/ollama.js";
 import { isHealthy, recordSuccess, recordFailure } from "./providerHealth.js";
 import { classifyError, affectsProviderHealth, type ErrorKind } from "./retryClassifier.js";
@@ -24,6 +26,10 @@ interface ProviderEntry {
 const REGISTRY: ProviderEntry[] = [
   { name: "gemini", provider: geminiProvider, configured: () => !!process.env.GEMINI_API_KEY },
   { name: "deepseek", provider: deepseekProvider, configured: () => !!process.env.DEEPSEEK_API_KEY },
+  // Claude, tiered Haiku/Sonnet/Opus by request difficulty (see providers/anthropic.ts). Used by
+  // the product agent gateway first when configured (see routes/agentGateway.ts); JennySol's own
+  // chat keeps its LLM_PROVIDER_CHAIN unless "anthropic" is added there too.
+  { name: "anthropic", provider: anthropicProvider, configured: () => !!process.env.ANTHROPIC_API_KEY },
   { name: "ollama", provider: ollamaProvider, configured: isOllamaAvailable },
 ];
 
@@ -63,8 +69,9 @@ function defaultChainFor(deploymentMode: string | undefined): string {
   return deploymentMode === "local" ? "ollama,gemini,deepseek" : "gemini";
 }
 
-function resolveChain(): ProviderEntry[] {
+function resolveChain(chainOverride?: string): ProviderEntry[] {
   const configuredNames = (
+    chainOverride ||
     process.env.LLM_PROVIDER_CHAIN ||
     process.env.LLM_PROVIDER ||
     defaultChainFor(process.env.DEPLOYMENT_MODE)
@@ -221,7 +228,8 @@ function attemptWithTimeout(
   // real request could reach this capability until this parameter existed. Only Gemini currently
   // implements tool calling (see gemini.ts); other providers simply ignore these fields.
   tools?: ToolDefinition[],
-  onToolCall?: ToolCallHandler
+  onToolCall?: ToolCallHandler,
+  tier?: DifficultyTier
 ): Promise<AttemptOutcome> {
   const controller = new AbortController();
   const startedAt = Date.now();
@@ -305,6 +313,7 @@ function attemptWithTimeout(
         model,
         tools,
         onToolCall,
+        tier,
         onUsage: (u) => {
           usage = u;
         },
@@ -529,9 +538,13 @@ export async function routeChatCompletion(
   // sequential attemptWithTimeout path instead, so tool-calling is never silently dropped if
   // hedging happens to be enabled.
   tools?: ToolDefinition[],
-  onToolCall?: ToolCallHandler
+  onToolCall?: ToolCallHandler,
+  // Difficulty tier for tiered providers (Claude), and an explicit provider chain for this one
+  // request - the agent gateway uses both; every other caller leaves them unset.
+  tier?: DifficultyTier,
+  chainOverride?: string
 ): Promise<RouteResult> {
-  const chain = resolveChain();
+  const chain = resolveChain(chainOverride);
   const attempts: { name: string; reason: string }[] = [];
   const routeStart = Date.now();
   const consumedByHedge = new Set<string>();
@@ -594,7 +607,8 @@ export async function routeChatCompletion(
         model,
         outerSignal,
         tools,
-        onToolCall
+        onToolCall,
+        tier
       );
       recordSuccess(entry.name);
       console.log(

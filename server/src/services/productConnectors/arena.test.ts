@@ -32,14 +32,45 @@ describe("arenaConnector (M5/M6)", () => {
     expect(arenaConnector.product).toBe("arena");
   });
 
-  it("exposes exactly the arena.searchJobs and arena.applyToJob tools, correctly namespaced", () => {
+  it("exposes Jenny's Arena tools, all correctly namespaced", () => {
     const tools = arenaConnector.getTools();
-    expect(tools.map((t) => t.name)).toEqual(["arena.searchJobs", "arena.applyToJob"]);
+    expect(tools.map((t) => t.name)).toEqual([
+      "arena.search",
+      "arena.nearbyActivities",
+      "arena.listCommunities",
+      "arena.searchJobs",
+      "arena.createPost",
+      "arena.createProject",
+      "arena.joinActivity",
+      "arena.placeBid",
+      "arena.applyToJob",
+    ]);
   });
 
-  it("arena.searchJobs's own description is honest that Arena has no keyword search yet", () => {
-    const [tool] = arenaConnector.getTools();
-    expect(tool.description.toLowerCase()).toContain("does not currently support keyword");
+  it("every tool that changes anything is WRITE (approval-gated); only lookups are READ", () => {
+    const tiers = Object.fromEntries(arenaConnector.getTools().map((t) => [t.name, t.tier]));
+    expect(tiers).toEqual({
+      "arena.search": "READ",
+      "arena.nearbyActivities": "READ",
+      "arena.listCommunities": "READ",
+      "arena.searchJobs": "READ",
+      "arena.createPost": "WRITE",
+      "arena.createProject": "WRITE",
+      "arena.joinActivity": "WRITE",
+      "arena.placeBid": "WRITE",
+      "arena.applyToJob": "WRITE",
+    });
+  });
+
+  it("arena.searchJobs's description is honest that it has no keyword filter, and points at arena.search", () => {
+    const tool = arenaConnector.getTools().find((t) => t.name === "arena.searchJobs")!;
+    expect(tool.description.toLowerCase()).toContain("no keyword filter");
+    expect(tool.description).toContain("arena.search");
+  });
+
+  it("carries Jenny's Arena-specific instructions for the gateway", () => {
+    expect(arenaConnector.assistantInstructions).toContain("Jenny");
+    expect(arenaConnector.assistantInstructions).toContain("approve");
   });
 
   it("M7: arena.searchJobs is tier READ and arena.applyToJob is tier WRITE", () => {
@@ -133,8 +164,8 @@ describe("arena.searchJobs execution (M6)", () => {
       { rawToken: "test-token" }
     );
 
-    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/jobs?page=0&size=20");
-    expect(result).toEqual({ content: [{ id: "job-1", title: "Senior React Engineer" }], page: 0, size: 20 });
+    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/jobs?page=0&size=20", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(result).toEqual([expect.objectContaining({ id: "job-1", title: "Senior React Engineer", url: "https://arena.vikisol.in/jobs/job-1" })]);
   });
 
   it("defaults page/size and clamps an oversized page size to Arena's real limit", async () => {
@@ -142,7 +173,7 @@ describe("arena.searchJobs execution (M6)", () => {
 
     await tool().execute({ product: "arena", externalUserId: "u1", scope: [] }, { size: 9999 }, { rawToken: "test-token" });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/jobs?page=0&size=50");
+    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/jobs?page=0&size=50", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
   it("throws (never silently returns empty) on a non-OK HTTP response from Arena", async () => {
@@ -175,7 +206,7 @@ describe("arena.searchJobs execution (M6)", () => {
       .find((t) => t.name === "arena.searchJobs")!
       .execute({ product: "arena", externalUserId: "u1", scope: [] }, {}, { rawToken: "test-token" });
 
-    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8080/jobs?page=0&size=20");
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8080/jobs?page=0&size=20", expect.objectContaining({ signal: expect.any(AbortSignal) }));
     delete process.env.ARENA_API_BASE_URL;
   });
 });
@@ -215,7 +246,7 @@ describe("arena.applyToJob execution (M7)", () => {
         body: JSON.stringify({ jobId: "job-42" }),
       })
     );
-    expect(result).toEqual({ id: "app-1", jobId: "job-42" });
+    expect(result).toEqual(expect.objectContaining({ applied: true, url: "https://arena.vikisol.in/jobs/job-42" }));
   });
 
   it("throws when called without a jobId", async () => {
@@ -261,5 +292,72 @@ describe("arena.applyToJob execution (M7)", () => {
     } catch (err) {
       expect(err instanceof Error ? err.message : String(err)).not.toContain(rawToken);
     }
+  });
+});
+
+// Phase 3 (Jenny): the new tools - requests are built against Arena's real contracts, results are
+// trimmed, and every WRITE forwards the exact service token it was given.
+describe("Jenny's Arena tools (Phase 3)", () => {
+  const fetchMock = vi.fn();
+  const identity = { product: "arena", externalUserId: "u1", scope: [] };
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  function tool(name: string) {
+    return arenaConnector.getTools().find((t) => t.name === name)!;
+  }
+
+  it("arena.search calls GET /search with the query and trims every kind of result", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          activities: [{ id: "p1", intentType: "activity", body: "Badminton tonight", authorName: "Asha", capacity: 4, spotsFilled: 3, joinable: true }],
+          discussions: [],
+          jobs: [{ id: "j1", title: "React Dev", company: "Swiggy", location: "Hyderabad", salaryMin: 18, salaryMax: 26, skills: ["React"] }],
+          projects: [],
+          companies: [],
+        },
+      }),
+    });
+    const result = (await tool("arena.search").execute(identity, { query: "badminton" }, { rawToken: "t" })) as Record<string, unknown[]>;
+    expect(fetchMock).toHaveBeenCalledWith("https://api-arena.vikisol.in/api/v1/search?q=badminton&type=all&limit=5", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(result.activities[0]).toEqual(expect.objectContaining({ id: "p1", spotsLeft: 1, url: "https://arena.vikisol.in/feed/p1" }));
+    expect(result.jobs[0]).toEqual(expect.objectContaining({ salaryLakhs: "18-26", url: "https://arena.vikisol.in/jobs/j1" }));
+  });
+
+  it("arena.nearbyActivities clamps its radius and always asks for activities only", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: [] }) });
+    await tool("arena.nearbyActivities").execute(identity, { lat: 17.44, lng: 78.35, radiusKm: 500 }, { rawToken: "t" });
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("radiusKm=50");
+    expect(url).toContain("intentType=activity");
+  });
+
+  it("arena.createPost POSTs /posts with the service token and never sends a followers-only audience", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: "p9", intentType: "ask", body: "Where to buy a cycle?" } }) });
+    const result = await tool("arena.createPost").execute(identity, { kind: "ask", body: "Where to buy a cycle?", anonymous: true }, { rawToken: "svc-token" });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api-arena.vikisol.in/api/v1/posts");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer svc-token");
+    expect(JSON.parse(init.body as string)).toEqual(expect.objectContaining({ intentType: "ask", anonymous: true, audience: "global" }));
+    expect(result).toEqual(expect.objectContaining({ created: true }));
+  });
+
+  it("arena.createPost refuses an unknown kind before calling Arena", async () => {
+    await expect(tool("arena.createPost").execute(identity, { kind: "job", body: "x" }, { rawToken: "t" })).rejects.toThrow(/kind/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("arena.joinActivity and arena.placeBid hit the real join and bid endpoints", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ success: true, data: { status: "approved", amount: 50000 } }) });
+    await tool("arena.joinActivity").execute(identity, { postId: "p1" }, { rawToken: "t" });
+    await tool("arena.placeBid").execute(identity, { projectId: "pr1", amount: 50000 }, { rawToken: "t" });
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api-arena.vikisol.in/api/v1/posts/p1/joins");
+    expect(fetchMock.mock.calls[1][0]).toBe("https://api-arena.vikisol.in/api/v1/marketplace/projects/pr1/bids");
   });
 });

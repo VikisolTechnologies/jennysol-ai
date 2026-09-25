@@ -70,6 +70,11 @@ export class ToolRegistry {
   // This is the direct implementation of M3's acceptance criteria: "product A's tools are
   // invisible to product B's identity," proven in toolRegistry.test.ts against two independent
   // fake connectors.
+  // The connector for the caller's own product (for its assistantInstructions), or undefined.
+  getConnectorFor(identity: ProductIdentity): ProductConnector | undefined {
+    return this.connectors.get(identity.product);
+  }
+
   getToolsFor(identity: ProductIdentity): RegisteredTool[] {
     const connector = this.connectors.get(identity.product);
     if (!connector) return [];

@@ -81,7 +81,7 @@ describe("agentGateway — audit trail (M9, real HTTP + real audit_log table)", 
       "agent_request_completed",
     ]);
     expect(trail[1].toolName).toBe("arena.searchJobs");
-    expect(res.body.content).toContain("content");
+    expect(res.body.content).toContain("Tool returned: []");
   });
 
   it("a real WRITE tool's full propose->approve->execute chain is fully traceable in order", async () => {

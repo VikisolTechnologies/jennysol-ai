@@ -21,18 +21,37 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireProductIdentity } from "../middleware/productIdentity.js";
 import { toolRegistry } from "../services/tools/registryInstance.js";
-import { proposeAction, consumeAction, PendingActionError, type PendingAction } from "../services/tools/pendingActions.js";
+import { proposeAction, consumeAction, PendingActionError, ACTION_TTL_MS, type PendingAction } from "../services/tools/pendingActions.js";
+import { ToolRejectedError } from "../services/tools/productConnector.js";
 import { routeChatCompletion } from "../services/modelRouter.js";
 import { zodErrorMessage } from "../utils/zodError.js";
 import { logAuditEvent } from "../services/agentAuditLog.js";
 import { InsufficientScopeError } from "../services/productIdentity.js";
+import { classifyDifficulty } from "../services/models/modelTiers.js";
 import { CrossProductToolAccessError } from "../services/tools/toolRegistry.js";
 
 export const agentGatewayRouter = Router();
 
 const GatewayChatSchema = z.object({
   message: z.string().min(1).max(4000),
+  // Prior turns of this conversation, oldest first (the product owns conversation storage -
+  // this gateway is stateless per request). Bounded so one request can't be arbitrarily large.
+  history: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(4000) }))
+    .max(20)
+    .optional(),
+  // Product-supplied facts about the user for this turn (name, area, what they've joined) -
+  // plain text, bounded, and only ever what the product itself chose to share.
+  context: z.string().max(2000).optional(),
 });
+
+// Which providers answer product-gateway requests: an explicit AGENT_GATEWAY_PROVIDER_CHAIN if
+// set, else Claude first (tiered by difficulty) with Gemini as fallback when Claude is
+// configured, else the server's normal chain. Separate from JennySol's own chat on purpose.
+function gatewayChain(): string | undefined {
+  if (process.env.AGENT_GATEWAY_PROVIDER_CHAIN) return process.env.AGENT_GATEWAY_PROVIDER_CHAIN;
+  return process.env.ANTHROPIC_API_KEY ? "anthropic,gemini" : undefined;
+}
 
 const GATEWAY_SYSTEM_PROMPT =
   "You are the Vikisol AI assistant, helping an authenticated user of a connected Vikisol " +
@@ -43,12 +62,14 @@ const GATEWAY_SYSTEM_PROMPT =
   "honestly to the user rather than working around it with a guess. Some tools are real, " +
   "consequential actions that require the user's explicit approval before they run — if a tool " +
   "result tells you an action is awaiting approval, tell the user that plainly and do not claim " +
-  "the action has already happened.";
+  "the action has already happened. Tool results marked demoContent are examples, not real " +
+  "opportunities: label them as demo content and never suggest joining or applying to them as real events.";
 
 interface ProposedActionSummary {
   actionId: string;
   toolName: string;
   args: Record<string, unknown>;
+  expiresAt: string;
 }
 
 agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
@@ -77,11 +98,23 @@ agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
     detail: { messageLength: parsed.data.message.length, toolsOffered: tools.map((t) => t.name) },
   });
 
+  const connector = toolRegistry.getConnectorFor(identity);
+  const systemPrompt = [
+    GATEWAY_SYSTEM_PROMPT,
+    connector?.assistantInstructions,
+    parsed.data.context ? `About the user you're helping (from ${identity.product}):\n${parsed.data.context}` : undefined,
+    `Today is ${new Date().toISOString().slice(0, 10)}.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const history = [...(parsed.data.history ?? []), { role: "user" as const, content: parsed.data.message }];
+  const tier = classifyDifficulty(parsed.data.message, parsed.data.history?.length ?? 0);
+
   let content = "";
   try {
     await routeChatCompletion(
-      GATEWAY_SYSTEM_PROMPT,
-      [{ role: "user", content: parsed.data.message }],
+      systemPrompt,
+      history,
       (delta) => {
         content += delta;
       },
@@ -102,7 +135,7 @@ agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
 
             if (tier === "WRITE") {
               const action = proposeAction(identity, call.name, call.args);
-              proposedActions.push({ actionId: action.id, toolName: action.toolName, args: action.args });
+              proposedActions.push({ actionId: action.id, toolName: action.toolName, args: action.args, expiresAt: new Date(action.createdAt + ACTION_TTL_MS).toISOString() });
               logAuditEvent({
                 correlationId,
                 type: "pending_action_created",
@@ -137,7 +170,9 @@ agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
               throw err;
             }
           }
-        : undefined
+        : undefined,
+      tier,
+      gatewayChain()
     );
   } catch (err) {
     logAuditEvent({
@@ -148,6 +183,18 @@ agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
     });
     res.status(502).json({ error: err instanceof Error ? err.message : "Agent request failed" });
     return;
+  }
+
+  // A turn can end with no text at all (seen live: Gemini finishing after a tool call with an
+  // empty answer). Never hand the product a blank reply to show as a message.
+  if (!content.trim()) {
+    if (proposedActions.length) {
+      content = "I've set that up - review the details below before anything happens.";
+    } else {
+      logAuditEvent({ correlationId, type: "provider_failure", identity: auditIdentity, detail: { error: "empty reply" } });
+      res.status(502).json({ error: "The assistant returned an empty reply" });
+      return;
+    }
   }
 
   logAuditEvent({
@@ -194,7 +241,7 @@ agentGatewayRouter.post("/actions/:actionId", requireProductIdentity, async (req
       identity: auditIdentity,
       detail: { actionId: req.params.actionId, reason: message },
     });
-    res.status(404).json({ error: message });
+    res.status(404).json({ error: message, code: /expired/i.test(message) && !/No such/.test(message) ? "expired" : "not_found" });
     return;
   }
 
@@ -230,6 +277,11 @@ agentGatewayRouter.post("/actions/:actionId", requireProductIdentity, async (req
       toolName: action.toolName,
       detail: { actionId: action.id, error: err instanceof Error ? err.message : String(err) },
     });
+    if (err instanceof ToolRejectedError) {
+      // The product refused and nothing ran - a definite failure the user can act on.
+      res.status(422).json({ status: "failed", error: err.message });
+      return;
+    }
     res.status(502).json({ error: err instanceof Error ? err.message : "Tool execution failed" });
   }
 });

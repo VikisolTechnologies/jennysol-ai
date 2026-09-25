@@ -706,7 +706,7 @@ describe("getProviderRouteStatus", () => {
 
   it("reports every registered provider, not just the ones in the active chain", () => {
     const status = getProviderRouteStatus();
-    expect(status.map((s) => s.name).sort()).toEqual(["deepseek", "gemini", "ollama"]);
+    expect(status.map((s) => s.name).sort()).toEqual(["anthropic", "deepseek", "gemini", "ollama"]);
   });
 
   it("marks only the default chain's entries as in the active chain", () => {

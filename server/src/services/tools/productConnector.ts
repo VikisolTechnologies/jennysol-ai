@@ -20,6 +20,17 @@ export type ToolTier = "READ" | "WRITE";
 // requires real Arena authentication — see AgentServiceTokenAuthenticationFilter on the Arena
 // side) forwards this same token as its own Authorization header. A tool that only reads public
 // data (like arena.searchJobs) simply never touches it.
+// Thrown by a WRITE tool when its product answered and definitively refused the action (e.g. the
+// activity filled up, the job closed) - nothing happened, so the gateway can report "failed"
+// rather than "unconfirmed". Anything else (timeout, network error, 5xx) stays ambiguous: the
+// action may or may not have run, and must never be presented as safe to retry.
+export class ToolRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ToolRejectedError";
+  }
+}
+
 export interface ToolExecutionContext {
   rawToken: string;
 }
@@ -53,4 +64,8 @@ export interface ProductConnector {
   // can be configured and still be failing; that finer distinction is what providerHealth.ts's
   // pattern is for, not duplicated here until a real connector's failure modes are known).
   configured(): boolean;
+  // Optional product-specific guidance appended to the gateway's generic system prompt - the
+  // product's assistant persona and how its tools fit together (e.g. Arena's "Jenny"). Must stay
+  // product-owned: the gateway itself never learns what any product is.
+  readonly assistantInstructions?: string;
 }
