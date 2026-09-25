@@ -36,7 +36,7 @@ Identical wording every time, ~300ms (no model call at all — this is why it's 
 
 ## Image generation
 
-**Updated 2026-09-25 (later the same day): free local generation first.** The chain is now `qwen-local` → Gemini → Qwen-Image (fal.ai) → Janus-Pro (fal.ai). `qwen-local` is Qwen-Image-2.1 running on the Mac via stable-diffusion.cpp (`src/localImageWorker.ts`, reached from Railway over the tailnet like Ollama), free per image. **License: Qwen Research License, non-commercial only** — see JENNY_MODEL_LICENSE_MATRIX.md. It holds the same single local-inference slot as Ollama chat, so the two never share the Mac's memory at once.
+**Updated 2026-09-25 (later the same day): free local generation first.** The chain is now `local` → Gemini → Qwen-Image (fal.ai) → Janus-Pro (fal.ai). `local` runs on the Mac via stable-diffusion.cpp (`src/localImageWorker.ts`, reached from Railway over the tailnet like Ollama), free per image: Z-Image-Turbo by default (Apache 2.0, 1m35s per 512px image), or Qwen-Image-2.1 (non-commercial only, 5m16s) — see LOCAL-INFRA.md and JENNY_MODEL_LICENSE_MATRIX.md. Not switched on in production yet (needs the worker installed and a railtail forward). It holds the same single local-inference slot as Ollama chat, so the two never share the Mac's memory at once.
 
 **Updated 2026-09-25: no longer Gemini-only.** `POST /api/image` now goes through `imageRouter.ts`, an ordered fallback chain — Gemini → Qwen-Image → Janus-Pro (DeepSeek's open-weights image-gen model), the latter two both served via fal.ai since neither fits this Mac's 6GB local-model ceiling (see `JENNY_LOCAL_MODEL_MATRIX.md`). This directly fixes the "blocked by provider limitation" status documented below: Gemini's zero-quota billing tier is still a real, unresolved block on Gemini specifically, but it's no longer a full outage for image generation — Qwen/Janus via `FAL_KEY` are a real, independent path that doesn't share Gemini's billing tier. Same circuit-breaker/health-tracking machinery as chat's `modelRouter.ts` (health keys namespaced `image:<name>` so they never collide with the same-named chat provider). See `IMAGE_PROVIDER_CHAIN`/`FAL_KEY` in `.env.example`, and `GET /api/admin/provider-health`'s new `imageProviders` field for live state. The rest of this section (below) is preserved as the historical record of the pre-fallback, Gemini-only state — still accurate as a description of Gemini's own behavior, just no longer the whole story.
 
@@ -119,8 +119,8 @@ bug. Tavily's free tier is the sole active search provider today.
 | `GEMINI_API_KEY` | chat, image gen, native grounding | Configured; tier lacks image-gen and grounding quota specifically |
 | `GEMINI_IMAGE_MODEL` | image generation | Configured (`gemini-3.1-flash-image`) — model choice isn't the problem, billing tier is |
 | `FAL_KEY` | image generation (Qwen-Image, Janus-Pro fallback) | Added 2026-09-25 — required for the fallback chain to have any path that isn't Gemini's blocked one |
-| `IMAGE_PROVIDER_CHAIN` | image generation fallback order | Optional, defaults to `qwen-local,gemini,qwen-fal,janus` |
-| `LOCAL_IMAGE_BASE_URL` / `LOCAL_IMAGE_WORKER_TOKEN` | free local Qwen-Image-2.1 (`qwen-local`) | Added 2026-09-25 — needs the Mac worker running and reachable (see LOCAL-INFRA.md) |
+| `IMAGE_PROVIDER_CHAIN` | image generation fallback order | Optional, defaults to `local,gemini,qwen-fal,janus` |
+| `LOCAL_IMAGE_BASE_URL` / `LOCAL_IMAGE_WORKER_TOKEN` | free local image worker (`local`) | Added 2026-09-25 — needs the Mac worker running and reachable (see LOCAL-INFRA.md) |
 | `TAVILY_API_KEY` | provider-independent search | Configured (since 2026-09-10) |
 | `SEARXNG_BASE_URL` | self-hosted search | Not configured — coded, not deployed (see free-first architecture doc) |
 | `DEEPSEEK_API_KEY` | cloud fallback chat | Not configured |

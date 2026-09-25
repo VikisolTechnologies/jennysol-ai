@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Installs the local Qwen-Image-2.1 worker as a macOS LaunchAgent — see
+# Installs the local image worker as a macOS LaunchAgent — see
 # in.vikisol.jennysol-image-worker.plist. Idempotent, same as install.sh.
-# Expects the sd-cli binary and model files under ${QWEN_IMAGE_HOME:-~/.jennysol/image}
+# Expects the sd-cli binary and model files under ${LOCAL_IMAGE_HOME:-~/.jennysol/image}
 # (see LOCAL-INFRA.md "Local image generation").
 set -euo pipefail
 

@@ -102,11 +102,12 @@ describe("capabilityRegistry", () => {
     expect(image.provider).toContain("janus-pro");
   });
 
-  it("reports IMAGE_GENERATION as free and self-hosted when the local Qwen-Image-2.1 worker is configured, and flags its license", () => {
+  it("reports IMAGE_GENERATION as free and self-hosted when the local worker is configured, and notes the licenses", () => {
     process.env.LOCAL_IMAGE_BASE_URL = "http://100.64.0.1:8789";
     process.env.LOCAL_IMAGE_WORKER_TOKEN = "t".repeat(40);
     const image = getCapabilityRegistry().find((c) => c.id === "IMAGE_GENERATION")!;
     expect(image).toMatchObject({ available: true, free: true, selfHosted: true, requiresKey: false });
+    expect(image.detail).toMatch(/Z-Image-Turbo \(Apache 2\.0\)/);
     expect(image.detail).toMatch(/non-commercial/i);
     expect(JSON.stringify(image)).not.toContain("t".repeat(40));
   });

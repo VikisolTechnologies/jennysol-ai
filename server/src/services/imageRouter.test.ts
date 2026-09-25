@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("./providers/geminiImage.js", () => ({ generateImage: vi.fn() }));
 vi.mock("./providers/falImage.js", () => ({ generateFalImage: vi.fn() }));
-vi.mock("./providers/localQwenImage.js", () => ({
-  generateLocalQwenImage: vi.fn(),
-  isLocalQwenImageConfigured: vi.fn(() => false),
+vi.mock("./providers/localImage.js", () => ({
+  generateLocalImage: vi.fn(),
+  isLocalImageConfigured: vi.fn(() => false),
 }));
 vi.mock("./providers/ollama.js", () => ({
   tryAcquireLocalRunSlot: vi.fn(() => true),
@@ -13,7 +13,7 @@ vi.mock("./providers/ollama.js", () => ({
 
 import { generateImage as generateGeminiImage } from "./providers/geminiImage.js";
 import { generateFalImage } from "./providers/falImage.js";
-import { generateLocalQwenImage, isLocalQwenImageConfigured } from "./providers/localQwenImage.js";
+import { generateLocalImage, isLocalImageConfigured } from "./providers/localImage.js";
 import { tryAcquireLocalRunSlot, releaseLocalRunSlot } from "./providers/ollama.js";
 import {
   routeImageGeneration,
@@ -41,7 +41,7 @@ describe("routeImageGeneration", () => {
     delete process.env.IMAGE_PROVIDER_CHAIN;
     process.env.GEMINI_API_KEY = "test-gemini-key";
     process.env.FAL_KEY = "test-fal-key";
-    mocked(isLocalQwenImageConfigured).mockReturnValue(false);
+    mocked(isLocalImageConfigured).mockReturnValue(false);
     mocked(tryAcquireLocalRunSlot).mockReturnValue(true);
   });
 
@@ -55,21 +55,21 @@ describe("routeImageGeneration", () => {
     expect(generateFalImage).not.toHaveBeenCalled();
   });
 
-  it("tries the free local Qwen-Image-2.1 worker first when it's configured, holding the shared local-run slot", async () => {
-    mocked(isLocalQwenImageConfigured).mockReturnValue(true);
-    mocked(generateLocalQwenImage).mockResolvedValue({ mimeType: "image/png", data: "local-bytes" });
+  it("tries the free local worker first when it's configured, holding the shared local-run slot", async () => {
+    mocked(isLocalImageConfigured).mockReturnValue(true);
+    mocked(generateLocalImage).mockResolvedValue({ mimeType: "image/png", data: "local-bytes" });
 
     const result = await routeImageGeneration("a cat");
 
-    expect(result).toMatchObject({ providerUsed: "qwen-local", fellBack: false });
+    expect(result).toMatchObject({ providerUsed: "local", fellBack: false });
     expect(generateGeminiImage).not.toHaveBeenCalled();
     expect(tryAcquireLocalRunSlot).toHaveBeenCalledTimes(1);
     expect(releaseLocalRunSlot).toHaveBeenCalledTimes(1);
   });
 
   it("releases the local-run slot even when the local worker fails, then falls back to Gemini", async () => {
-    mocked(isLocalQwenImageConfigured).mockReturnValue(true);
-    mocked(generateLocalQwenImage).mockRejectedValue(errWithStatus(500, "generation failed"));
+    mocked(isLocalImageConfigured).mockReturnValue(true);
+    mocked(generateLocalImage).mockRejectedValue(errWithStatus(500, "generation failed"));
     mocked(generateGeminiImage).mockResolvedValue({ mimeType: "image/png", data: "gemini-bytes" });
 
     const result = await routeImageGeneration("a cat");
@@ -79,26 +79,26 @@ describe("routeImageGeneration", () => {
   });
 
   it("skips the local worker without calling it when chat already holds the local-run slot", async () => {
-    mocked(isLocalQwenImageConfigured).mockReturnValue(true);
+    mocked(isLocalImageConfigured).mockReturnValue(true);
     mocked(tryAcquireLocalRunSlot).mockReturnValue(false);
     mocked(generateGeminiImage).mockResolvedValue({ mimeType: "image/png", data: "gemini-bytes" });
 
     const result = await routeImageGeneration("a cat");
 
     expect(result.providerUsed).toBe("gemini");
-    expect(generateLocalQwenImage).not.toHaveBeenCalled();
+    expect(generateLocalImage).not.toHaveBeenCalled();
     expect(releaseLocalRunSlot).not.toHaveBeenCalled();
   });
 
   it("never trips the local breaker for busy/at-capacity skips", async () => {
-    mocked(isLocalQwenImageConfigured).mockReturnValue(true);
+    mocked(isLocalImageConfigured).mockReturnValue(true);
     const busy = Object.assign(new Error("busy"), { code: "at_capacity" });
-    mocked(generateLocalQwenImage).mockRejectedValue(busy);
+    mocked(generateLocalImage).mockRejectedValue(busy);
     mocked(generateGeminiImage).mockResolvedValue({ mimeType: "image/png", data: "g" });
 
     for (let i = 0; i < 5; i++) await routeImageGeneration("a cat");
 
-    expect(getImageProviderRouteStatus().find((s) => s.name === "qwen-local")!.usable).toBe(true);
+    expect(getImageProviderRouteStatus().find((s) => s.name === "local")!.usable).toBe(true);
   });
 
   it("falls back to Qwen-Image on fal.ai when Gemini fails", async () => {
@@ -127,8 +127,8 @@ describe("routeImageGeneration", () => {
   });
 
   it("throws AllImageProvidersUnavailableError with every attempt's reason when all of them fail", async () => {
-    mocked(isLocalQwenImageConfigured).mockReturnValue(true);
-    mocked(generateLocalQwenImage).mockRejectedValue(errWithStatus(500, "local failed"));
+    mocked(isLocalImageConfigured).mockReturnValue(true);
+    mocked(generateLocalImage).mockRejectedValue(errWithStatus(500, "local failed"));
     mocked(generateGeminiImage).mockRejectedValue(errWithStatus(503, "gemini down"));
     mocked(generateFalImage).mockRejectedValue(errWithStatus(503, "fal down"));
 
@@ -136,7 +136,7 @@ describe("routeImageGeneration", () => {
 
     expect(err).toBeInstanceOf(AllImageProvidersUnavailableError);
     expect((err as AllImageProvidersUnavailableError).attempts.map((a) => a.name)).toEqual([
-      "qwen-local",
+      "local",
       "gemini",
       "qwen-fal",
       "janus",
@@ -180,25 +180,25 @@ describe("routeImageGeneration", () => {
     delete process.env.GEMINI_API_KEY;
     delete process.env.FAL_KEY;
     expect(hasAnyConfiguredImageProvider()).toBe(false);
-    mocked(isLocalQwenImageConfigured).mockReturnValue(true);
+    mocked(isLocalImageConfigured).mockReturnValue(true);
     expect(hasAnyConfiguredImageProvider()).toBe(true);
   });
 
   it("hasWorkingImageProvider ignores quota-blocked Gemini on its own", () => {
     delete process.env.FAL_KEY;
     expect(hasWorkingImageProvider()).toBe(false);
-    mocked(isLocalQwenImageConfigured).mockReturnValue(true);
+    mocked(isLocalImageConfigured).mockReturnValue(true);
     expect(hasWorkingImageProvider()).toBe(true);
-    mocked(isLocalQwenImageConfigured).mockReturnValue(false);
+    mocked(isLocalImageConfigured).mockReturnValue(false);
     process.env.FAL_KEY = "k";
     expect(hasWorkingImageProvider()).toBe(true);
   });
 
   it("getImageProviderRouteStatus reports every registry entry with live configured/usable state", () => {
     const status = getImageProviderRouteStatus();
-    expect(status.map((s) => s.name)).toEqual(["qwen-local", "gemini", "qwen-fal", "janus"]);
+    expect(status.map((s) => s.name)).toEqual(["local", "gemini", "qwen-fal", "janus"]);
     expect(status.every((s) => s.inActiveChain)).toBe(true);
-    expect(status.find((s) => s.name === "qwen-local")).toMatchObject({ configured: false, usable: false });
+    expect(status.find((s) => s.name === "local")).toMatchObject({ configured: false, usable: false });
     expect(status.find((s) => s.name === "gemini")).toMatchObject({ configured: true, usable: true });
   });
 });

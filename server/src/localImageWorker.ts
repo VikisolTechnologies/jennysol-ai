@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { missingQwenImageFiles, resolveQwenImagePaths, runQwenImage } from "./services/localImage/qwenImageCli.js";
+import { missingLocalImageFiles, resolveLocalImageConfig, runLocalImage } from "./services/localImage/sdCli.js";
 
 // Runs on the Mac next to Ollama, as its own LaunchAgent
 // (deploy/macos/in.vikisol.jennysol-image-worker.plist). The main API
@@ -11,7 +11,7 @@ import { missingQwenImageFiles, resolveQwenImagePaths, runQwenImage } from "./se
 const HOST = process.env.LOCAL_IMAGE_WORKER_HOST || "127.0.0.1";
 const PORT = Number(process.env.LOCAL_IMAGE_WORKER_PORT) || 8789;
 const TOKEN = process.env.LOCAL_IMAGE_WORKER_TOKEN || "";
-const TIMEOUT_MS = Number(process.env.QWEN_IMAGE_TIMEOUT_MS) || 10 * 60 * 1000;
+const TIMEOUT_MS = Number(process.env.LOCAL_IMAGE_GENERATION_TIMEOUT_MS) || 10 * 60 * 1000;
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
 
 // The tailnet ACL is unverified (LOCAL-INFRA.md), so network reachability
@@ -27,9 +27,9 @@ function authorized(header: string | undefined): boolean {
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-// Qwen-Image-2.1 plus its text encoder need ~10GB, and this Mac's budget is
-// 10GB total — a resident Ollama chat model at the same time means swapping
-// or a Metal allocation failure. Best-effort: if Ollama is unreachable
+// The image model plus its text encoder peak at ~4.4-5.4GB (measured), on a
+// Mac whose whole budget is 10GB — a resident 5GB Ollama chat model at the
+// same time means heavy swapping or a Metal out-of-memory failure. Best-effort: if Ollama is unreachable
 // there's nothing resident to evict anyway.
 async function unloadOllamaModels(): Promise<void> {
   try {
@@ -59,7 +59,7 @@ const app = express();
 app.use(express.json({ limit: "16kb" }));
 
 app.get("/health", (_req, res) => {
-  const missing = missingQwenImageFiles(resolveQwenImagePaths());
+  const missing = missingLocalImageFiles(resolveLocalImageConfig());
   res.json({ ok: missing.length === 0, busy, missingFiles: missing.length });
 });
 
@@ -78,7 +78,7 @@ app.post("/generate", async (req, res) => {
     res.status(409).json({ error: "busy" });
     return;
   }
-  const missing = missingQwenImageFiles(resolveQwenImagePaths());
+  const missing = missingLocalImageFiles(resolveLocalImageConfig());
   if (missing.length > 0) {
     res.status(503).json({ error: "model files missing on this machine" });
     return;
@@ -88,7 +88,7 @@ app.post("/generate", async (req, res) => {
   const startedAt = Date.now();
   try {
     await unloadOllamaModels();
-    const png = await runQwenImage(parsed.data.prompt, TIMEOUT_MS);
+    const png = await runLocalImage(parsed.data.prompt, TIMEOUT_MS);
     const totalMs = Date.now() - startedAt;
     console.log(JSON.stringify({ event: "local_image", ok: true, totalMs, bytes: png.length }));
     res.json({ mimeType: "image/png", data: png.toString("base64"), totalMs });

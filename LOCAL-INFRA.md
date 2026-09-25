@@ -189,10 +189,19 @@ OLLAMA_HOST=100.70.199.75:11434 ollama list
 Not a bug — the correct, intended consequence of the security fix — but worth knowing before
 assuming a bare `ollama` command failing means the service itself is down.
 
-## Local image generation — Qwen-Image-2.1 (added 2026-09-25)
+## Local image generation (added 2026-09-25)
 
-Free image generation on this Mac, first in `/api/image`'s chain (`qwen-local`). **License: Qwen
-Research License, non-commercial only** — see JENNY_MODEL_LICENSE_MATRIX.md before monetizing.
+Free image generation on this Mac, first in `/api/image`'s chain (the `local` entry), via
+stable-diffusion.cpp. Two models are set up; `LOCAL_IMAGE_MODEL` picks one.
+
+| Model (`LOCAL_IMAGE_MODEL`) | 512×512 | 1024×1024 | License |
+|---|---|---|---|
+| `z-image-turbo` (default) | 1m35s | 7m14s | Apache 2.0 — commercial use OK |
+| `qwen-image-2.1` | 5m16s | 32.6 min | Qwen Research License — **non-commercial only** |
+
+Measured on this M1 Pro 16GB, 2026-09-25, same prompt, with the Railway keep-warm reloading
+Ollama's 5GB `qwen3:8b` part-way through — real use (where the API holds the local-run slot, so
+keep-warm skips) should be a little faster. Default size is 512px for that reason.
 
 ```
 Railway (jennysol-api)  LOCAL_IMAGE_BASE_URL=http://<railtail-for-8789>.railway.internal:8789
@@ -202,18 +211,26 @@ This Mac 100.70.199.75:8789  →  src/localImageWorker.ts (Bearer token required
 ~/.jennysol/image/bin/sd-cli  (stable-diffusion.cpp release master-911-740c7ae, Metal)
 ```
 
-Files under `~/.jennysol/image/` (override with `QWEN_IMAGE_HOME`), ~10GB total:
+Files under `~/.jennysol/image/` (override with `LOCAL_IMAGE_HOME`):
 
 | File | Source | Size |
 |---|---|---|
-| `bin/sd-cli` | github.com/leejet/stable-diffusion.cpp release `master-911-740c7ae`, macOS arm64 zip | 3.6MB (+ dylib) |
-| `models/qwen-image-2.1-Q4_K_M.gguf` | `unsloth/Qwen-Image-2.1-GGUF` | 4.2GB |
-| `models/Qwen3-VL-8B-Instruct-UD-Q4_K_XL.gguf` | `unsloth/Qwen3-VL-8B-Instruct-GGUF` (text encoder) | 5.15GB |
+| `bin/sd-cli` (+ dylib) | github.com/leejet/stable-diffusion.cpp release `master-911-740c7ae`, macOS arm64 zip | 83MB |
+| `models/z_image_turbo-Q4_K.gguf` | `leejet/Z-Image-Turbo-GGUF` | 3.86GB |
+| `models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | `unsloth/Qwen3-4B-Instruct-2507-GGUF` (Z-Image's text encoder) | 2.50GB |
+| `models/flux_ae.safetensors` | `Comfy-Org/z_image_turbo`, `split_files/vae/ae.safetensors` (same name and byte size as FLUX.1-schnell's, without the login gate) | 0.34GB |
+| `models/qwen-image-2.1-Q4_K_M.gguf` | `unsloth/Qwen-Image-2.1-GGUF` | 4.20GB |
+| `models/Qwen3-VL-8B-Instruct-UD-Q4_K_XL.gguf` | `unsloth/Qwen3-VL-8B-Instruct-GGUF` (Qwen-Image's text encoder) | 5.15GB |
 | `models/qwen_image_2.1_vae_bf16.safetensors` | `unsloth/Qwen-Image-2.1-FP8`, `vae/` | 0.68GB |
 
-Memory: the image model + text encoder need about the whole 10GB `m1_16gb` budget, which is why the
-worker unloads Ollama first and why the API holds Ollama's single local-run slot for the duration
-(chat goes to the cloud chain meanwhile, keep-warm pings skip).
+All checked against Hugging Face's published SHA-256. The three Qwen-Image files (~10GB) can be
+deleted if you stay on Z-Image-Turbo.
+
+Memory: both models keep the text encoder's weights on disk (`--params-backend te=disk`) and cap
+the GPU at 7GB. Without that, Qwen-Image-2.1 ran Metal out of memory at step 9/20 and Z-Image-Turbo
+failed decoding the final image. Measured peak footprint with the flags: 4.4–5.4GB. The worker
+unloads Ollama first, and the API holds Ollama's single local-run slot while an image is drawn
+(chat goes to the cloud chain meanwhile; keep-warm pings skip).
 
 Setup:
 

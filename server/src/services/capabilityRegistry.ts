@@ -1,6 +1,6 @@
 import { hasAnyConfiguredProvider } from "./modelRouter.js";
 import { isOllamaAvailable } from "./providers/ollama.js";
-import { isLocalQwenImageConfigured } from "./providers/localQwenImage.js";
+import { isLocalImageConfigured } from "./providers/localImage.js";
 import { hasAnySearchProviderConfigured } from "./search/searchRouter.js";
 
 // The single authoritative list of what JennySol can do — computed live from
@@ -50,7 +50,7 @@ export function getCapabilityRegistry(): CapabilityStatus[] {
   const searchConfigured = hasAnySearchProviderConfigured();
   const geminiKeyPresent = !!process.env.GEMINI_API_KEY;
   const falKeyPresent = !!process.env.FAL_KEY;
-  const localImageConfigured = isLocalQwenImageConfigured();
+  const localImageConfigured = isLocalImageConfigured();
   const ollamaReachable = isOllamaAvailable();
 
   return [
@@ -144,15 +144,14 @@ export function getCapabilityRegistry(): CapabilityStatus[] {
       // "available" means the fallback chain (imageRouter.ts) as a whole has
       // a path that isn't that blocked one: the Mac's local worker or fal.ai.
       available: localImageConfigured || falKeyPresent,
-      provider:
-        "qwen-image-2.1 (local, research license) → gemini → qwen-image (fal.ai) → janus-pro (fal.ai)",
+      provider: "local worker → gemini → qwen-image (fal.ai) → janus-pro (fal.ai)",
       requiresKey: !localImageConfigured,
       free: localImageConfigured,
       selfHosted: localImageConfigured,
       modelIndependent: false,
       detail: [
         localImageConfigured
-          ? "Local Qwen-Image-2.1 worker configured (free, but Qwen Research License: non-commercial only)."
+          ? "Local image worker configured (free). It runs Z-Image-Turbo (Apache 2.0) unless the worker sets LOCAL_IMAGE_MODEL=qwen-image-2.1, which is non-commercial only."
           : "No local image worker configured (LOCAL_IMAGE_BASE_URL/LOCAL_IMAGE_WORKER_TOKEN).",
         geminiKeyPresent
           ? "Gemini is blocked by a zero-quota billing tier (confirmed via production logs, not a code bug)."

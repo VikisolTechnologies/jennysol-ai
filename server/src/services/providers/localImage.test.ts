@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { generateLocalQwenImage, isLocalQwenImageConfigured } from "./localQwenImage.js";
+import { generateLocalImage, isLocalImageConfigured } from "./localImage.js";
 import { classifyError, affectsProviderHealth } from "../retryClassifier.js";
 
 const originalEnv = { ...process.env };
@@ -16,9 +16,9 @@ afterEach(() => {
 
 describe("localQwenImage", () => {
   it("is configured only when both the worker URL and token are set", () => {
-    expect(isLocalQwenImageConfigured()).toBe(true);
+    expect(isLocalImageConfigured()).toBe(true);
     delete process.env.LOCAL_IMAGE_WORKER_TOKEN;
-    expect(isLocalQwenImageConfigured()).toBe(false);
+    expect(isLocalImageConfigured()).toBe(false);
   });
 
   it("posts the prompt with the bearer token and returns the worker's image", async () => {
@@ -27,7 +27,7 @@ describe("localQwenImage", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const image = await generateLocalQwenImage("a cat");
+    const image = await generateLocalImage("a cat");
 
     expect(image).toEqual({ mimeType: "image/png", data: "AAAA" });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -39,7 +39,7 @@ describe("localQwenImage", () => {
   it("reports a busy worker as at_capacity so it never counts against the worker's health", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"error":"busy"}', { status: 409 })));
 
-    const err = await generateLocalQwenImage("a cat").catch((e) => e);
+    const err = await generateLocalImage("a cat").catch((e) => e);
 
     expect(classifyError(err)).toBe("at_capacity");
     expect(affectsProviderHealth(classifyError(err))).toBe(false);
@@ -48,7 +48,7 @@ describe("localQwenImage", () => {
   it("reports a rejected token as an auth failure", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"error":"unauthorized"}', { status: 401 })));
 
-    const err = await generateLocalQwenImage("a cat").catch((e) => e);
+    const err = await generateLocalImage("a cat").catch((e) => e);
 
     expect(classifyError(err)).toBe("auth");
   });

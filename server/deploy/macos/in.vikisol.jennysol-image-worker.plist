@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<!--
-	JennySol's local image worker (Qwen-Image-2.1 via stable-diffusion.cpp) —
+	JennySol's local image worker (Z-Image-Turbo by default, via stable-diffusion.cpp) —
 	see src/localImageWorker.ts. Same conventions as
 	in.vikisol.jennysol-server.plist: no secrets here; LOCAL_IMAGE_WORKER_TOKEN,
 	LOCAL_IMAGE_WORKER_HOST/PORT and the model settings come from server/.env.

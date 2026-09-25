@@ -1,7 +1,7 @@
 import type { GeneratedImage } from "./imageProviderTypes.js";
 import { generateImage as generateGeminiImage } from "./providers/geminiImage.js";
 import { generateFalImage } from "./providers/falImage.js";
-import { generateLocalQwenImage, isLocalQwenImageConfigured } from "./providers/localQwenImage.js";
+import { generateLocalImage, isLocalImageConfigured } from "./providers/localImage.js";
 import { tryAcquireLocalRunSlot, releaseLocalRunSlot } from "./providers/ollama.js";
 import { isHealthy, recordSuccess, recordFailure } from "./providerHealth.js";
 import { classifyError, affectsProviderHealth } from "./retryClassifier.js";
@@ -38,7 +38,7 @@ async function generateWithLocalSlot(prompt: string): Promise<GeneratedImage> {
     throw err;
   }
   try {
-    return await generateLocalQwenImage(prompt);
+    return await generateLocalImage(prompt);
   } finally {
     releaseLocalRunSlot();
   }
@@ -46,10 +46,10 @@ async function generateWithLocalSlot(prompt: string): Promise<GeneratedImage> {
 
 const REGISTRY: ImageProviderEntry[] = [
   {
-    name: "qwen-local",
-    healthKey: "image:qwen-local",
+    name: "local",
+    healthKey: "image:local",
     generate: generateWithLocalSlot,
-    configured: isLocalQwenImageConfigured,
+    configured: isLocalImageConfigured,
   },
   {
     name: "gemini",
@@ -71,11 +71,11 @@ const REGISTRY: ImageProviderEntry[] = [
   },
 ];
 
-// Free first: the Mac's local Qwen-Image-2.1, then Gemini, then the paid
-// fal.ai models. An entry that isn't configured is skipped instantly, so
-// listing qwen-local first costs nothing on a deployment without a worker.
+// Free first: the Mac's local worker (localImageWorker.ts), then Gemini,
+// then the paid fal.ai models. An entry that isn't configured is skipped
+// instantly, so listing local first costs nothing without a worker.
 function resolveChain(): ImageProviderEntry[] {
-  const names = (process.env.IMAGE_PROVIDER_CHAIN || "qwen-local,gemini,qwen-fal,janus")
+  const names = (process.env.IMAGE_PROVIDER_CHAIN || "local,gemini,qwen-fal,janus")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
