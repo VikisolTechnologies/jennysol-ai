@@ -118,3 +118,40 @@ describe("keepWarm.tick", () => {
     expect(isHealthy("ollama")).toBe(false); // auth-kind failure trips on the first occurrence
   });
 });
+
+describe("keepWarm.capabilities (opt-in multi-model warming)", () => {
+  it("defaults to exactly today's single-model behavior when unset", () => {
+    delete process.env.OLLAMA_KEEP_WARM_CAPABILITIES;
+    expect(__testing.capabilities()).toEqual(["general"]);
+  });
+
+  it("warms every configured capability's model, in sequence, on one tick", async () => {
+    process.env.OLLAMA_KEEP_WARM_CAPABILITIES = "general,coding,reasoning";
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await __testing.tick();
+
+    expect(ollamaProvider.streamChatCompletion).toHaveBeenCalledTimes(3);
+    const modelsUsed = (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[4].model);
+    expect(modelsUsed).toEqual(["qwen3:8b", "qwen2.5-coder:7b", "deepseek-r1:7b"]);
+  });
+
+  it("ignores an invalid capability name rather than silently pinging nothing", () => {
+    process.env.OLLAMA_KEEP_WARM_CAPABILITIES = "not-a-real-capability";
+    expect(__testing.capabilities()).toEqual(["general"]);
+  });
+
+  it("a failure warming one capability doesn't stop the rest from being tried", async () => {
+    process.env.OLLAMA_KEEP_WARM_CAPABILITIES = "general,coding";
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("ECONNRESET"))
+      .mockResolvedValueOnce(undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await __testing.tick();
+
+    expect(ollamaProvider.streamChatCompletion).toHaveBeenCalledTimes(2);
+  });
+});

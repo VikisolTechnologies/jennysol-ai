@@ -56,3 +56,42 @@ Any agent resuming this should read this file top-to-bottom, then the latest ent
 - DoD gap table: the model-routing and Arena-integration halves of "v1 core" are substantially done; the real remaining work is the agent-runtime state machine (Goal Mode) and privacy tiers.
 
 **Next:** STEP 3 — stabilize. Given the audit's findings, the real remaining work here is smaller than the mission assumed: turn on hedging in production behind its existing flag (already built and tested, just off), and decide whether to expand keep-warm beyond just the "general" model given the 16GB budget. Provider resilience (circuit breaker, timeouts, retries) is already built (`providerHealth.ts`, `retryClassifier.ts`) — verify it rather than rebuild it.
+
+---
+
+## 2026-09-26 — STEP 3 done (built and tested, NOT deployed), starting STEP 4
+
+**Branch:** `feature/jenny-audit`.
+
+**A judgment call, made explicit rather than silently applied:** this run's own release rules
+say backend/runtime work "may go to production only when... the eval gates pass" — and STEP 6's
+eval gates haven't run yet. So everything in this step is real, tested code, left behind its
+existing off-by-default flags, **not deployed and not flipped on in production this step.**
+Re-evaluate enabling hedging/expanded keep-warm in production once STEP 6's evals give real
+evidence either way.
+
+**Done:**
+- Extended `keepWarm.ts` to optionally warm more than one capability's local model
+  (`OLLAMA_KEEP_WARM_CAPABILITIES`, a comma list), pinged sequentially so it never contends with
+  itself on the Mac's single-concurrent-run limit. **Default behavior is byte-for-byte unchanged**
+  (unset = exactly today's single "general" model) — this is additive, opt-in, and the audit's
+  16GB-budget concern is left as an operator decision, documented in `.env.example`, not solved
+  algorithmically here.
+- Added 4 new tests (13 total in `keepWarm.test.ts`, up from 9): default behavior unchanged,
+  multiple capabilities each pinged with the registry's real model pick, an invalid capability
+  name falls back safely rather than pinging nothing, and one capability failing doesn't stop the
+  rest from being tried.
+- **Verified, not rebuilt:** provider resilience (`providerHealth.ts`'s per-provider circuit
+  breaker, `retryClassifier.ts`'s error taxonomy) is already solid — read closely, no gap found
+  worth changing.
+- **Not enabling hedging in production this step** (see the judgment call above) — it's tested
+  and ready; recommending it be turned on after STEP 6, not before.
+- Dead-code/doc cleanup: audit (STEP 2) found none confidently dead. Checked `docs/`'s existing
+  files for anything clearly superseded by this run's new docs — nothing removed, since several
+  older docs (e.g. `CURRENT-STATE-AUDIT.md`, `SECURITY_AUDIT.md`) cover ground this run's new docs
+  don't fully replace (Website/Vikisol One sections, historical security findings), and archiving
+  them on a guess would be a worse mistake than leaving them.
+- Full suite: **691 tests (689 passed, 2 skipped), 69 files, clean tsc.**
+
+**Next:** STEP 4 — the architecture blueprint (`docs/JENNYSOL-ARCHITECTURE.md`), using STEP 2's
+audit as the ground truth for what's already built vs what's genuinely still needed.
