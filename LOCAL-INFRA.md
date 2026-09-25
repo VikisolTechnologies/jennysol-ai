@@ -188,3 +188,41 @@ OLLAMA_HOST=100.70.199.75:11434 ollama list
 
 Not a bug — the correct, intended consequence of the security fix — but worth knowing before
 assuming a bare `ollama` command failing means the service itself is down.
+
+## Local image generation — Qwen-Image-2.1 (added 2026-09-25)
+
+Free image generation on this Mac, first in `/api/image`'s chain (`qwen-local`). **License: Qwen
+Research License, non-commercial only** — see JENNY_MODEL_LICENSE_MATRIX.md before monetizing.
+
+```
+Railway (jennysol-api)  LOCAL_IMAGE_BASE_URL=http://<railtail-for-8789>.railway.internal:8789
+    ▼  second railtail forward (same pattern as Ollama's), over the tailnet
+This Mac 100.70.199.75:8789  →  src/localImageWorker.ts (Bearer token required)
+    ▼  one image at a time; unloads Ollama's resident models first
+~/.jennysol/image/bin/sd-cli  (stable-diffusion.cpp release master-911-740c7ae, Metal)
+```
+
+Files under `~/.jennysol/image/` (override with `QWEN_IMAGE_HOME`), ~10GB total:
+
+| File | Source | Size |
+|---|---|---|
+| `bin/sd-cli` | github.com/leejet/stable-diffusion.cpp release `master-911-740c7ae`, macOS arm64 zip | 3.6MB (+ dylib) |
+| `models/qwen-image-2.1-Q4_K_M.gguf` | `unsloth/Qwen-Image-2.1-GGUF` | 4.2GB |
+| `models/Qwen3-VL-8B-Instruct-UD-Q4_K_XL.gguf` | `unsloth/Qwen3-VL-8B-Instruct-GGUF` (text encoder) | 5.15GB |
+| `models/qwen_image_2.1_vae_bf16.safetensors` | `unsloth/Qwen-Image-2.1-FP8`, `vae/` | 0.68GB |
+
+Memory: the image model + text encoder need about the whole 10GB `m1_16gb` budget, which is why the
+worker unloads Ollama first and why the API holds Ollama's single local-run slot for the duration
+(chat goes to the cloud chain meanwhile, keep-warm pings skip).
+
+Setup:
+
+1. In `server/.env` on the Mac: `LOCAL_IMAGE_WORKER_TOKEN=$(openssl rand -hex 32)`,
+   `LOCAL_IMAGE_WORKER_HOST=100.70.199.75` (Tailscale-only, like Ollama), `LOCAL_IMAGE_WORKER_PORT=8789`.
+2. `bash server/deploy/macos/install-image-worker.sh`
+3. On Railway: add a second railtail service forwarding to `100.70.199.75:8789`, then set
+   `LOCAL_IMAGE_BASE_URL` (its private address) and the same `LOCAL_IMAGE_WORKER_TOKEN` on
+   jennysol-api. The token is required because the tailnet ACL is still unverified (gap 1 above).
+
+Prompts are never written to the worker's logs — only timing, byte counts, and sd-cli's stderr with
+the prompt redacted.

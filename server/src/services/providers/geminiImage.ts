@@ -1,4 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
+import type { GeneratedImage } from "../imageProviderTypes.js";
 
 const MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
 
@@ -8,10 +9,7 @@ function getClient(): GoogleGenAI {
   return client;
 }
 
-export interface GeneratedImage {
-  mimeType: string;
-  data: string; // base64
-}
+export type { GeneratedImage };
 
 export async function generateImage(prompt: string): Promise<GeneratedImage> {
   const response = await getClient().models.generateContent({

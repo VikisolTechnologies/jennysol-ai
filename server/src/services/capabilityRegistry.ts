@@ -1,5 +1,6 @@
 import { hasAnyConfiguredProvider } from "./modelRouter.js";
 import { isOllamaAvailable } from "./providers/ollama.js";
+import { isLocalQwenImageConfigured } from "./providers/localQwenImage.js";
 import { hasAnySearchProviderConfigured } from "./search/searchRouter.js";
 
 // The single authoritative list of what JennySol can do — computed live from
@@ -48,6 +49,8 @@ export function getCapabilityRegistry(): CapabilityStatus[] {
   const textGenConfigured = hasAnyConfiguredProvider();
   const searchConfigured = hasAnySearchProviderConfigured();
   const geminiKeyPresent = !!process.env.GEMINI_API_KEY;
+  const falKeyPresent = !!process.env.FAL_KEY;
+  const localImageConfigured = isLocalQwenImageConfigured();
   const ollamaReachable = isOllamaAvailable();
 
   return [
@@ -136,16 +139,26 @@ export function getCapabilityRegistry(): CapabilityStatus[] {
     {
       id: "IMAGE_GENERATION",
       implemented: true,
-      configured: geminiKeyPresent,
-      available: false,
-      provider: "gemini",
-      requiresKey: true,
-      free: false,
-      selfHosted: false,
+      configured: localImageConfigured || geminiKeyPresent || falKeyPresent,
+      // Gemini alone is still blocked by the zero-quota tier noted below —
+      // "available" means the fallback chain (imageRouter.ts) as a whole has
+      // a path that isn't that blocked one: the Mac's local worker or fal.ai.
+      available: localImageConfigured || falKeyPresent,
+      provider:
+        "qwen-image-2.1 (local, research license) → gemini → qwen-image (fal.ai) → janus-pro (fal.ai)",
+      requiresKey: !localImageConfigured,
+      free: localImageConfigured,
+      selfHosted: localImageConfigured,
       modelIndependent: false,
-      detail: geminiKeyPresent
-        ? "Blocked by a zero-quota billing tier on the configured Gemini key (confirmed via production logs, not a code bug)."
-        : "GEMINI_API_KEY not set.",
+      detail: [
+        localImageConfigured
+          ? "Local Qwen-Image-2.1 worker configured (free, but Qwen Research License: non-commercial only)."
+          : "No local image worker configured (LOCAL_IMAGE_BASE_URL/LOCAL_IMAGE_WORKER_TOKEN).",
+        geminiKeyPresent
+          ? "Gemini is blocked by a zero-quota billing tier (confirmed via production logs, not a code bug)."
+          : "GEMINI_API_KEY not set.",
+        falKeyPresent ? "fal.ai fallback (Qwen-Image, Janus-Pro) configured." : "FAL_KEY not set, so no paid fallback.",
+      ].join(" "),
     },
     {
       // JENNYSOL-VISION-AND-IMAGERY.md Part A — real code path now exists (ollamaVision.ts,

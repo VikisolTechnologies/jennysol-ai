@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { generateImage } from "../services/providers/geminiImage.js";
+import { routeImageGeneration, hasAnyConfiguredImageProvider, AllImageProvidersUnavailableError } from "../services/imageRouter.js";
 import { zodErrorMessage } from "../utils/zodError.js";
 
 export const imageRouter = Router();
@@ -16,7 +16,7 @@ imageRouter.post("/", async (req, res) => {
     return;
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  if (!hasAnyConfiguredImageProvider()) {
     res.status(500).json({
       error: "I can't generate images right now — image generation isn't set up on this server yet.",
     });
@@ -24,27 +24,31 @@ imageRouter.post("/", async (req, res) => {
   }
 
   try {
-    const image = await generateImage(parsed.data.prompt);
-    res.json(image);
+    const result = await routeImageGeneration(parsed.data.prompt);
+    res.json(result.image);
   } catch (err) {
     console.error("Image generation failed:", err);
-    const status = (err as { status?: number })?.status;
-    const detail = err instanceof Error ? err.message : String(err);
     // Shown verbatim as Jenny's reply in the chat bubble — never leak raw
     // provider/billing/quota language here, talk the way she'd actually say
-    // it. "limit: 0" / "FreeTier" in a 429's own body means this API key's
-    // *tier* has zero quota for image generation specifically (confirmed
-    // directly in production logs) — a permanent condition until billing
-    // is enabled, not a transient rate limit that clears on its own. Saying
-    // "try again later" for that case would be a quieter but equally
-    // dishonest version of "here's your image" — it promises a recovery
-    // that isn't coming without an account change.
-    const isZeroQuotaTier = status === 429 && /limit:\s*0\b/i.test(detail);
-    const message = isZeroQuotaTier
-      ? "I can't generate images right now — this account's current plan doesn't include any image-generation quota, so it's not something that'll clear up on its own. Someone would need to enable billing/upgrade the plan for that model. In the meantime I can help you write a sharp prompt for another image tool, or just describe what you're picturing and I'll work with that."
-      : status === 429
-        ? "I can't generate an image right now — I've hit today's limit on that. It'll free up again soon. In the meantime I can help you write a sharp prompt for another image tool, or just describe what you're picturing and I'll work with that."
-        : "Something went wrong generating that image. Want to try rephrasing it, or describe what you're picturing and I'll help another way?";
-    res.status(500).json({ error: message });
+    // it. Only reached once EVERY provider in the chain (Gemini, then
+    // Qwen-Image, then Janus-Pro, both via fal.ai) has failed — see
+    // imageRouter.ts's routeImageGeneration.
+    if (err instanceof AllImageProvidersUnavailableError) {
+      // "limit: 0" / "FreeTier" in Gemini's own 429 body means that key's
+      // *tier* has zero quota for image generation specifically (confirmed
+      // directly in production logs) — a permanent condition until billing
+      // is enabled, not something that clears on its own. Worth calling out
+      // by name even though Qwen/Janus also failed, since it's the one
+      // failure in the set with a real, actionable fix.
+      const isZeroQuotaTier = err.attempts.some((a) => /limit:\s*0\b/i.test(a.reason));
+      const message = isZeroQuotaTier
+        ? "I can't generate images right now — this account's current plan doesn't include any image-generation quota, so it's not something that'll clear up on its own. Someone would need to enable billing/upgrade the plan for that model. In the meantime I can help you write a sharp prompt for another image tool, or just describe what you're picturing and I'll work with that."
+        : "I can't generate an image right now — I tried every image model I have and none of them came through. It'll likely clear up soon. In the meantime I can help you write a sharp prompt for another image tool, or just describe what you're picturing and I'll work with that.";
+      res.status(500).json({ error: message });
+      return;
+    }
+    res.status(500).json({
+      error: "Something went wrong generating that image. Want to try rephrasing it, or describe what you're picturing and I'll help another way?",
+    });
   }
 });

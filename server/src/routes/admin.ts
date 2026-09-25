@@ -5,6 +5,7 @@ import { getAdminStats, listUsers, countUsers, getAdminUser, listConversationsFo
 import { listRecentErrors, countRecentErrors } from "../services/errorLog.js";
 import { getCapabilityRegistry } from "../services/capabilityRegistry.js";
 import { getProviderRouteStatus } from "../services/modelRouter.js";
+import { getImageProviderRouteStatus } from "../services/imageRouter.js";
 import { getHealthSnapshot } from "../services/providerHealth.js";
 import { getHardwareSnapshot } from "../services/models/hardwareProfile.js";
 import { listInstalledOllamaModels } from "../services/providers/ollama.js";
@@ -46,6 +47,7 @@ adminRouter.get("/config-health", (_req, res) => {
 // redaction pass the way a raw env dump would.
 adminRouter.get("/provider-health", async (_req, res) => {
   const providers = getProviderRouteStatus();
+  const imageProviders = getImageProviderRouteStatus();
   const health = getHealthSnapshot();
   const hardware = getHardwareSnapshot();
   const ollamaModels = await listInstalledOllamaModels().catch(() => []);
@@ -57,6 +59,9 @@ adminRouter.get("/provider-health", async (_req, res) => {
   const residentModels = await getResidentModels().catch(() => []);
   res.json({
     providers: providers.map((p) => ({ ...p, health: health[p.name] ?? null })),
+    // health keys are "image:<name>" (imageRouter.ts) so a chat provider's
+    // circuit breaker never gets confused with the same-named image one.
+    imageProviders: imageProviders.map((p) => ({ ...p, health: health[`image:${p.name}`] ?? null })),
     hardware,
     ollamaModels,
     residentModels,

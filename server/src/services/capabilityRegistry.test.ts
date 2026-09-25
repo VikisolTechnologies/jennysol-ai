@@ -18,6 +18,9 @@ describe("capabilityRegistry", () => {
     delete process.env.GEMINI_API_KEY;
     delete process.env.TAVILY_API_KEY;
     delete process.env.SEARXNG_BASE_URL;
+    delete process.env.FAL_KEY;
+    delete process.env.LOCAL_IMAGE_BASE_URL;
+    delete process.env.LOCAL_IMAGE_WORKER_TOKEN;
     (hasAnyConfiguredProvider as ReturnType<typeof vi.fn>).mockReturnValue(false);
     (isOllamaAvailable as ReturnType<typeof vi.fn>).mockReturnValue(false);
     (hasAnySearchProviderConfigured as ReturnType<typeof vi.fn>).mockReturnValue(false);
@@ -80,12 +83,40 @@ describe("capabilityRegistry", () => {
     expect(registry.find((c) => c.id === "WEB_SEARCH")!.provider).toBe("tavily");
   });
 
-  it("reports IMAGE_GENERATION as configured-but-unavailable when a Gemini key exists (the real production state)", () => {
+  it("reports IMAGE_GENERATION as configured-but-unavailable when only a Gemini key exists and FAL_KEY is unset (the real production state)", () => {
     process.env.GEMINI_API_KEY = "set";
     const registry = getCapabilityRegistry();
     const image = registry.find((c) => c.id === "IMAGE_GENERATION")!;
     expect(image.configured).toBe(true);
     expect(image.available).toBe(false);
+    expect(image.detail).toMatch(/zero-quota/i);
+  });
+
+  it("reports IMAGE_GENERATION as available once FAL_KEY is configured, even without a Gemini key", () => {
+    process.env.FAL_KEY = "set";
+    const registry = getCapabilityRegistry();
+    const image = registry.find((c) => c.id === "IMAGE_GENERATION")!;
+    expect(image.configured).toBe(true);
+    expect(image.available).toBe(true);
+    expect(image.provider).toContain("qwen-image");
+    expect(image.provider).toContain("janus-pro");
+  });
+
+  it("reports IMAGE_GENERATION as free and self-hosted when the local Qwen-Image-2.1 worker is configured, and flags its license", () => {
+    process.env.LOCAL_IMAGE_BASE_URL = "http://100.64.0.1:8789";
+    process.env.LOCAL_IMAGE_WORKER_TOKEN = "t".repeat(40);
+    const image = getCapabilityRegistry().find((c) => c.id === "IMAGE_GENERATION")!;
+    expect(image).toMatchObject({ available: true, free: true, selfHosted: true, requiresKey: false });
+    expect(image.detail).toMatch(/non-commercial/i);
+    expect(JSON.stringify(image)).not.toContain("t".repeat(40));
+  });
+
+  it("reports IMAGE_GENERATION as available with both keys set, but still names the Gemini quota block", () => {
+    process.env.GEMINI_API_KEY = "set";
+    process.env.FAL_KEY = "set";
+    const registry = getCapabilityRegistry();
+    const image = registry.find((c) => c.id === "IMAGE_GENERATION")!;
+    expect(image.available).toBe(true);
     expect(image.detail).toMatch(/zero-quota/i);
   });
 

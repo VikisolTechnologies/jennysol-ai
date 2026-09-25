@@ -36,7 +36,11 @@ Identical wording every time, ~300ms (no model call at all — this is why it's 
 
 ## Image generation
 
-**Intended provider**: Gemini (`services/providers/geminiImage.ts`, model `gemini-3.1-flash-image` — confirmed via `GEMINI_IMAGE_MODEL` env var).
+**Updated 2026-09-25 (later the same day): free local generation first.** The chain is now `qwen-local` → Gemini → Qwen-Image (fal.ai) → Janus-Pro (fal.ai). `qwen-local` is Qwen-Image-2.1 running on the Mac via stable-diffusion.cpp (`src/localImageWorker.ts`, reached from Railway over the tailnet like Ollama), free per image. **License: Qwen Research License, non-commercial only** — see JENNY_MODEL_LICENSE_MATRIX.md. It holds the same single local-inference slot as Ollama chat, so the two never share the Mac's memory at once.
+
+**Updated 2026-09-25: no longer Gemini-only.** `POST /api/image` now goes through `imageRouter.ts`, an ordered fallback chain — Gemini → Qwen-Image → Janus-Pro (DeepSeek's open-weights image-gen model), the latter two both served via fal.ai since neither fits this Mac's 6GB local-model ceiling (see `JENNY_LOCAL_MODEL_MATRIX.md`). This directly fixes the "blocked by provider limitation" status documented below: Gemini's zero-quota billing tier is still a real, unresolved block on Gemini specifically, but it's no longer a full outage for image generation — Qwen/Janus via `FAL_KEY` are a real, independent path that doesn't share Gemini's billing tier. Same circuit-breaker/health-tracking machinery as chat's `modelRouter.ts` (health keys namespaced `image:<name>` so they never collide with the same-named chat provider). See `IMAGE_PROVIDER_CHAIN`/`FAL_KEY` in `.env.example`, and `GET /api/admin/provider-health`'s new `imageProviders` field for live state. The rest of this section (below) is preserved as the historical record of the pre-fallback, Gemini-only state — still accurate as a description of Gemini's own behavior, just no longer the whole story.
+
+**Intended provider** (historical, Gemini specifically): `services/providers/geminiImage.ts`, model `gemini-3.1-flash-image` — confirmed via `GEMINI_IMAGE_MODEL` env var.
 
 **Actual provider**: same — the adapter is real and correctly implemented (calls `generateContent` with `responseModalities: [Modality.IMAGE]`, extracts the inline base64 image data, throws a clear error if no image part comes back). This is not a mock and not a stub.
 
@@ -61,7 +65,7 @@ USER REQUEST → frontend (image mode toggle, ChatWindow.tsx)
 
 **To actually fix it**: enable billing / upgrade the Gemini API key's tier for `gemini-3.1-flash-image` specifically (a separate quota bucket from plain chat completions, which are unaffected and working fine — confirmed, chat responses average 500-1000ms with no quota errors).
 
-**Capability model**: image generation is **not** gated by which chat model happens to be selected — `POST /api/image` is a completely separate route/provider call, independent of `modelRouter.ts`'s chat provider chain. It correctly does not pretend DeepSeek or Ollama can generate images (neither is ever invoked for this route). There is no formal capability-registry object (`{TEXT_GENERATION, VISION, IMAGE_GENERATION, ...}`) in code — the "capability" today is simply "which route exists," which happens to already prevent the specific failure mode asked about (falsely reporting image support for a model that can't do it), so a formal registry wasn't built for a problem that isn't actually occurring. Flagged as PLANNED if a second image-capable provider is ever added and a real choice needs making.
+**Capability model**: image generation is **not** gated by which chat model happens to be selected — `POST /api/image` is a completely separate route/provider call, independent of `modelRouter.ts`'s chat provider chain (`imageRouter.ts` is its own parallel chain, not a branch of the chat one). As of 2026-09-25 this is no longer Gemini-exclusive — see the update note above — but it still correctly does not pretend Ollama or the DeepSeek *chat* API (`DEEPSEEK_API_KEY`) can generate images; Janus-Pro reaches DeepSeek's model only via fal.ai, never via `api.deepseek.com`, which has no image endpoint at all. A formal capability-registry object does exist (`capabilityRegistry.ts`, added 2026-09-08 — see the note at the bottom of this document) and its `IMAGE_GENERATION` entry now reflects the fallback chain's `provider` string and real per-provider `available` state rather than a single Gemini boolean.
 
 **KNOWN LIMITATION (real, found during this audit, not fixed this session)**: image generation does **not** go through the AgentRun system at all. `POST /api/image` is a synchronous request/response with purely client-side React state (`ChatWindow.tsx`'s `handleSendImage`) — no `agent_runs` row, no `runId`, no SSE, no persistence. If the browser closes or reloads mid-generation, the result is lost with no way to recover it, unlike every text chat response. This directly conflicts with the project's own "AgentRun is the unit of execution" principle and was out of scope to re-architect in this session (a real, non-trivial change — wiring image generation into `chatRunner.ts`'s existing run lifecycle) versus the two specific fixes requested (identity, and diagnosing why images fail). Documented here rather than silently left unmentioned.
 
@@ -102,7 +106,7 @@ bug. Tavily's free tier is the sole active search provider today.
 | Document RAG | Yes | Yes | Yes (once Ollama is installed) | Yes |
 | Provider-independent web search | Yes (code) | Yes | Yes (once configured) | **Yes, verified** — Tavily live since 2026-09-10 |
 | Gemini native search grounding | Yes (code) | No (Gemini-only) | N/A | **No** — quota-blocked on this key (Tavily is the active path instead) |
-| Image generation | Yes (code) | No (Gemini-only) | No | **No** — quota-blocked on this key |
+| Image generation | Yes (code) | Partially — Gemini/Qwen/Janus each have their own quirks, but the fallback chain itself is model-independent | No (all 3 are cloud calls; Qwen-Image alone is too large for this Mac's 6GB ceiling) | **Yes, as of 2026-09-25** — Gemini alone is still quota-blocked, but Qwen-Image/Janus-Pro via `FAL_KEY` are a real independent fallback (see updated section above) |
 | Weather | Yes | Yes — bypasses no model, injects real data any provider can state | Yes | **Yes, verified** — Open-Meteo, no key |
 | Current date/time | Yes, deterministic | Yes — bypasses the model entirely | Yes | Yes, verified |
 | Timezone | Yes | Yes — browser `Intl` header, server formats | Yes | Yes, verified |
@@ -114,6 +118,9 @@ bug. Tavily's free tier is the sole active search provider today.
 |---|---|---|
 | `GEMINI_API_KEY` | chat, image gen, native grounding | Configured; tier lacks image-gen and grounding quota specifically |
 | `GEMINI_IMAGE_MODEL` | image generation | Configured (`gemini-3.1-flash-image`) — model choice isn't the problem, billing tier is |
+| `FAL_KEY` | image generation (Qwen-Image, Janus-Pro fallback) | Added 2026-09-25 — required for the fallback chain to have any path that isn't Gemini's blocked one |
+| `IMAGE_PROVIDER_CHAIN` | image generation fallback order | Optional, defaults to `qwen-local,gemini,qwen-fal,janus` |
+| `LOCAL_IMAGE_BASE_URL` / `LOCAL_IMAGE_WORKER_TOKEN` | free local Qwen-Image-2.1 (`qwen-local`) | Added 2026-09-25 — needs the Mac worker running and reachable (see LOCAL-INFRA.md) |
 | `TAVILY_API_KEY` | provider-independent search | Configured (since 2026-09-10) |
 | `SEARXNG_BASE_URL` | self-hosted search | Not configured — coded, not deployed (see free-first architecture doc) |
 | `DEEPSEEK_API_KEY` | cloud fallback chat | Not configured |
@@ -123,6 +130,6 @@ Live status for all of these, without secret values: `GET /api/admin/config-heal
 
 ## Known limitations (capabilities-specific)
 
-- Image generation and Gemini's native search grounding share the same root cause (a zero-quota billing tier) — fixing one credential/billing change likely fixes both.
+- Image generation and Gemini's native search grounding share the same root cause on Gemini specifically (a zero-quota billing tier) — fixing one credential/billing change likely fixes both. As of 2026-09-25, image generation additionally has a real fallback (Qwen-Image, then Janus-Pro, via `FAL_KEY`) that doesn't share this block, so it's no longer a full-capability outage the way it was when Gemini was the only provider.
 - Image generation bypasses the AgentRun architecture entirely (see above) — a real gap, not fixed this session, scoped out as a larger change than requested.
 - A formal capability registry now exists (`capabilityRegistry.ts`, added 2026-09-08) — the note above about "no formal registry" no longer applies.
