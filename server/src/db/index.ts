@@ -2,10 +2,14 @@ import Database from "better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
 
-const dataDir = path.resolve(import.meta.dirname, "../../data");
+// Tests must never open the application database. Vitest workers each get an isolated DB;
+// explicit paths support integration/restart tests and deployments with mounted storage.
+const databasePath = process.env.JENNYSOL_DB_PATH ||
+  (process.env.VITEST ? ":memory:" : path.resolve(import.meta.dirname, "../../data/jennysol.db"));
+const dataDir = path.dirname(databasePath);
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-export const db = new Database(path.join(dataDir, "jennysol.db"));
+export const db = new Database(databasePath);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 

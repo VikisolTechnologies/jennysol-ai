@@ -19,6 +19,9 @@
 //   tree as the *target* for a test run of this tool itself (see agentCommandTool.test.ts's own
 //   isolated fixture project, matching this phase's own stated test requirement).
 import { execFile, type ExecFileException } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { getAgent, hasPermission } from "./agentRegistry.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
 import { resolveInWorkspace, AgentWorkspaceError } from "./agentWorkspace.js";
@@ -101,7 +104,18 @@ export async function executeCommand(
   if (!hasPermission(agent, "exec:command")) {
     throw new AgentCommandError(`Agent ${agentId} (role ${agent.role}) lacks "exec:command" permission`);
   }
+  // npm scripts are arbitrary code, even with execFile. Host execution is disabled unless an
+  // operator explicitly opts into a trusted, isolated worker. An approval alone is not a sandbox.
+  if (process.env.AGENT_COMMAND_EXECUTION_ENABLED !== "true") {
+    throw new AgentCommandError("Command execution is disabled. Configure an isolated trusted worker before enabling it.");
+  }
+  if (!process.env.AGENT_WORKSPACE_ROOT) {
+    throw new AgentCommandError("Command execution requires an explicit AGENT_WORKSPACE_ROOT");
+  }
   assertAllowed(command, args);
+  if (args.some((arg) => /^--?(prefix|C|userconfig|globalconfig|script-shell|global|g|workspace|workspaces)(=|$)/.test(arg))) {
+    throw new AgentCommandError("Command options cannot override the workspace or execution configuration");
+  }
   let resolvedCwd: string;
   try {
     resolvedCwd = resolveInWorkspace(cwd);
@@ -117,13 +131,26 @@ export async function executeCommand(
     payload: { tool: "exec.command", command, args },
   });
   const start = Date.now();
+  const commandHome = mkdtempSync(path.join(tmpdir(), "jenny-command-"));
+  // No API keys, service tokens, NODE_OPTIONS, user npm credentials or shell startup files.
+  const env: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    HOME: commandHome,
+    TMPDIR: commandHome,
+    CI: "true",
+    npm_config_cache: path.join(commandHome, "npm-cache"),
+    npm_config_userconfig: path.join(commandHome, ".npmrc"),
+    npm_config_globalconfig: path.join(commandHome, "global-npmrc"),
+    npm_config_ignore_scripts: "true",
+  };
 
   return new Promise<CommandResult>((resolve) => {
     execFile(
       command,
       args,
-      { cwd: resolvedCwd, timeout: DEFAULT_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES * 2 },
+      { cwd: resolvedCwd, env, timeout: DEFAULT_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES * 2 },
       (err: ExecFileException | null, stdoutRaw, stderrRaw) => {
+        rmSync(commandHome, { recursive: true, force: true });
         const durationMs = Date.now() - start;
         const timedOut = err != null && err.killed === true && err.signal != null;
         const exitCode = err == null ? 0 : typeof err.code === "number" ? err.code : null;

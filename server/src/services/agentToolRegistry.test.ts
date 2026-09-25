@@ -17,8 +17,10 @@ import { getAuditTrailForCorrelation } from "./agentAuditLog.js";
 // time, and a beforeAll() hook runs too late to affect it.
 const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "agent-tool-registry-test-"));
 process.env.AGENT_WORKSPACE_ROOT = tmpRoot;
+process.env.AGENT_COMMAND_EXECUTION_ENABLED = "true";
 afterAll(() => {
   delete process.env.AGENT_WORKSPACE_ROOT;
+  delete process.env.AGENT_COMMAND_EXECUTION_ENABLED;
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 

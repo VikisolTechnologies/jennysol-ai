@@ -4,6 +4,7 @@
 // a real path-traversal or cwd-escape check is exactly the kind of thing that must never have a
 // second, slightly different implementation.
 import path from "node:path";
+import { lstatSync, realpathSync } from "node:fs";
 
 export class AgentWorkspaceError extends Error {
   constructor(message: string) {
@@ -26,9 +27,31 @@ export const WORKSPACE_ROOT = path.resolve(
 // inside WORKSPACE_ROOT (path.resolve leaves an absolute input unchanged relative to the base, so
 // this one function correctly handles both shapes with the same escape check).
 export function resolveInWorkspace(inputPath: string): string {
+  if (!inputPath || inputPath.includes("\0")) throw new AgentWorkspaceError("Invalid workspace path");
   const resolved = path.resolve(WORKSPACE_ROOT, inputPath);
   if (resolved !== WORKSPACE_ROOT && !resolved.startsWith(WORKSPACE_ROOT + path.sep)) {
     throw new AgentWorkspaceError(`Path "${inputPath}" escapes the agent workspace root — refused`);
   }
-  return resolved;
+  // Reject links at every existing component, including dangling links and directory links.
+  // Resolve the root itself for platforms where /tmp or /var is an OS-managed symlink.
+  const relative = path.relative(WORKSPACE_ROOT, resolved);
+  const parts = relative ? relative.split(path.sep) : [];
+  let current = realpathSync(WORKSPACE_ROOT);
+  for (const part of parts) {
+    if (part === ".git" || part === ".ssh" || part === ".aws" || part === ".npmrc" ||
+        (part.startsWith(".env") && !part.endsWith(".example")) ||
+        /\.(pem|key|p12|pfx|db|sqlite|sqlite3)(-wal|-shm)?$/i.test(part)) {
+      throw new AgentWorkspaceError("Credential, database and repository metadata files are not available to agent tools");
+    }
+    current = path.join(current, part);
+    try {
+      if (lstatSync(current).isSymbolicLink()) {
+        throw new AgentWorkspaceError("Symlinks are not allowed in agent workspace paths");
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      // New files are allowed; continue checking the lexical path for protected names.
+    }
+  }
+  return current;
 }

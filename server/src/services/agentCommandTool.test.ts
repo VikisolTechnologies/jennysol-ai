@@ -14,6 +14,7 @@ import { getSessionEventsAfter } from "./sessionEventBus.js";
 // at agentWorkspace.ts's own module load time).
 const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "agent-command-tool-test-"));
 process.env.AGENT_WORKSPACE_ROOT = tmpRoot;
+process.env.AGENT_COMMAND_EXECUTION_ENABLED = "true";
 
 function makeFixtureProject(name: string, testScript: string) {
   const dir = path.join(tmpRoot, name);
@@ -26,6 +27,7 @@ makeFixtureProject("fixture-secret", "echo API_KEY=sk-fake-secret-1234567890");
 
 afterAll(() => {
   delete process.env.AGENT_WORKSPACE_ROOT;
+  delete process.env.AGENT_COMMAND_EXECUTION_ENABLED;
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
@@ -75,6 +77,14 @@ describe("agentCommandTool", () => {
       ]);
       expect(result.stdout).not.toContain("uid=");
     });
+  });
+
+  it("disables host execution unless explicitly configured", async () => {
+    delete process.env.AGENT_COMMAND_EXECUTION_ENABLED;
+    try {
+      const agent = spawnAgent(sessionId, "coder");
+      await expect(executeCommand(sessionId, agent.id, ".", "npm", ["--version"])).rejects.toThrow(/disabled/);
+    } finally { process.env.AGENT_COMMAND_EXECUTION_ENABLED = "true"; }
   });
 
   describe("permission gating", () => {

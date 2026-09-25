@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { constants } from "node:fs";
 import { getAgent, hasPermission } from "./agentRegistry.js";
 import { appendSessionEvent } from "./sessionEventBus.js";
 import { requestLock, releaseLock } from "./agentFileLocks.js";
@@ -49,7 +50,9 @@ export async function readFile(sessionId: string, agentId: string, filePath: str
   const resolved = safeResolveInWorkspace(filePath);
   appendSessionEvent({ sessionId, agentId, type: "tool.exec.started", payload: { tool: "file.read", filePath } });
   try {
-    const content = await fs.readFile(resolved, "utf8");
+    const handle = await fs.open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let content: string;
+    try { content = await handle.readFile("utf8"); } finally { await handle.close(); }
     appendSessionEvent({
       sessionId,
       agentId,
@@ -72,14 +75,19 @@ export async function readFile(sessionId: string, agentId: string, filePath: str
 // The actual write — module-private on purpose. The only public way to reach this is
 // approveAgentAction(), never a direct call, so a WRITE can never bypass propose/approve (ADR-004).
 async function executeFileWrite(sessionId: string, agentId: string, filePath: string, content: string): Promise<void> {
-  const resolved = safeResolveInWorkspace(filePath);
-  const { outcome, granted } = requestLock(sessionId, filePath, agentId);
+  let resolved = safeResolveInWorkspace(filePath);
+  const lockPath = resolved;
+  const { outcome, granted } = requestLock(sessionId, lockPath, agentId);
   if (outcome === "wait") await granted;
 
   appendSessionEvent({ sessionId, agentId, type: "tool.exec.started", payload: { tool: "file.write", filePath } });
   try {
+    // A proposal may wait for human approval or a file lock. Recheck the path afterwards.
+    resolved = safeResolveInWorkspace(filePath);
     await fs.mkdir(path.dirname(resolved), { recursive: true });
-    await fs.writeFile(resolved, content, "utf8");
+    resolved = safeResolveInWorkspace(filePath);
+    const handle = await fs.open(resolved, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
+    try { await handle.writeFile(content, "utf8"); } finally { await handle.close(); }
     appendSessionEvent({
       sessionId,
       agentId,
@@ -96,7 +104,7 @@ async function executeFileWrite(sessionId: string, agentId: string, filePath: st
     });
     throw err;
   } finally {
-    releaseLock(sessionId, filePath, agentId);
+    releaseLock(sessionId, lockPath, agentId);
   }
 }
 

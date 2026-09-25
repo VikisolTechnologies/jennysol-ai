@@ -45,6 +45,7 @@ describe("pendingActions (M7)", () => {
     const action = proposeAction(proposer, "acme.doSomething", {});
 
     expect(() => consumeAction(action.id, intruder)).toThrow(/does not belong to the requesting identity/);
+    expect(consumeAction(action.id, proposer).id).toBe(action.id);
   });
 
   it("rejects consuming an action proposed by the same external user id but a DIFFERENT product", () => {
@@ -65,6 +66,7 @@ describe("pendingActions (M7)", () => {
     const action = proposeAction(tenantA, "acme.doSomething", {});
 
     expect(() => consumeAction(action.id, tenantB)).toThrow(/does not belong to the requesting identity/);
+    expect(consumeAction(action.id, tenantA).id).toBe(action.id);
   });
 
   it("rejects consuming an action after it has expired", () => {

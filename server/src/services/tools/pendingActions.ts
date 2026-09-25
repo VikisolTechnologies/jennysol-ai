@@ -1,14 +1,8 @@
-// M7 (approval-controlled write tools, PROJECT-PROGRESS.md milestone model), per ADR-004: a
-// model-requested WRITE tool call is never dispatched immediately. It becomes a PendingAction the
-// gateway route hands back to the caller (Arena's own frontend renders this as an approval card —
-// see the existing, previously-dormant IntentCardView.tsx); only an explicit, separate approval
-// request executes it, exactly once, via ToolRegistry.dispatch().
-//
-// A plain in-process Map, same pattern already established elsewhere in this codebase for
-// single-instance state (providerHealth.ts's health-stats map, runBus.ts's per-runId map) — real
-// for this app's actual deployment (one Railway instance), not a permanent architecture decision.
+// Durable, identity-bound, single-use proposals. Consuming a proposal commits before an
+// external call: an ambiguous network failure must be reconciled, never blindly retried.
 import { randomUUID } from "node:crypto";
 import type { ProductIdentity } from "../productIdentity.js";
+import { db } from "../../db/index.js";
 
 export interface PendingAction {
   id: string;
@@ -28,13 +22,22 @@ export class PendingActionError extends Error {
 // Mirrors serviceToken.ts's own MAX_TOKEN_TTL_SECONDS (300s) — a pending action outlives the
 // service token that proposed it by design margin, but not by much: the whole point is a user
 // approves within the same short interaction, not hours later with a stale token.
-const ACTION_TTL_MS = 5 * 60 * 1000;
+export const ACTION_TTL_MS = 5 * 60 * 1000;
 
-const pending = new Map<string, PendingAction>();
+db.exec(`CREATE TABLE IF NOT EXISTS product_pending_actions (
+  id TEXT PRIMARY KEY,
+  identity_json TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  args_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+)`);
 
 export function proposeAction(identity: ProductIdentity, toolName: string, args: Record<string, unknown>): PendingAction {
   const action: PendingAction = { id: randomUUID(), identity, toolName, args, createdAt: Date.now() };
-  pending.set(action.id, action);
+  db.prepare("INSERT INTO product_pending_actions (id, identity_json, tool_name, args_json, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(action.id, JSON.stringify(identity), toolName, JSON.stringify(args), action.createdAt);
+  // Bound abandoned proposals without depending on a process-local timer.
+  db.prepare("DELETE FROM product_pending_actions WHERE created_at < ?").run(Date.now() - ACTION_TTL_MS * 2);
   return action;
 }
 
@@ -52,27 +55,29 @@ export function proposeAction(identity: ProductIdentity, toolName: string, args:
 // future product (or connector bug) whose externalUserId is only unique *within* a tenant must
 // not be able to cross a tenant boundary just because this check forgot to look.
 export function consumeAction(actionId: string, requesterIdentity: ProductIdentity): PendingAction {
-  const action = pending.get(actionId);
-  if (!action) {
-    throw new PendingActionError("No such pending action (already used, rejected, or expired)");
-  }
-  pending.delete(actionId);
-
-  if (Date.now() - action.createdAt > ACTION_TTL_MS) {
-    throw new PendingActionError("This action has expired — ask again");
-  }
-  if (
-    action.identity.product !== requesterIdentity.product ||
-    action.identity.externalUserId !== requesterIdentity.externalUserId ||
-    action.identity.tenantId !== requesterIdentity.tenantId
-  ) {
-    throw new PendingActionError("This action does not belong to the requesting identity");
-  }
-  return action;
+  return db.transaction(() => {
+    const row = db.prepare("SELECT * FROM product_pending_actions WHERE id = ?").get(actionId) as
+      { id: string; identity_json: string; tool_name: string; args_json: string; created_at: number } | undefined;
+    if (!row) throw new PendingActionError("No such pending action (already used, rejected, or expired)");
+    const action: PendingAction = {
+      id: row.id, identity: JSON.parse(row.identity_json), toolName: row.tool_name,
+      args: JSON.parse(row.args_json), createdAt: row.created_at,
+    };
+    if (action.identity.product !== requesterIdentity.product ||
+        action.identity.externalUserId !== requesterIdentity.externalUserId ||
+        action.identity.tenantId !== requesterIdentity.tenantId) {
+      throw new PendingActionError("This action does not belong to the requesting identity");
+    }
+    if (Date.now() - action.createdAt >= ACTION_TTL_MS) {
+      throw new PendingActionError("This action has expired — ask again");
+    }
+    db.prepare("DELETE FROM product_pending_actions WHERE id = ?").run(actionId);
+    return action;
+  }).immediate();
 }
 
 // Test-only escape hatch — mirrors providerHealth.ts's own __resetHealthForTests() convention,
 // so tests don't leak pending actions across cases via this module's shared in-process map.
 export function __clearAllPendingActionsForTests(): void {
-  pending.clear();
+  db.prepare("DELETE FROM product_pending_actions").run();
 }

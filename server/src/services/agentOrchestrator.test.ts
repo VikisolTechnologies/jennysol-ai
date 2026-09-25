@@ -12,8 +12,10 @@ import { getSessionEventsAfter, subscribeToSession } from "./sessionEventBus.js"
 // AGENT_WORKSPACE_ROOT must be set before any of this suite's real modules are imported.
 const tmpRoot = mkdtempSync(path.join(os.tmpdir(), "agent-orchestrator-test-"));
 process.env.AGENT_WORKSPACE_ROOT = tmpRoot;
+process.env.AGENT_COMMAND_EXECUTION_ENABLED = "true";
 afterAll(() => {
   delete process.env.AGENT_WORKSPACE_ROOT;
+  delete process.env.AGENT_COMMAND_EXECUTION_ENABLED;
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
