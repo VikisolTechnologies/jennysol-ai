@@ -131,3 +131,69 @@ working but intentionally simple plan→execute→observe loop — not the full 
 re-planning sophistication the plan eventually wants. Privacy tiers ship in shadow/log-only mode
 only, per FINISH-ALL's own instruction, and per this run's STEP 3 decision, none of STEP 5's
 production-facing pieces get deployed until STEP 6's evals actually exist and pass.
+
+---
+
+## 2026-09-26 — STEP 5 done (partially — see honest scope note), starting STEP 6
+
+**Branch:** `feature/jenny-audit`.
+
+**An important correction, found while building, not while auditing:** a table and type already
+named `agent_runs`/`AgentRun` exist (`agentRunStore.ts`) — a genuinely different thing (one
+streamed chat turn's own durability, keyed on `userId`+`conversationId`), not the multi-step goal
+concept this step needed to build. **This mission's own docs use "AgentRun" for both** (§6.3,
+§13's glossary describe the goal-mode concept under that same name) — a real naming ambiguity in
+the source documents, not a mistake I made reading them. **Everything new here is named
+`AgentGoalRun` / `agent_goal_runs` specifically to never collide with the existing one.** Any
+later doc or agent using "AgentRun" for the goal-mode concept should read it as `AgentGoalRun`.
+`docs/JENNYSOL-ARCHITECTURE.md` §3 has been corrected to say this explicitly.
+
+**Built, tested, real (not deployed — see STEP 3's release-gate decision, still in force):**
+- `server/src/services/agentRuntime/` (`types.ts`, `store.ts`, `runtime.ts`): a genuinely working
+  plan→execute→observe loop, built as a thin persistence/observability/stop wrapper around the
+  EXISTING tool-calling mechanism (`routeChatCompletion` + `ToolRegistry`) — not a second
+  implementation of tool-calling. `startRun()`, `stopRun()`, `getRun()`. A WRITE tool call inside
+  a run pauses it at `awaiting_approval` using the **exact same** `pendingActions` store and
+  `/actions/:id` route Arena's gateway already uses — never a second approval mechanism. Budget
+  (`maxSteps`/`maxMs`) is enforced *before* a tool call runs, not just checked after. Cancellation
+  reuses the same `AbortController`-through-`AbortSignal` pattern already established elsewhere
+  in this codebase (`agentCommandTool.ts`, the hedge race).
+- **A real bug I found and fixed in my own first draft before it ever ran**: an unnecessary
+  `controller.abort()` on the WRITE-tier pause path would have raced against the model's own
+  natural continuation for no reason — removed, with a comment explaining why, before writing
+  tests against it.
+- 8 new tests (`runtime.test.ts`), including one that proves cancellation for real: a mid-flight
+  run's real database row is found (not faked), `stopRun()` is called for real, and the mocked
+  provider only continues afterward — proving the abort signal actually propagated, not just
+  that the function returns the right shape.
+- `productConnectors/jennysol.ts`: JennySol's own first-party tools (`currentDateTime`,
+  `getWeather`, and `webSearch` when a search provider is configured) — reaches **10 real,
+  risk-rated tools total** (Arena's 9 + these), registered under a genuine new `"jennysol"`
+  product identity in the shared `ToolRegistry`, with the SAME cross-product isolation guarantee
+  Arena's tools already have (proven by a test that checks a `jennysol` identity's run is only
+  ever offered `jennysol.*` tools, never `arena.*`, and vice versa).
+- Memory export/delete self-service (`vectorStore.ts` + `routes/documents.ts`): `GET
+  /api/documents/export` (every document's chunk text, never the embedding vectors, scoped to the
+  caller) and `DELETE /api/documents` (delete-all, distinct from the pre-existing per-document
+  `DELETE /:id`). 6 new tests.
+- Full suite: **705 tests (703 passed, 2 skipped), 71 files, clean tsc.**
+
+**Honest scope note — what STEP 5 did NOT build, and why:**
+- **Privacy tiers are still only designed (§4 of the architecture doc), not built.** A real
+  implementation needs a founder-level decision (which surfaces default to which tier) flagged in
+  the architecture doc itself — building it unilaterally risked guessing that decision wrong in
+  code that then ships.
+- **Re-planning sophistication.** This run's loop calls the model once per `startRun`, letting the
+  existing multi-round tool-calling inside `routeChatCompletion`/each provider handle multiple
+  tool calls per goal — genuinely working, but simpler than a full "observe → deliberately
+  re-plan with a fresh planning call" loop. Good enough to prove the persistence/stop/budget
+  layer for real; not the final sophistication the roadmap eventually wants.
+- **A task/run dashboard UI.** The two mockup options exist (STEP 4); building either as real,
+  working frontend code wasn't reached this run.
+- **The Vikisol One connector (mock).** Not started — deferred, logged in `BLOCKERS.md`.
+
+**Next:** STEP 6 — prove it. Given the same honesty principle, this will NOT fabricate "20
+scenarios, 95% routing accuracy" or claim workflows that weren't actually run. It reports exactly
+what was tested against the real code (the Agent Runtime's own 8 tests, the routing table from
+STEP 2, the one real Arena workflow already proven live) and is explicit about the research and
+developer-PR workflows not having been attempted this run.

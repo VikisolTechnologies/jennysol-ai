@@ -57,6 +57,16 @@ and privacy tiers threaded through the Model Gateway's existing routing decision
 **Today:** one streamed turn per request. A WRITE tool call becomes a pending action; there is no
 concept of "plan three steps, do the first, look at the result, decide the second."
 
+**A real naming collision, found while implementing this section (STEP 5), corrected here:** a
+table and type already named `agent_runs`/`AgentRun` exist (`agentRunStore.ts`) — a genuinely
+different thing, tied to `userId`+`conversationId`, tracking one streamed **chat turn's** own
+durability (queued→running→streaming→completed, so a disconnected client can recover). This
+mission's own docs use the name "AgentRun" for the new multi-step **goal** concept too (§6.3,
+§13's glossary) — that ambiguity is real, not just my mistake in reading them. **The code below
+is named `AgentGoalRun` / `agent_goal_runs`** specifically to never collide with the existing,
+unrelated single-turn `AgentRun`. Any future doc using "AgentRun" for the goal-mode concept
+should be read as `AgentGoalRun` from here on.
+
 **Target — the core contracts, as they'll exist in code** (new module,
 `server/src/services/agentRuntime/`, nothing existing moved or renamed):
 
@@ -64,7 +74,7 @@ concept of "plan three steps, do the first, look at the result, decide the secon
 // agentRuntime/types.ts
 export type RunStatus = "queued" | "running" | "awaiting_approval" | "completed" | "failed" | "cancelled";
 
-export interface AgentRun {
+export interface AgentGoalRun {
   id: string;
   identity: ProductIdentity;      // reuses the existing type — never redefined
   goal: string;
@@ -104,7 +114,7 @@ step waits for that approval before the loop continues) → append the observati
 and stop conditions → decide whether the goal is met or re-plan }.
 
 **Persistence:** SQLite, same engine as `pendingActions.ts` already uses — one new table
-(`agent_runs`, `agent_run_steps`), not a new datastore. **Resumable and stoppable**: a run's
+(`agent_goal_runs`, `agent_goal_run_steps`), not a new datastore. **Resumable and stoppable**: a run's
 `status` and `steps` are the only state a resume needs to reconstruct where it was; "stop" is
 just setting `status = "cancelled"` and having the loop check it before every step, the same
 pattern `agentCommandTool.ts`'s timeout/kill handling already establishes for a different kind of
@@ -213,7 +223,7 @@ a rule new tools must follow, not a new mechanism to build.
   risk ceiling) rather than code — the runtime already treats an "agent" as configuration, not a
   class, so a marketplace is "let a non-engineer author that JSON row," not new runtime work.
 - **Per-tenant/per-org JennySol deployments.** `ProductIdentity` already carries `tenantId` —
-  every new table this blueprint adds (`agent_runs`, memory) must include it in its key from day
+  every new table this blueprint adds (`agent_goal_runs`, memory) must include it in its key from day
   one, so a future multi-tenant JennySol never needs a retrofit migration.
 - **Vikisol One connector.** Build and test it against a mock, exactly like Arena's own
   `arena.test.ts` proves the contract without a live dependency — same shape as `arena.ts`, a
@@ -231,7 +241,7 @@ a rule new tools must follow, not a new mechanism to build.
 |---|---|---|---|
 | Config-driven Model Gateway | `modelRegistry.ts`, `modelRouter.ts` | `modelRouter.test.ts` | **Done** |
 | Privacy tiers, no silent escalation | *(new, §4)* | *(new)* | **Designed, not built** |
-| Durable, resumable, cancellable AgentRun (Goal Mode) | *(new, §3)* | *(new)* | **Designed, not built** |
+| Durable, resumable, cancellable AgentGoalRun (Goal Mode) | *(new, §3)* | *(new)* | **Designed, not built** |
 | ≥10 typed, risk-rated tools | `productConnectors/arena.ts` (9) + §5's 3 candidates | `arena.test.ts`'s risk-table test | **9/10, trivial to close** |
 | Memory scoped by user+product+tenant+purpose, exportable/deletable | `embeddings.ts` (user-scoped only) | — | **Partially done, real gap identified (§6)** |
 | Arena contract published, backward-compatible, live | `agentGateway.ts`, `productConnectors/arena.ts` | `agentGateway.http.test.ts`, Arena-BE's own suite | **Done, verified live** |

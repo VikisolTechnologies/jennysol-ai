@@ -6,7 +6,14 @@ import fs from "node:fs";
 import pdfParse from "pdf-parse";
 import { chunkText } from "../services/chunker.js";
 import { embedBatch } from "../services/embeddings.js";
-import { insertDocument, insertChunks, listDocuments, deleteDocument } from "../services/vectorStore.js";
+import {
+  insertDocument,
+  insertChunks,
+  listDocuments,
+  deleteDocument,
+  deleteAllDocumentsForUser,
+  exportAllDocumentsForUser,
+} from "../services/vectorStore.js";
 
 const uploadsDir = path.resolve(import.meta.dirname, "../../data/uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -57,6 +64,20 @@ documentsRouter.post("/", upload.single("file"), async (req, res) => {
   } finally {
     fs.unlink(file.path, () => {});
   }
+});
+
+// JENNYSOL-ARCHITECTURE.md §6 — "export everything Jenny remembers about me" as one action.
+// Scoped to the caller's own userId only, same as every other route in this file.
+documentsRouter.get("/export", (req, res) => {
+  res.json({ documents: exportAllDocumentsForUser(req.userId!) });
+});
+
+// "Delete all my memory" — distinct from DELETE /:id below (this repo's convention: /:id acts on
+// one document; the bare collection route acts on all of them, never confused since Express
+// matches the literal "/" before it ever considers ":id" as a candidate).
+documentsRouter.delete("/", (req, res) => {
+  const deleted = deleteAllDocumentsForUser(req.userId!);
+  res.json({ deleted });
 });
 
 documentsRouter.delete("/:id", (req, res) => {

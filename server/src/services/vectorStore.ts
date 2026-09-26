@@ -63,6 +63,26 @@ export function deleteDocument(userId: string, id: string) {
   db.prepare("DELETE FROM documents WHERE id = ? AND user_id = ?").run(id, userId);
 }
 
+// JENNYSOL-ARCHITECTURE.md §6's self-service gap: "delete all memory" as one action, not one
+// document at a time. Scoped by user_id in the WHERE clause itself, same as every other function
+// here — never a broader delete filtered down after the fact.
+export function deleteAllDocumentsForUser(userId: string): number {
+  return db.prepare("DELETE FROM documents WHERE user_id = ?").run(userId).changes;
+}
+
+// "Export everything Jenny remembers about me" — the full chunk text (what was actually
+// embedded and could be retrieved into an answer), not just filenames. Deliberately excludes the
+// embedding vectors themselves: they're a derived representation with no independent meaning to
+// the person reading their own export, and re-deriving them from the text is free (embed() is
+// local and free) if this export is ever re-imported.
+export function exportAllDocumentsForUser(userId: string): Array<{ id: string; filename: string; uploadedAt: string; chunks: string[] }> {
+  const docs = db
+    .prepare("SELECT id, filename, uploaded_at as uploadedAt FROM documents WHERE user_id = ? ORDER BY uploaded_at DESC")
+    .all(userId) as Array<{ id: string; filename: string; uploadedAt: string }>;
+  const chunkStmt = db.prepare("SELECT text FROM chunks WHERE document_id = ? ORDER BY chunk_index ASC");
+  return docs.map((d) => ({ ...d, chunks: (chunkStmt.all(d.id) as Array<{ text: string }>).map((c) => c.text) }));
+}
+
 // Scoped by owner via a join, not filtered after the fact — a user's search
 // only ever ranks against chunks belonging to documents they themselves
 // uploaded.
