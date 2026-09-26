@@ -32,3 +32,21 @@ keep going") rather than silently skipped or falsely claimed done.
    one continuous session. Recommend a real second-agent review before merging to `main`.
 8. **STEP 7 (voice) and STEP 8 (an actual Vercel preview deploy of the UI, beyond the static
    mockups already produced)** — not reached this run, given the size of what came before them.
+
+## 2026-09-26 — independent review of `feature/jenny-audit` (`docs/reviews/74ad94c.md`)
+
+Verdict: **CHANGES REQUIRED**, found real issues, nothing catastrophic (the runtime isn't reachable
+by any real route yet, so nothing was at production risk). Findings #1 (rawToken hardcoded to `""`)
+and #2 (a second WRITE proposal within one paused run could orphan the first) were fixed the same
+day with real tests — see `git log`. Finding #4 (a stale DoD-table claim) was corrected in
+`JENNYSOL-ARCHITECTURE.md`. Finding #5 was already honestly disclosed in `PROGRESS.md`/`BLOCKERS.md`
+as "no approval continuation yet" — re-confirmed by direct code inspection rather than taken on
+faith.
+
+**Finding #3 — investigated and closed, not just left open:** checked every provider that
+implements tool-calling at all (`gemini.ts`, `anthropic.ts` — `deepseek.ts` and `ollama.ts` don't
+implement `onToolCall` currently, confirmed by grep). Both call `onToolCall` inside a plain
+`for (const call of calls) { output = await onToolCall(...) }` / `for (const use of toolUses)`
+loop — strictly sequential, never `Promise.all` or otherwise concurrent. The step-budget check's
+lack of a lock is therefore not reachable today. Re-open this if a future provider (or a change to
+an existing one) ever parallelizes tool-call dispatch.

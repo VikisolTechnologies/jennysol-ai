@@ -299,3 +299,50 @@ step, not `JENNYSOL-NEXT.md`'s own STEP 1 (independent review) in isolation. Now
 `JENNYSOL-NEXT.md` STEP 1: spawn a genuinely independent review (fresh context, isolated worktree
 so it can't collide with the linked architect session sharing this same working tree) of
 `git diff main...feature/jenny-audit`.
+
+---
+
+## 2026-09-26 — Independent review done: CHANGES REQUIRED → fixed → re-verify next
+
+**Branch:** `feature/jenny-audit`.
+
+Spawned a fresh subagent with no memory of writing this code, in an isolated git worktree (to
+avoid the exact same-working-tree collision I'd just had with the linked architect session). It
+independently re-ran `tsc`, the full test suite (confirmed the exact 703/2/71 counts), and the
+live 3-scenario eval against real Gemini (also 3/3, with its own fresh timings) — then actually
+tried to break the new `agentRuntime/` module by reasoning about inputs the existing tests don't
+cover, rather than reviewing the tests approvingly. Full verdict: `docs/reviews/74ad94c.md`.
+
+**Verdict: CHANGES REQUIRED.** Two real, medium-severity findings, both fixed today with new tests:
+1. **`rawToken` was hardcoded to `""`** in every tool dispatch from `startRun()` — no parameter
+   existed to pass a real one through. Harmless only because nothing reachable calls `startRun()`
+   yet. Fixed: `startRun()` now takes an optional `rawToken`, threaded to `dispatch()` exactly like
+   `agentGateway.ts` already does. New test proves it's actually forwarded, not just accepted.
+2. **A run could accumulate a second, orphaned, independently-approvable `PendingAction`** if the
+   model proposed a second WRITE action before finishing its turn while the first was still
+   awaiting approval — the run's own `pendingActionId` silently moved to the second one while the
+   first stayed live. Fixed: a run already `awaiting_approval` now refuses any further WRITE
+   proposal (reported to the model as a graceful tool error, same treatment as
+   `ToolRejectedError`), staying paused on the first one until it's decided. New test proves this.
+
+Also fixed: a stale DoD-table line in `JENNYSOL-ARCHITECTURE.md` (finding #4, "9/10, trivial to
+close" → correctly "Done — 12 tools total"), and softened ADR-006's overstated "exactly the same
+trust boundary" claim to be precise about what was and wasn't actually wired (finding #1's real
+substance).
+
+**Finding #3** (a theoretical step-budget race if a provider ever dispatched tool calls
+concurrently) was investigated further, not left open: checked every provider that implements
+tool-calling (`gemini.ts`, `anthropic.ts`) and confirmed both are strictly sequential
+(`deepseek.ts`/`ollama.ts` don't implement `onToolCall` at all). Closed with that evidence in
+`BLOCKERS.md`, re-openable if a future provider ever parallelizes tool-call dispatch.
+
+**Finding #5** was already honestly disclosed (no approval continuation from `/actions/:id` back
+into `agent_goal_runs` yet) — the reviewer confirmed it by direct code inspection rather than
+taking the docs' word for it, which is exactly the point of an independent review.
+
+Full suite after fixes: **707 tests (705 passed, 2 skipped), 71 files, clean tsc.**
+
+**Next:** re-verify the fixes (already done above via the normal suite — the two new tests are
+real, not just added and trusted), then per `JENNYSOL-NEXT.md` STEP 1's remaining instruction:
+merge `feature/jenny-audit` to `main`, deploy, confirm `/health` shows the new commit, and re-run
+the gateway contract tests against production.

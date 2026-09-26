@@ -55,11 +55,21 @@ not for an internal engineering session.
 **Audience:** the end product user (Arena or JennySol), surfaced eventually through the run/
 approval dashboard (`docs/design/run-dashboard-option-a-timeline.html`).
 **Tools:** the existing product `ToolRegistry` (Arena's 9 tools + JennySol's own 3 — STEP 5),
-scoped by `ProductIdentity`, exactly the same trust boundary the live Arena gateway already uses —
-**not** the internal `agentToolRegistry.ts`.
-**Status:** real, tested (8 tests), proven live against real Gemini (3/3 scenarios,
+scoped by `ProductIdentity`, the same tool-visibility boundary the live Arena gateway already uses
+— **not** the internal `agentToolRegistry.ts`.
+**Status:** real, tested (10 tests), proven live against real Gemini (3/3 scenarios,
 `docs/JENNYSOL-EVAL-RESULTS.md`) — but not yet merged to `main`, and missing the re-planning
 sophistication and dashboard UI (`docs/BLOCKERS.md`).
+
+**Correction from the independent review (`docs/reviews/74ad94c.md`, finding #1):** "exactly the
+same trust boundary as the live gateway" overstated one half of this. Tool *visibility* (which
+tools an identity can even see/call) really is identical to Arena's gateway. Token *forwarding*
+was not: `startRun()` had no parameter for the caller's real service token at all, and hardcoded
+`rawToken: ""` into every dispatch — harmless today only because `startRun()` isn't reachable from
+any HTTP route yet and none of the 12 tools currently read `context.rawToken`. Fixed the same day
+this was found: `startRun()` now takes an optional `rawToken`, threaded through to `dispatch()`
+exactly like `agentGateway.ts` already does with `req.serviceToken!`. A future route wiring this up
+for a real signed-in user now has somewhere real to plug it in, rather than a silent no-op.
 
 ## The verdict: no redundancy, no merge — but three real risks to manage going forward
 

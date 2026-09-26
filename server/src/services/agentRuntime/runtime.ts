@@ -27,7 +27,17 @@ const RUNTIME_SYSTEM_PROMPT =
 // in-flight run; cleared as soon as the run leaves "running" for any reason.
 const activeControllers = new Map<string, AbortController>();
 
-export async function startRun(identity: ProductIdentity, goal: string, budget: AgentGoalRunBudget = DEFAULT_BUDGET): Promise<AgentGoalRun> {
+export async function startRun(
+  identity: ProductIdentity,
+  goal: string,
+  budget: AgentGoalRunBudget = DEFAULT_BUDGET,
+  // Independent review finding #1: a READ tool never needs this, but a WRITE tool that calls back
+  // into its own product's authenticated API (same reasoning as ToolExecutionContext's own doc
+  // comment) does — and this had no way to receive one at all before, silently hardcoding "". No
+  // real caller is broken by adding it (nothing calls startRun() over HTTP yet), but the moment a
+  // route wires this up for a real signed-in user, the real token has somewhere to go.
+  rawToken = ""
+): Promise<AgentGoalRun> {
   const run = createRun(identity, goal, budget);
   run.status = "running";
   updateRun(run);
@@ -70,15 +80,29 @@ export async function startRun(identity: ProductIdentity, goal: string, budget: 
             const tier = toolRegistry.getTier(identity, call.name);
             try {
               if (tier === "WRITE") {
+                // Independent review finding #2: a run must never carry TWO live proposals. Before
+                // this fix, a model that proposed a second WRITE action before finishing its turn
+                // silently created a second, independently-approvable PendingAction and overwrote
+                // run.pendingActionId — orphaning the first one from the run's own view while it
+                // stayed live and single-use-approvable to anyone who still had its id. That's a
+                // real path to two side effects (e.g. two job applications) from what looks like
+                // one pause. Once this run already has a pending approval, refuse the next WRITE
+                // call outright — the run stays paused on the FIRST proposal until it's decided.
+                if (run.status === "awaiting_approval") {
+                  // A known, expected business condition — same treatment as ToolRejectedError
+                  // below: reported to the model as data so it can explain itself, never thrown
+                  // all the way out to end the turn over something this ordinary.
+                  const message =
+                    "This run is already waiting on your approval for a previous action — decide that one before anything else can happen.";
+                  finishStep(step.id, undefined, message);
+                  return { error: message };
+                }
                 // Identical shape to routes/agentGateway.ts's own WRITE-tier handling — the
                 // SAME pendingActions store and the SAME /api/agent/gateway/actions/:id route
                 // resolves it, whichever product's identity is asking. Deliberately does NOT
                 // abort here: the model still gets to finish its turn with a natural reply
                 // ("this needs your approval") exactly like the gateway route does — aborting
                 // would race the model's own continuation against cancellation for no reason.
-                // (Known simplification: if a run proposes a SECOND action before finishing,
-                // only the latest one is tracked as this run's pendingActionId — good enough
-                // for a first cut, not a claim that concurrent multi-approval runs are solved.)
                 const action = proposeAction(identity, call.name, call.args);
                 run.status = "awaiting_approval";
                 run.pendingActionId = action.id;
@@ -87,7 +111,7 @@ export async function startRun(identity: ProductIdentity, goal: string, budget: 
                 finishStep(step.id, result);
                 return result;
               }
-              const result = await toolRegistry.dispatch(identity, call.name, call.args, { rawToken: "" });
+              const result = await toolRegistry.dispatch(identity, call.name, call.args, { rawToken });
               finishStep(step.id, result);
               return result;
             } catch (err) {

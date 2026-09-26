@@ -13,6 +13,8 @@ import { routeChatCompletion } from "../modelRouter.js";
 import { startRun, stopRun, getRun } from "./runtime.js";
 import { __clearAllRunsForTests, __findRunByGoalForTests } from "./store.js";
 import { __clearAllPendingActionsForTests } from "../tools/pendingActions.js";
+import { toolRegistry } from "../tools/registryInstance.js";
+import { DEFAULT_BUDGET } from "./types.js";
 import type { ProductIdentity } from "../productIdentity.js";
 import type { ToolCallHandler } from "../llmProvider.js";
 
@@ -165,5 +167,51 @@ describe("agentRuntime.startRun — basic lifecycle", () => {
     mockRoute(async (onDelta) => onDelta("ok"));
     const run = await startRun(jennysolIdentity, "hello");
     expect(getRun(run.id, arenaIdentity)).toBeUndefined();
+  });
+
+  // Independent review finding #1: a WRITE tool needing the caller's own product to authenticate
+  // it (same reasoning as ToolExecutionContext) must actually receive the real token, not a
+  // hardcoded "".
+  it("forwards a real rawToken through to a dispatched tool, not a hardcoded empty string", async () => {
+    let capturedToken: string | undefined;
+    mockRoute(async (onDelta, onToolCall) => {
+      await onToolCall!({ id: "1", name: "jennysol.getWeather", args: { location: "Hyderabad" } });
+      onDelta("ok");
+    });
+    // jennysol.getWeather doesn't itself read rawToken, so assert via a spy on dispatch instead of
+    // a real network call.
+    const dispatchSpy = vi.spyOn(toolRegistry, "dispatch").mockImplementation(async (_id, _name, _args, ctx) => {
+      capturedToken = ctx.rawToken;
+      return { ok: true };
+    });
+    await startRun(jennysolIdentity, "what's the weather", DEFAULT_BUDGET, "real-user-token-abc");
+    expect(capturedToken).toBe("real-user-token-abc");
+    dispatchSpy.mockRestore();
+  });
+
+  // Independent review finding #2: a run must never carry two live, independently-approvable
+  // proposals from proposing twice before the first is decided.
+  it("refuses a second WRITE proposal while a run is already awaiting approval on the first", async () => {
+    let secondCallResult: unknown;
+    mockRoute(async (onDelta, onToolCall) => {
+      const first = await onToolCall!({ id: "1", name: "arena.joinActivity", args: { postId: "p1" } });
+      secondCallResult = await onToolCall!({ id: "2", name: "arena.joinActivity", args: { postId: "p2" } });
+      onDelta(`first=${JSON.stringify(first)}`);
+    });
+
+    const run = await startRun(arenaIdentity, "join two activities");
+
+    expect(run.status).toBe("awaiting_approval");
+    const firstActionId = run.pendingActionId;
+    expect(typeof firstActionId).toBe("string");
+    // The SECOND call was refused, reported to the model as a tool error (never thrown out of
+    // startRun itself) — the run stays paused on the FIRST proposal, not silently replaced by a
+    // second one.
+    expect(secondCallResult).toMatchObject({ error: expect.stringContaining("already waiting on your approval") });
+    expect(run.pendingActionId).toBe(firstActionId);
+    const { steps } = getRun(run.id, arenaIdentity)!;
+    const toolSteps = steps.filter((s) => s.kind === "tool_call");
+    expect(toolSteps).toHaveLength(2);
+    expect(toolSteps[1].error).toContain("already waiting on your approval");
   });
 });
