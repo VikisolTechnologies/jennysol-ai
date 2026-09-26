@@ -415,3 +415,51 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_agency_scorecard_audit_scorecard ON agency_scorecard_audit(scorecard_id, created_at);
 `);
+
+// ADR-007 §9/§12 step 3: the agency tenant model. A tenant's own `data_processing_setting` and
+// `cloud_processing_disabled` are the per-tenant kill switch this ADR requires — `default
+// 'private_only'` means a newly created agency can NEVER reach CONTROLLED_CLOUD until someone
+// explicitly opts it in (agency/tenant.ts), never the other way around.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agency_tenants (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    data_processing_setting TEXT NOT NULL DEFAULT 'private_only',
+    cloud_processing_disabled INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS agency_tenant_members (
+    tenant_id TEXT NOT NULL REFERENCES agency_tenants(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'member',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (tenant_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_agency_tenant_members_user ON agency_tenant_members(user_id);
+
+  -- ADR-007 §9(f): a model-call audit record — provider, class, redaction result, policy
+  -- decision, model, latency. Deliberately NO prompt/content column exists on this table at all;
+  -- there is no column here that could ever be asked to hold one.
+  CREATE TABLE IF NOT EXISTS agency_model_call_audit (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES agency_tenants(id) ON DELETE CASCADE,
+    scorecard_id TEXT REFERENCES agency_scorecards(id) ON DELETE SET NULL,
+    data_class TEXT NOT NULL,
+    requested_tier TEXT NOT NULL,
+    resolved_tier TEXT NOT NULL,
+    redaction_ok INTEGER NOT NULL,
+    provider_used TEXT,
+    latency_ms INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_agency_model_call_audit_tenant ON agency_model_call_audit(tenant_id, created_at);
+`);
+
+// agency_scorecards predates the tenant model (it shipped owner-scoped only) — added here rather
+// than in the CREATE TABLE above so existing dev rows survive. NULL means "pre-tenant, legacy" and
+// is never treated as belonging to any tenant a real query could match.
+addColumnIfMissing("agency_scorecards", "tenant_id", "tenant_id TEXT REFERENCES agency_tenants(id) ON DELETE CASCADE");
+addColumnIfMissing("agency_scorecards", "requires_review", "requires_review INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("agency_scorecards", "refusal_notice", "refusal_notice TEXT");
+db.exec(`CREATE INDEX IF NOT EXISTS idx_agency_scorecards_tenant ON agency_scorecards(tenant_id, updated_at);`);

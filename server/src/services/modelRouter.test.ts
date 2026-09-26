@@ -863,3 +863,121 @@ describe("effectiveChainOverride (local-first, decision #10)", () => {
     expect(ollamaProvider.streamChatCompletion).toHaveBeenCalledTimes(1);
   });
 });
+
+// ADR-007 §9 tests (a)-(b), at the router level: a Class A (PRIVATE) request must never reach a
+// cloud adapter under forced enforcement, and a provider failure must never escalate the request
+// to a tier it wasn't allowed to use in the first place.
+describe("routeChatCompletion — ADR-007 forced enforcement (agency tenants)", () => {
+  beforeEach(() => {
+    __resetHealthForTests();
+    vi.clearAllMocks();
+    process.env = { ...originalEnv };
+    delete process.env.PRIVACY_TIER_ENFORCE;
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    process.env.DEEPSEEK_API_KEY = "test-deepseek-key";
+    process.env.LLM_PROVIDER_CHAIN = "ollama,gemini,deepseek";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it("9(a): PRIVATE + forceEnforce never reaches gemini or deepseek, even though the global flag is off", async () => {
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(streamsText("from ollama"));
+
+    const result = await routeChatCompletion(
+      "sys",
+      [],
+      vi.fn(),
+      undefined,
+      "general",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "PRIVATE",
+      true
+    );
+
+    expect(result.providerUsed).toBe("ollama");
+    expect(geminiProvider.streamChatCompletion).not.toHaveBeenCalled();
+    expect(deepseekProvider.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("9(a) variant: CONTROLLED_CLOUD + forceEnforce never reaches ollama or deepseek — only gemini", async () => {
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    (geminiProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(streamsText("from gemini"));
+
+    const result = await routeChatCompletion(
+      "sys",
+      [],
+      vi.fn(),
+      undefined,
+      "general",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "CONTROLLED_CLOUD",
+      true
+    );
+
+    expect(result.providerUsed).toBe("gemini");
+    expect(ollamaProvider.streamChatCompletion).not.toHaveBeenCalled();
+    expect(deepseekProvider.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("9(b): a provider failure never escalates the request to a disallowed tier — it fails honestly instead", async () => {
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("ollama is down"));
+
+    await expect(
+      routeChatCompletion(
+        "sys",
+        [],
+        vi.fn(),
+        undefined,
+        "general",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "PRIVATE",
+        true
+      )
+    ).rejects.toThrow(AllProvidersUnavailableError);
+
+    // The failure genuinely never reached gemini/deepseek — this isn't just "the final result
+    // came back as ollama's error", it's "the disallowed providers were never in the chain at all".
+    expect(geminiProvider.streamChatCompletion).not.toHaveBeenCalled();
+    expect(deepseekProvider.streamChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("forceEnforce with no allowed provider at all fails closed with the tier-specific message, never silently proceeding", async () => {
+    process.env.LLM_PROVIDER_CHAIN = "deepseek"; // no gemini configured at all in this chain
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    await expect(
+      routeChatCompletion(
+        "sys",
+        [],
+        vi.fn(),
+        undefined,
+        "general",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "CONTROLLED_CLOUD",
+        true
+      )
+    ).rejects.toThrow(/controlled-cloud processor/);
+
+    expect(geminiProvider.streamChatCompletion).not.toHaveBeenCalled();
+  });
+});

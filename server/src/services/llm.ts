@@ -165,7 +165,8 @@ export async function streamChatCompletion(
   onWebSources?: (sources: WebSource[]) => void,
   taskCapability?: TaskCapability,
   cancellationSignal?: AbortSignal,
-  privacyTier?: import("./privacyTier.js").PrivacyTier
+  privacyTier?: import("./privacyTier.js").PrivacyTier,
+  forceEnforce?: boolean
 ): Promise<RouteResult> {
   return routeChatCompletion(
     systemPrompt,
@@ -178,6 +179,7 @@ export async function streamChatCompletion(
     undefined,
     undefined,
     undefined,
-    privacyTier
+    privacyTier,
+    forceEnforce
   );
 }

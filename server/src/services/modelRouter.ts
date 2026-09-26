@@ -7,7 +7,7 @@ import { ollamaProvider, isOllamaAvailable, wasModelWarm } from "./providers/oll
 import { isHealthy, recordSuccess, recordFailure } from "./providerHealth.js";
 import { classifyError, affectsProviderHealth, type ErrorKind } from "./retryClassifier.js";
 import { pickOllamaModel, type TaskCapability } from "./models/modelRegistry.js";
-import { applyPrivacyTier, PRIVATE_UNAVAILABLE, privacyEnforced, type PrivacyTier } from "./privacyTier.js";
+import { applyPrivacyTier, privacyEnforced, unavailableMessageFor, type PrivacyTier } from "./privacyTier.js";
 
 interface ProviderEntry {
   name: string;
@@ -598,24 +598,29 @@ export async function routeChatCompletion(
   // request - the agent gateway uses both; every other caller leaves them unset.
   tier?: DifficultyTier,
   chainOverride?: string,
-  privacyTier?: PrivacyTier
+  privacyTier?: PrivacyTier,
+  // ADR-007 §2: an agency-tenant caller (agency/tenant.ts, via agency/scorecard.ts) always sets
+  // this — enforcement for agency data is never watch-only, whatever PRIVACY_TIER_ENFORCE says.
+  // Every other caller leaves it unset and keeps today's global-flag-only behavior exactly.
+  forceEnforce?: boolean
 ): Promise<RouteResult> {
   const resolved = resolveChain(effectiveChainOverride(taskCapability, chainOverride));
-  const decision = applyPrivacyTier(privacyTier, resolved.map((entry) => entry.name));
+  const decision = applyPrivacyTier(privacyTier, resolved.map((entry) => entry.name), { forceEnforce });
+  const enforced = forceEnforce || privacyEnforced();
   if (decision.rejected.length > 0) {
     console.log(
       JSON.stringify({
         event: "privacy_shadow",
         tier: privacyTier,
-        enforced: privacyEnforced(),
+        enforced,
         wouldReject: decision.rejected,
       })
     );
   }
   const allowed = new Set(decision.names);
   const chain = resolved.filter((entry) => allowed.has(entry.name));
-  if (privacyEnforced() && privacyTier && privacyTier !== "PUBLIC_CLOUD" && chain.length === 0) {
-    throw new Error(PRIVATE_UNAVAILABLE);
+  if (enforced && privacyTier && privacyTier !== "PUBLIC_CLOUD" && chain.length === 0) {
+    throw new Error(unavailableMessageFor(privacyTier));
   }
   const attempts: { name: string; reason: string }[] = [];
   const routeStart = Date.now();

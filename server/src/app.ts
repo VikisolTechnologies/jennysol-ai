@@ -14,6 +14,7 @@ import { adminRouter } from "./routes/admin.js";
 import { agentRunsRouter } from "./routes/agentRuns.js";
 import { goalRunsRouter } from "./routes/goalRuns.js";
 import { agencyScorecardsRouter } from "./routes/agencyScorecards.js";
+import { agencyTenantsRouter } from "./routes/agencyTenants.js";
 import { agentGatewayRouter } from "./routes/agentGateway.js";
 import { capabilitiesRouter } from "./routes/capabilities.js";
 import { requireAuth } from "./middleware/auth.js";
@@ -95,6 +96,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/chat", requireAuth, chatRouter);
 app.use("/api/agent/runs", requireAuth, agentRunsRouter);
 app.use("/api/goal-runs", requireAuth, goalRunsRouter);
+app.use("/api/agency/tenants", requireAuth, agencyTenantsRouter);
 app.use("/api/agency/scorecards", requireAuth, agencyScorecardsRouter);
 // M6: requireProductIdentity is applied inside agentGatewayRouter itself, not at the mount
 // level — same pattern already used by adminRouter (requireAuth + requireAdmin applied

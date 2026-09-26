@@ -65,7 +65,9 @@ const cases: Array<{ name: string; run: () => void }> = [
     name: "guardrail reports every removal, not just a count",
     run: () => {
       const draft = { ...cleanDraft, niceToHave: [{ value: "Hindu", quote: "preferably Hindu" }] };
-      expect(applyGuardrail(draft).removed).toEqual([{ field: "niceToHave", value: "Hindu", reason: "religion" }]);
+      expect(applyGuardrail(draft).removed).toEqual([
+        { field: "niceToHave", value: "Hindu", quote: "preferably Hindu", reason: "religion" },
+      ]);
     },
   },
   {
