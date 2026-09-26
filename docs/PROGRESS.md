@@ -426,7 +426,7 @@ p95 is about 1.18× today's, inside the review's 1.5× proposal band. The flag s
 the founder turns it on. 8 of 9 general/trivial prompts still missed Ollama's 2.5s answer
 deadline. Nothing ran for minutes. Write-up: `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
 
-STEP 3 and STEP 4 are `2d3f680`, with the router privacy argument wired in the following commit.
+STEP 3 and STEP 4 are `2d3f680`. The router privacy argument is `14fa58b`.
 Shadow mode only. Workflow (c) is the Agency scorecard. Goal Mode is not complete. See
 `docs/JENNYSOL-GOAL-EVAL.md`.
 
