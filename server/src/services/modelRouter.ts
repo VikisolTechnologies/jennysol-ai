@@ -69,13 +69,37 @@ function defaultChainFor(deploymentMode: string | undefined): string {
   return deploymentMode === "local" ? "ollama,gemini,deepseek" : "gemini";
 }
 
+// VIKISOL-MASTER-CONTEXT.md §11 decision #10 (2026-09-26): almost all live chat pays for Gemini
+// today because Ollama is last in the chain — the founder's own instruction is to put local first
+// for "general and fast [trivial] tasks, with Gemini as the fallback on timeout or error," measure
+// p50/p95 and the local share before/after, and keep it behind a flag if p95 gets clearly worse.
+// Deliberately narrow: only these two capabilities, and only when there's no explicit
+// chainOverride already (the Arena gateway's own override always wins untouched — this must never
+// second-guess a caller that already made its own chain decision). See
+// docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md for the actual before/after numbers this flag's
+// default was decided from.
+const LOCAL_FIRST_CAPABILITIES = new Set<TaskCapability>(["general", "trivial"]);
+
+function localFirstEnabled(): boolean {
+  return process.env.LLM_LOCAL_FIRST_ENABLED === "true";
+}
+
+// Exported so the measurement script (and tests) can ask "what chain would this request actually
+// use" without duplicating the decision logic — the one thing this function decides, nothing else
+// in resolveChain needs to know about capability at all.
+export function effectiveChainOverride(taskCapability: TaskCapability, explicitOverride?: string): string | undefined {
+  if (explicitOverride) return explicitOverride;
+  if (!localFirstEnabled() || !LOCAL_FIRST_CAPABILITIES.has(taskCapability)) return undefined;
+  const base = process.env.LLM_PROVIDER_CHAIN || process.env.LLM_PROVIDER || defaultChainFor(process.env.DEPLOYMENT_MODE);
+  const rest = base
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s && s !== "ollama");
+  return ["ollama", ...rest].join(",");
+}
+
 function resolveChain(chainOverride?: string): ProviderEntry[] {
-  const configuredNames = (
-    chainOverride ||
-    process.env.LLM_PROVIDER_CHAIN ||
-    process.env.LLM_PROVIDER ||
-    defaultChainFor(process.env.DEPLOYMENT_MODE)
-  )
+  const configuredNames = (chainOverride || process.env.LLM_PROVIDER_CHAIN || process.env.LLM_PROVIDER || defaultChainFor(process.env.DEPLOYMENT_MODE))
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -544,7 +568,7 @@ export async function routeChatCompletion(
   tier?: DifficultyTier,
   chainOverride?: string
 ): Promise<RouteResult> {
-  const chain = resolveChain(chainOverride);
+  const chain = resolveChain(effectiveChainOverride(taskCapability, chainOverride));
   const attempts: { name: string; reason: string }[] = [];
   const routeStart = Date.now();
   const consumedByHedge = new Set<string>();

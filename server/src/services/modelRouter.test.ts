@@ -11,7 +11,7 @@ vi.mock("./providers/ollama.js", () => ({
 import { geminiProvider } from "./providers/gemini.js";
 import { deepseekProvider } from "./providers/deepseek.js";
 import { isOllamaAvailable } from "./providers/ollama.js";
-import { routeChatCompletion, hasAnyConfiguredProvider, getProviderRouteStatus, AllProvidersUnavailableError } from "./modelRouter.js";
+import { routeChatCompletion, hasAnyConfiguredProvider, getProviderRouteStatus, AllProvidersUnavailableError, effectiveChainOverride } from "./modelRouter.js";
 import { __resetHealthForTests, recordFailure } from "./providerHealth.js";
 
 function errWithStatus(status: number, message = "err"): Error & { status: number } {
@@ -733,5 +733,62 @@ describe("getProviderRouteStatus", () => {
     expect(byName.ollama.inActiveChain).toBe(true);
     expect(byName.gemini.inActiveChain).toBe(true);
     expect(byName.deepseek.inActiveChain).toBe(false);
+  });
+});
+
+// VIKISOL-MASTER-CONTEXT.md §11 decision #10 - local-first for general/trivial tasks, behind
+// LLM_LOCAL_FIRST_ENABLED, never overriding an explicit chainOverride (the Arena gateway's own).
+describe("effectiveChainOverride (local-first, decision #10)", () => {
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    delete process.env.LLM_LOCAL_FIRST_ENABLED;
+    delete process.env.LLM_PROVIDER_CHAIN;
+    delete process.env.LLM_PROVIDER;
+    delete process.env.DEPLOYMENT_MODE;
+  });
+
+  it("is a no-op when the flag is unset — today's behavior is byte-for-byte unchanged", () => {
+    expect(effectiveChainOverride("general")).toBeUndefined();
+    expect(effectiveChainOverride("trivial")).toBeUndefined();
+    expect(effectiveChainOverride("reasoning")).toBeUndefined();
+  });
+
+  it("puts ollama first for general/trivial only, once the flag is on", () => {
+    process.env.LLM_LOCAL_FIRST_ENABLED = "true";
+    process.env.LLM_PROVIDER_CHAIN = "gemini,deepseek";
+    expect(effectiveChainOverride("general")).toBe("ollama,gemini,deepseek");
+    expect(effectiveChainOverride("trivial")).toBe("ollama,gemini,deepseek");
+    // Every other capability is untouched even with the flag on.
+    expect(effectiveChainOverride("reasoning")).toBeUndefined();
+    expect(effectiveChainOverride("coding")).toBeUndefined();
+    expect(effectiveChainOverride("currentInfoSummarization")).toBeUndefined();
+  });
+
+  it("never duplicates ollama if it was already first in the base chain", () => {
+    process.env.LLM_LOCAL_FIRST_ENABLED = "true";
+    process.env.LLM_PROVIDER_CHAIN = "ollama,gemini";
+    expect(effectiveChainOverride("general")).toBe("ollama,gemini");
+  });
+
+  it("an explicit chainOverride (e.g. the Arena gateway's own) always wins, untouched", () => {
+    process.env.LLM_LOCAL_FIRST_ENABLED = "true";
+    expect(effectiveChainOverride("general", "anthropic,gemini")).toBe("anthropic,gemini");
+  });
+
+  it("routeChatCompletion actually tries ollama first for a 'general' request once the flag is on", async () => {
+    __resetHealthForTests();
+    process.env.LLM_LOCAL_FIRST_ENABLED = "true";
+    process.env.LLM_PROVIDER_CHAIN = "gemini";
+    process.env.GEMINI_API_KEY = "test-gemini-key";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    ollamaProvider.streamChatCompletion = vi.fn(async (_sys, _hist, onDelta) => {
+      onDelta("from ollama");
+    });
+
+    const result = await routeChatCompletion("sys", [{ role: "user", content: "hi" }], () => {}, undefined, "general");
+
+    expect(result.providerUsed).toBe("ollama");
+    expect(ollamaProvider.streamChatCompletion).toHaveBeenCalledTimes(1);
   });
 });

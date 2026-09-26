@@ -373,3 +373,34 @@ dashboard UI, the One mock connector, workflows (b)/(c), the fuller eval suite, 
 actual UI preview deploy. `JENNYSOL-NEXT.md`'s remaining STEPs (2–7: provider order/keep-warm,
 privacy tiers in shadow mode, finishing the v1 DoD gaps, the One connector, voice + preview, the
 final report) have not been started this session.
+
+---
+
+## 2026-09-26 — STEP 2 (provider order): measured for real, kept off
+
+**Branch:** `feature/jenny-provider-order` (off `main` at `5085fb6`).
+
+Built `effectiveChainOverride()` in `modelRouter.ts`: puts Ollama first for `general`/`trivial`
+tasks only, only when `LLM_LOCAL_FIRST_ENABLED=true`, and only when the caller hasn't already
+supplied its own explicit chain override (the Arena gateway's own always wins, untouched). Off by
+default — 5 new tests prove today's behavior is byte-for-byte unchanged when unset.
+
+**Then actually measured it**, live, against real Gemini and the real local fleet, on the same
+20-prompt set from STEP 2's original audit (`server/scripts/measure-provider-order.ts`, new,
+reusable). Real result: **p95 latency went from 11.0s to 121.2s** — an 11x regression, including
+one request that ran for over two minutes and one that had to be manually killed after several
+more minutes of hanging. Full numbers: `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+
+**Decision, per the founder's own explicit fallback clause:** `LLM_LOCAL_FIRST_ENABLED` stays off.
+The code ships anyway (dormant, tested, documented) since a faster local model could make this
+worth revisiting later without rebuilding the mechanism.
+
+**A real robustness gap found while measuring, not fixed this session:** the router's first-token
+timeout doesn't cap a local "thinking" model's *total* response time — only whether it's shown any
+sign of life at all, which a runaway thinking trace always satisfies. Logged in `BLOCKERS.md` as
+real follow-up work.
+
+Full suite: **712 tests (710 passed, 2 skipped), 71 files, clean tsc.**
+
+**Next:** merge this (safe — off by default, proven unchanged), then STEP 3 of `JENNYSOL-NEXT.md`:
+privacy tiers in shadow mode.

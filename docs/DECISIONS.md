@@ -32,3 +32,16 @@ discovered before building `AgentGoalRun`. Full reasoning in `docs/architecture/
    adds it in Railway — not requested in chat.
 5. **The execution plan `.docx`:** confirmed not needed; `VIKISOL-MASTER-CONTEXT.md` §6.12–6.13 is
    the authoritative proxy.
+
+## 2026-09-26 — Provider order measured for real, kept off (STEP 2)
+
+**Decided by:** Claude Code, per decision #10's own explicit fallback clause ("if local-first makes
+p95 clearly worse, keep it behind a flag and report the numbers").
+**What:** built `LLM_LOCAL_FIRST_ENABLED` (off by default, fully tested, dormant in production) but
+recommend **not** turning it on. Real measurement: p95 went from 11s to 121s (over 2 minutes on one
+request, one request had to be manually killed). Full numbers and root cause in
+`docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+**Why it matters beyond this one decision:** found a genuine robustness gap while measuring — the
+router's first-token timeout doesn't cap a "thinking" local model's total response time, only
+whether it's shown *any* sign of life. Logged in `BLOCKERS.md` as real follow-up work, not fixed
+this session.

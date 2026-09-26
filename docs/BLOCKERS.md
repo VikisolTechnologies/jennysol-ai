@@ -43,6 +43,18 @@ day with real tests — see `git log`. Finding #4 (a stale DoD-table claim) was 
 as "no approval continuation yet" — re-confirmed by direct code inspection rather than taken on
 faith.
 
+## 2026-09-26 — real robustness gap found while measuring provider order (STEP 2 of JENNYSOL-NEXT.md)
+
+The router's first-token timeout is satisfied by *any* provider activity, including a local
+"thinking" model's trace tokens — a deliberate design for telling cold-vs-hung apart, not for
+capping total response time. Real measurement (`docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`)
+found this lets a single request run for **over two minutes** (once needing a manual kill) while
+technically staying "alive" the whole time. Needs: an overall wall-clock cap on a single attempt,
+independent of the first-token/activity check, so a genuinely runaway local generation is aborted
+rather than left running indefinitely. Not fixed this session — a real design decision (how long
+is too long, and what does the user see while it's happening) that deserves its own look rather
+than a quick patch.
+
 **Finding #3 — investigated and closed, not just left open:** checked every provider that
 implements tool-calling at all (`gemini.ts`, `anthropic.ts` — `deepseek.ts` and `ollama.ts` don't
 implement `onToolCall` currently, confirmed by grep). Both call `onToolCall` inside a plain
