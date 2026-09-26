@@ -241,12 +241,12 @@ a rule new tools must follow, not a new mechanism to build.
 |---|---|---|---|
 | Config-driven Model Gateway | `modelRegistry.ts`, `modelRouter.ts` | `modelRouter.test.ts` | **Done** |
 | Privacy tiers, no silent escalation | *(new, §4)* | *(new)* | **Designed, not built** |
-| Durable, resumable, cancellable AgentGoalRun (Goal Mode) | *(new, §3)* | *(new)* | **Designed, not built** |
+| AgentGoalRun persistence, bounded tool loop and process-local cancellation | `services/agentRuntime/` | `agentRuntime/runtime.test.ts` | **Prototype built; no public API/UI, restart recovery, or approval continuation yet** |
 | ≥10 typed, risk-rated tools | `productConnectors/arena.ts` (9) + §5's 3 candidates | `arena.test.ts`'s risk-table test | **9/10, trivial to close** |
 | Memory scoped by user+product+tenant+purpose, exportable/deletable | `embeddings.ts` (user-scoped only) | — | **Partially done, real gap identified (§6)** |
 | Arena contract published, backward-compatible, live | `agentGateway.ts`, `productConnectors/arena.ts` | `agentGateway.http.test.ts`, Arena-BE's own suite | **Done, verified live** |
 | Extension points designed | This document, §7 | — | **Done (this step)** |
-| Provider independence (same run, config-only model swap) | `modelRouter.ts`'s chain | `modelRouter.test.ts` | **Done for chat; not yet proven for Goal Mode (doesn't exist yet)** |
+| Provider independence (same run, config-only model swap) | `modelRouter.ts`'s chain + AgentGoalRun live eval | `modelRouter.test.ts`, `agentRuntime/runtime.test.ts` | **Implemented for current prototype; broader workflow eval remains incomplete** |
 | 3 real workflows end to end | Arena's flow only | live production check (2026-09-26) | **1 of 3** |
 
 ## 9. Conflicts with the master plan — recommendation for each

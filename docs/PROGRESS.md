@@ -253,3 +253,49 @@ fabricate completion of any of it — all logged plainly in `BLOCKERS.md` for wh
 next.
 
 **Stopping now**, as instructed.
+
+---
+
+## 2026-09-26 — Resumed: `JENNYSOL-NEXT.md` + `AGENT-COLLABORATION-PROTOCOL.md` arrived
+
+**Branch:** `feature/jenny-audit`, commit (this batch) TBD.
+
+**Context:** the founder/architect pasted an updated `VIKISOL-MASTER-CONTEXT.md` (with real
+decisions on the 3 things this run's report flagged as needing one: dashboard option, privacy
+defaults, provider order) and dropped `docs/JENNYSOL-NEXT.md`, `docs/AGENT-COLLABORATION-PROTOCOL.md`,
+`AGENTS.md` and `CLAUDE.md` directly into the working tree from a linked session on this same Mac.
+
+**A real mid-air collision, resolved safely:** the linked session checked out `main` (visible in
+`git reflog`) — almost certainly to run `git diff main...feature/jenny-audit` per
+`JENNYSOL-NEXT.md` STEP 1's own instruction — while I was still mid-turn. I had a moment where a
+file I'd just written (`VIKISOL-MASTER-CONTEXT.md`) landed on `main` instead of my branch. No
+commits were lost or reset; I switched back to `feature/jenny-audit` and rewrote the one affected
+file there. Nothing destructive was run.
+
+**A real gap in my own earlier audit, found via the collaboration protocol, not by me:**
+`AGENT-COLLABORATION-PROTOCOL.md` §5 requires an ADR reconciling `AgentRun`, `AgentGoalRun` and
+`AgentSession` before extending Goal Mode. I had never heard of `AgentSession` — my STEP 2 audit
+(`JENNYSOL-CURRENT-STATE.md`) completely missed it. It's real: `agentSessionStore.ts`,
+`agentScheduler.ts`, `agentSessionRunner.ts`, `agentToolRegistry.ts` — a substantial, tested (6
+test files), wired-in-at-boot internal AI-engineering orchestrator (many logical sub-agents
+working a task DAG to build JennySol/Arena's own code, founder/admin-only, its own separate tool
+registry). Investigated it properly and wrote `docs/architecture/ADR-006-three-execution-concepts.md`:
+all three are legitimate and non-redundant (different audience, different tool boundary, different
+data model) — no merge needed, but real naming discipline and dashboard-separation risks are
+called out for whoever builds either UI next.
+
+**Also independently reviewed while I worked:** the linked architect session itself edited
+`docs/JENNYSOL-ARCHITECTURE.md`'s DoD table to soften two of my STEP 4 claims into more precise,
+honest ones ("Prototype built; no public API/UI, restart recovery, or approval continuation yet"
+rather than implying more completeness than exists) — a fair correction, kept as-is.
+
+**Done this batch:** synced `VIKISOL-MASTER-CONTEXT.md` to the founder's updated version, wrote
+`docs/DECISIONS.md` (the founder's 5 new decisions + the ADR-006 decision), wrote ADR-006. 705
+tests still passing, clean tsc — nothing here touched code yet.
+
+**Next:** per `AGENT-COLLABORATION-PROTOCOL.md` §11's priority order (which ranks reconciling the
+three execution concepts *above* continuing Arena/Jenny work), the ADR above was the correct next
+step, not `JENNYSOL-NEXT.md`'s own STEP 1 (independent review) in isolation. Now proceeding to
+`JENNYSOL-NEXT.md` STEP 1: spawn a genuinely independent review (fresh context, isolated worktree
+so it can't collide with the linked architect session sharing this same working tree) of
+`git diff main...feature/jenny-audit`.

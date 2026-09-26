@@ -1,9 +1,6 @@
-<!-- Mirror of the canonical copy the founder maintains (Claude Project "Vikisol Eco System").
-     Copied here 2026-09-26 per this file's own §0 ("copies live in docs/ in jennysol-ai,
-     Vikisol-Arena-FE and Vikisol-Arena-BE"). If this drifts from the canonical copy, the
-     canonical copy wins — update this mirror, not the other way round. §6.14 and §10 below are
-     already the corrected, verified state as of 2026-09-26 (see JENNYSOL-MISSION-2.md §1/§1a for
-     the same facts with more detail). -->
+<!-- Mirror of the canonical copy the founder/architect maintains. Synced 2026-09-26 from the
+     version pasted into this session, after Cursor's Arena audit and the architect's review of
+     JENNYSOL-REPORT.md. If this drifts from the canonical copy, the canonical copy wins. -->
 
 # VIKISOL — MASTER CONTEXT
 
@@ -180,9 +177,7 @@ It is **people + intelligence + organizations + outcomes** working together.
   - Work: "interview tomorrow"
   - Create: "turn this idea into a Need?"
 
-  Jenny only **drafts**; the user confirms. Voice-first navigation, form-fill and conversational onboarding come from JennySol. **Arena contains no AI logic of its own.**
-
-  > **Correction from JennySol's side (2026-09-26):** the live gateway (§6.14 below) already goes further than "drafts only" for five tools — it executes real writes once the user taps Approve (propose → approve → execute), not merely a draft Arena still has to turn into a real object by hand. Keep "Jenny only drafts" as the *design principle* for surfaces that don't have this flow yet; where the real approval-gated execute flow exists, that's a stronger, already-shipped version of the same idea, not a violation of it.
+  Jenny only **drafts**; the user confirms. Where the live approval flow exists (propose → user taps Approve → execute), approval-gated execution counts as the same principle, done properly. Voice-first navigation, form-fill and conversational onboarding come from JennySol. **Arena contains no AI logic of its own.**
 - **Arena Pulse:** real network activity only. Cold start is solved with honest empty states, useful recommendations, meaningful onboarding, nearby discovery and Jenny's help.
 
 ### 5.4 Core primitive
@@ -192,7 +187,8 @@ Every Post (ACTIVITY / HELP / PROJECT / JOB / UPDATE / COMPANY) can open a **Roo
 talent, recruiter, company_admin, hiring_manager, platform_admin. These are role-gated route groups in one codebase: the recruiter workspace, the company-admin console, and Vikisol's platform admin over all tenant companies.
 
 ### 5.6 Visual direction
-- **Keep** the live Arena palette and brand DNA (ivory / black / orange-gold accent).
+- **Keep** the live Arena palette and brand DNA. The audit on 26 Sep 2026 found the live look is **near-black + orange**, and that is the primary palette. An ivory/black/orange variant is shown beside it in the mockups for Syam to compare.
+- The live nav today is Home, Nearby, Discuss, Work, Inbox. VNext maps it to the §5.2 hierarchy.
 - **Fix** hierarchy, spacing, density, depth, imagery, editorial typography, whitespace and meaningful motion.
 - **Less of:** uniform cards, heavy borders, nested boxes, and every module looking the same.
 - **Three visual languages on one brand:**
@@ -576,11 +572,19 @@ No ads-first strategy and no chasing millions of free users.
 ## 10. Status (26 September 2026)
 
 - **Arena:**
-  - Live on the real backend; candidate side verified. The enterprise side is unverified because 2FA blocked the check.
-  - The earlier Track 2 blueprint exists only as a Claude artifact.
-  - **Cursor** is running the VNext mission: audit → cleanup → blueprint + mockups → *STOP GATE 1 (Syam approves)* → build → test → deploy → report. **Actively running as of 2026-09-26** — JennySol's own mission run treats Arena's repos as a moving target: never edit them, pull latest before depending on the contract.
+  - Live on the real backend, production commit `3093442`. Candidate and enterprise sides are both verified.
+  - The company admin reaches the enterprise area with a password only, no 2FA. This is being checked as a security finding.
+  - The audit is in `docs/ARENA-CURRENT-STATE.md`.
+  - The cleanup that fixes the 35 test failures is on `feature/arena-cleanup` (merge pending).
+  - Blocked on Syam: Sentry "Allowed Domains" needs `arena.vikisol.in`.
+  - Home's first-load JavaScript is over the 200KB budget; the fix is splitting the app shell in VNext.
+  - **Cursor** is running the VNext mission: audit → cleanup → blueprint + mockups → *STOP GATE 1 (Syam approves)* → build → test → deploy → report.
 - **JennySol:**
-  - **Claude Code** is running `docs/JENNYSOL-FINISH-ALL.md` (supersedes STOP GATE 1 for this run): STEP 0 corrected facts → STEP 1 lock the live contract with tests → STEP 2 finish the audit → STEP 3 stabilize → STEP 4 architecture blueprint → STEP 5 build the v1 core behind flags → STEP 6 evals + 3 workflows → STEP 7 voice → STEP 8 UI preview → STEP 9 report.
+  - Claude Code finished the JENNYSOL-FINISH-ALL run on branch `feature/jenny-audit` (7 commits, **not merged, not deployed**). Production is still `33abb27`.
+  - Built: contract tests + risk ratings on the live gateway, a Goal Mode runtime (3/3 live scenarios pass), document export/delete, keep-warm and hedging behind off-by-default flags, the architecture doc, and 5 UI mockups in `docs/design/`.
+  - Not done: privacy tiers (designed only), full re-planning, the dashboard UI, workflows (b) and (c), the 20-scenario eval, independent review, voice, preview deploy.
+  - **Cost finding:** almost all live chat is paid Gemini, because Ollama is last in the provider chain. That goes against local-first; see §11.
+  - Next: `docs/JENNYSOL-NEXT.md`.
   - The Arena gateway is already live. Claude Code documents it in `docs/JENNY-ARENA-CONTRACT.md` and extends it.
   - Cursor must not break the Arena endpoints this gateway uses; contract tests guard them.
   - Arena ARENA-FINISH-ALL run: fixes go to production; VNext UI goes to a private preview and waits for Syam's approval.
@@ -601,6 +605,10 @@ No ads-first strategy and no chasing millions of free users.
 | 4 | **Vikisol One endpoint in the 30-day plan** vs "never touch One". | Design the One connector against a **mock** now; connect it only after One exposes a scoped API on staging. |
 | 5 | **Which 3 real workflows prove JennySol v1?** | Suggested: (a) Arena actions via the live gateway (find/join an activity, draft a post or project → user approves). This is already working and needs evals; (b) research a topic with cited sources → report; (c) developer flow: inspect repo → run tests → draft PR (approval-gated) on a sandbox repo. |
 | 6 | **Paid keys** (DeepSeek, etc.) | DeepSeek yes (cheap backup); others later. |
+| 10 | **Provider order.** Live chat is almost all paid Gemini; Ollama is last. | Turn on keep-warm, then make local first for general and fast tasks, with Gemini as the fallback. Measure latency and cost before and after. |
+| 11 | **Privacy defaults.** | Arena traffic: PUBLIC_CLOUD, because it is public posts. JennySol documents and memory: PRIVATE (local), failing honestly if local is unavailable. Shadow mode first. |
+| 12 | **Run dashboard design.** | Option A, the timeline: mobile-first, it shows the plan step by step, and it has Stop. |
+| 13 | **Admin 2FA.** It is optional today. | Require enrollment for company_admin and platform_admin behind a flag, with seeded TOTP for test accounts, then switch the flag on. |
 | 7 | **Arena launch-gate items** carried over: lawyer-reviewed privacy policy/ToS, GST + Razorpay KYC, pentest, backups. | Clear these before real money or a public marketing push. |
 | 8 | **Arena safety features:** a women-only activity option would need gender data the app doesn't hold today; activity ratings don't exist. | Decide during the Sessions design. |
 | 9 | **Pricing.** | Validate with 3–5 design partners; don't hard-code it. |
@@ -634,7 +642,7 @@ No ads-first strategy and no chasing millions of free users.
 ---
 
 ## 13. Glossary
-- **AgentRun:** one durable execution of a Jenny task, with states, budgets and an audit trail.
+- **AgentRun:** one durable execution of a Jenny task, with states, budgets and an audit trail. (In `jennysol-ai`'s own code, this concept is implemented as `AgentGoalRun` — see `JENNYSOL-ARCHITECTURE.md` §3 — to avoid colliding with a pre-existing, unrelated `AgentRun` that tracks one streamed chat turn's own durability.)
 - **Model Gateway:** the single interface that hides which model or provider answers.
 - **Privacy tier:** LOCAL / PRIVATE / PUBLIC_CLOUD routing rule.
 - **pendingActions:** the approval queue for side-effect actions.
