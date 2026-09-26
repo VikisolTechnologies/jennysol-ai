@@ -1,7 +1,3 @@
-<!-- Mirror of the canonical copy the founder/architect maintains. Synced 2026-09-26 from the
-     version pasted into this session, after Cursor's Arena audit and the architect's review of
-     JENNYSOL-REPORT.md. If this drifts from the canonical copy, the canonical copy wins. -->
-
 # VIKISOL — MASTER CONTEXT
 
 **Owner:** Syam (Founder & MD, Vikisol Technologies, Hyderabad)
@@ -79,18 +75,19 @@ It is **people + intelligence + organizations + outcomes** working together.
 ```
                  SYAM  — product owner, final approval
                    │
-                 CLAUDE (chat) — architect, reviewer, mission writer
+                 CLAUDE (chat, linked to the Mac) — THE architect + reviewer
             ┌──────┴───────┐
         CURSOR           CLAUDE CODE (VS Code)
       builds Arena       builds JennySol
             └──────┬───────┘
-          CODEX — backup coder when Claude is out of tokens
-          CHATGPT — strategy / market thinking
+          CODEX / CHATGPT — idea expander only (ideas become work
+                            only via the architect)
                    │
                 GITHUB (VikisolTechnologies)
 ```
 
 - **Git.** Work on `feature/*` branches. Merge to `main` only when tests are green. Never force-push `main`.
+- **Operating protocol.** `docs/AGENT-COLLABORATION-PROTOCOL.md` (written by Codex) is the rulebook for how agents work in parallel: git sync, one owner per repo, review files in `docs/reviews/<SHA>.md`, visual QA, quality gates. Every agent follows it. **Roles (decided by Syam, 26 Sep 2026):** Claude (architect chat, linked to the Mac) is the single **architect and reviewer**. It writes the missions and review files (`docs/reviews/<SHA>.md`) that Cursor and Claude Code execute. Codex is an **idea expander** only.
 - **Handoff.** Every agent keeps `docs/PROGRESS.md` (phase, branch, done, next, open questions) so another agent can resume from it alone.
 - **Secrets.** Never paste keys into any chat. Agents read them from `.env` or the Railway/Vercel CLIs and never print or commit them.
 - **Active missions** (26 Sep 2026):
@@ -608,6 +605,7 @@ No ads-first strategy and no chasing millions of free users.
 | 10 | **Provider order.** Live chat is almost all paid Gemini; Ollama is last. | Turn on keep-warm, then make local first for general and fast tasks, with Gemini as the fallback. Measure latency and cost before and after. |
 | 11 | **Privacy defaults.** | Arena traffic: PUBLIC_CLOUD, because it is public posts. JennySol documents and memory: PRIVATE (local), failing honestly if local is unavailable. Shadow mode first. |
 | 12 | **Run dashboard design.** | Option A, the timeline: mobile-first, it shows the plan step by step, and it has Stop. |
+| 14 | **One architect.** | **Decided:** Claude is architect + reviewer; Codex is the idea expander. |
 | 13 | **Admin 2FA.** It is optional today. | Require enrollment for company_admin and platform_admin behind a flag, with seeded TOTP for test accounts, then switch the flag on. |
 | 7 | **Arena launch-gate items** carried over: lawyer-reviewed privacy policy/ToS, GST + Razorpay KYC, pentest, backups. | Clear these before real money or a public marketing push. |
 | 8 | **Arena safety features:** a women-only activity option would need gender data the app doesn't hold today; activity ratings don't exist. | Decide during the Sessions design. |
@@ -642,7 +640,7 @@ No ads-first strategy and no chasing millions of free users.
 ---
 
 ## 13. Glossary
-- **AgentRun:** one durable execution of a Jenny task, with states, budgets and an audit trail. (In `jennysol-ai`'s own code, this concept is implemented as `AgentGoalRun` — see `JENNYSOL-ARCHITECTURE.md` §3 — to avoid colliding with a pre-existing, unrelated `AgentRun` that tracks one streamed chat turn's own durability.)
+- **AgentRun:** one durable execution of a Jenny task, with states, budgets and an audit trail.
 - **Model Gateway:** the single interface that hides which model or provider answers.
 - **Privacy tier:** LOCAL / PRIVATE / PUBLIC_CLOUD routing rule.
 - **pendingActions:** the approval queue for side-effect actions.

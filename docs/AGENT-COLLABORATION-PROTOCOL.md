@@ -97,27 +97,18 @@ Claude Code must:
 5. Commit and push small logical batches and update JennySol progress and blockers.
 6. Publish any Arena contract change in `docs/JENNY-ARENA-CONTRACT.md` before asking Arena to consume it.
 
-### Claude review session: independent reviewer
+### Claude (architect chat, linked to the founder's Mac): architect and independent reviewer
 
-The reviewer must use a fresh context or explicitly behave as a reviewer rather than trusting the implementer's report. It reviews both Cursor and Claude Code work but does not silently redesign while reviewing.
+**Decided by the founder, 26 Sep 2026.** Claude is the single architect for the whole ecosystem. It:
+- writes and updates the missions (`docs/ARENA-MISSION.md`, `docs/JENNYSOL-NEXT.md`) and `VIKISOL-MASTER-CONTEXT.md`;
+- resolves contradictions between documents and code;
+- reviews every pushed batch from Cursor and Claude Code.
 
-For every pushed batch it checks:
+Reviews are written to `docs/reviews/<SHA>.md` with one verdict: `APPROVED`, `CHANGES REQUIRED` or `BLOCKED`. Each finding cites file/line evidence and a numbered task list. Implementers pick up the newest review file at the start of every work block, fix the release blockers, and answer in the same file with the fixing SHA. Claude does not edit an implementer's source code while it is the owner. It writes only docs, missions and review files.
 
-- diff scope and architectural alignment;
-- authorization, ownership, tenant, and IDOR risks;
-- migration safety and rollback;
-- loading, empty, error, offline, and partial-failure behavior;
-- desktop and phone layouts using rendered pages, not source inspection alone;
-- keyboard, touch target, contrast, and axe results;
-- console errors, failed requests, and performance budgets;
-- whether tests prove behavior rather than mirror implementation;
-- whether docs and claims match what is actually built.
+### Codex: idea expander
 
-It returns one verdict: `APPROVED`, `CHANGES REQUIRED`, or `BLOCKED`, with file/line evidence and exact reproduction steps. It never approves from screenshots alone.
-
-### Codex: architecture and reconciliation owner
-
-Codex maintains ecosystem boundaries, resolves contradictions between missions and code, audits cross-repository changes, and prepares correction instructions. Codex does not become a second simultaneous writer in a repository already owned by Cursor or Claude Code unless ownership is explicitly transferred.
+Codex expands product ideas and strategy for the founder. Its ideas become work **only after** the architect folds them into a mission or `VIKISOL-MASTER-CONTEXT.md`. Codex does not assign work, does not own architecture, and does not write to a repository unless the founder explicitly transfers ownership for a specific task.
 
 ### Founder
 
@@ -171,7 +162,7 @@ For each Cursor or Claude Code batch:
 5. **Reviewer writes a verdict** in `docs/reviews/<SHA>.md` containing severity-ranked findings.
 6. **Implementer fixes every release blocker** and responds in the same review file with the fixing SHA.
 7. **Reviewer re-runs affected checks** and changes the verdict only when evidence supports it.
-8. **Architect checks cross-product implications** when APIs, identity, approvals, memory, or outcomes changed.
+8. **The architect (Claude) checks cross-product implications** when APIs, identity, approvals, memory, or outcomes changed.
 
 A review file is evidence, not a substitute for tests. Do not accumulate dozens of narrative reports; one file per reviewed commit/batch is enough.
 
