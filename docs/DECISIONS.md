@@ -55,3 +55,20 @@ errors 0. That is inside the review's 1.5× band, so turning local-first on is p
 stays off until the founder says otherwise.
 **Why:** five trivial prompts finished locally; one hit the 30s cap. The
 p95 improvement versus the 121s run is the deadline, not evidence that local answers are fast.
+
+## 2026-09-26 — STEP 2b v2: fixed the timeout that was undercounting local-first, flag stays off for a different reason
+
+**Decided by:** Claude Code, re-verifying the STEP 2b re-measure above rather than taking its 1.57×
+number at face value.
+**What:** the 2,500ms `LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS` default used in the measurement above was
+itself too tight — real first-answer-token latency (measured directly against the live Ollama host)
+is 3.15–3.82s even with thinking off, so most `general`/`trivial` attempts were failing before
+generation had a chance and falling back, undercounting local share. Raised the default to 8,000ms
+and re-measured: p95 ratio improves to **1.15×** (comfortably inside the ~1.5× line), local share
+rises to 30%. Full numbers in `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+**`LLM_LOCAL_FIRST_ENABLED` still stays off** — not for latency now, but because that same
+re-measurement surfaces a 15% (3/20) outright-failure rate: once an Ollama attempt has streamed
+partial content, the router won't retry it on Gemini (correct for `PRIVATE` traffic, not obviously
+correct for `PUBLIC_CLOUD`-eligible `general`/`trivial` traffic). Turning the flag on before that's
+resolved would trade "sometimes slow" for "sometimes broken" for real users. Logged as a real open
+question in `BLOCKERS.md`, not fixed this session.

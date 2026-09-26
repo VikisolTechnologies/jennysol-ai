@@ -7,6 +7,7 @@
 import { search, hasAnySearchProviderConfigured } from "../search/searchRouter.js";
 import { getWeather } from "../weather/weatherProvider.js";
 import { getCurrentDateTimeResponse } from "../dateTime.js";
+import { draftAgencyScorecard } from "../agency/scorecard.js";
 import type { ProductConnector, RegisteredTool } from "../tools/productConnector.js";
 import type { ProductIdentity } from "../productIdentity.js";
 
@@ -26,6 +27,12 @@ async function currentWeather(_identity: ProductIdentity, args: Json): Promise<u
   const result = await getWeather(location);
   if (!result) throw new Error(`Couldn't get weather for "${location}" right now`);
   return result;
+}
+
+async function agencyScorecard(_identity: ProductIdentity, args: Json): Promise<unknown> {
+  const requirement = typeof args.requirement === "string" ? args.requirement.trim() : "";
+  if (!requirement) throw new Error("draftAgencyScorecard needs a requirement");
+  return draftAgencyScorecard(requirement);
 }
 
 async function currentDateTime(_identity: ProductIdentity, args: Json): Promise<unknown> {
@@ -65,6 +72,20 @@ export const jennysolConnector: ProductConnector = {
         tier: "READ",
         risk: "low",
         execute: currentWeather,
+      },
+      {
+        name: "jennysol.draftAgencyScorecard",
+        description:
+          "Drafts a recruiter-reviewable scorecard and search strategy from a pasted client requirement. " +
+          "Never contacts a candidate, scrapes a site, or writes to an ATS — the recruiter decides.",
+        parameters: {
+          type: "object",
+          properties: { requirement: { type: "string", description: "The pasted or forwarded job requirement text." } },
+          required: ["requirement"],
+        },
+        tier: "READ",
+        risk: "low",
+        execute: agencyScorecard,
       },
     ];
     if (hasAnySearchProviderConfigured()) {

@@ -204,7 +204,17 @@ function firstTokenTimeoutMs(entry: ProviderEntry, isPrimary: boolean, capabilit
     // Reasoning thinks before any answer token. That wait is the 60s deadline,
     // not the short silence budget used once thinking is off.
     if (capability === "reasoning") return localTotalDeadlineMs("reasoning");
-    return Number(process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS) || 2_500;
+    // 2,500ms was the original guess for "thinking is off, so the first
+    // answer token should be near-instant." Measured live against the real
+    // deployment topology (Railway -> Tailscale relay -> the Mac's Ollama)
+    // with think:false: first-token latency on a real prompt was 3.15-3.82s
+    // even on the small qwen3:4b/8b models — this default failed nearly
+    // every real request before generation had a chance to start, tripping
+    // the circuit breaker and masking local-first behind a wall of
+    // fallbacks (see JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md, STEP 2b v1).
+    // 8s gives real margin above the observed worst case without reviving
+    // the original "any activity counts" bug this replaced.
+    return Number(process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS) || 8_000;
   }
   if (isPrimary) return Number(process.env.LLM_FIRST_TOKEN_TIMEOUT_MS) || 10_000;
   return Number(process.env.LLM_FALLBACK_FIRST_TOKEN_TIMEOUT_MS) || 6_000;

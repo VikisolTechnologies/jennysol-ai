@@ -15,6 +15,30 @@ Format: date, what's blocked, why, the option taken, and what it would take to u
 
 ---
 
+## 2026-09-26 — STEP 2b v2: the 2.5s first-token timeout was itself miscalibrated, and local-first now fails outright instead of hanging
+
+Re-verifying item 1 above (a fresh pass, not written by whoever wrote item 1) found the first pass's
+own 2,500ms `LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS` default was too tight to ever let a real attempt
+finish: direct curl timing against the real Ollama host showed 3.15–3.82s to first answer token
+with thinking off, so the timer tripped before generation had a chance almost every time. Raised
+the default to 8,000ms (`modelRouter.ts`) and re-measured: p95 ratio improves to **1.15×** (from
+1.57×), local share rises to 30% (6/20, from 5/20). Full numbers:
+`docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md` ("STEP 2b re-measure v2").
+
+That re-measurement surfaces a real, previously-hidden reliability problem: **3 of 20 requests
+(15%) now fail outright** rather than falling back to Gemini, because the router won't retry a
+request after it's already streamed partial answer content — correct for `PRIVATE`-tier traffic
+(must never leak to the cloud), but for `general`/`trivial` `PUBLIC_CLOUD`-eligible traffic it
+means a real user sees a hard failure where today they'd just get a normal (if slower) Gemini
+reply. `LLM_LOCAL_FIRST_ENABLED` stays off — the reason has shifted from "latency" to
+"reliability." Unblocking this for real needs a decision: should a non-private local attempt that's
+already streamed be allowed to hand off to Gemini with a fresh "let me answer that again" rather
+than failing, since (unlike `PRIVATE` traffic) it was never barred from the cloud in the first
+place? Not built this session — a real product decision (does the user see a visible redo, or does
+it silently restart) rather than a quick patch.
+
+---
+
 ## 2026-09-26 — STEP 5/6 deferrals (not blocking, honestly scoped out of this run)
 
 These aren't "stuck" in the sense of needing outside input — they're real work this single

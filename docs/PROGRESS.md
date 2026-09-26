@@ -437,3 +437,31 @@ fix only.
 STEP 3 (privacy tiers, shadow only).
 
 **Deployed:** `https://api.jennysol.vikisol.in/health` returned `{"status":"ok","version":"2a2b00c"}` after `railway up`. Gateway checks against that deploy: missing token on `/api/agent/gateway/chat` and `/actions/:actionId` both 401, and a malformed bearer is 401. `LLM_LOCAL_FIRST_ENABLED` is off. `PRIVACY_TIER_ENFORCE` is unset (shadow only). Full suite before that deploy: 743 passed, 2 skipped.
+
+---
+
+## 2026-09-26 — STEP 2b v2: fixed a miscalibrated timeout, re-measured, wired the Agency scorecard tool
+
+**Branch:** `feature/local-first-token-timeout` (off `main` at `5d0a9a4`, which already had STEP
+2b/3 and part of STEP 4 from a concurrent agent's work on this same repo — commits `8d58a75`
+through `5d0a9a4`, co-authored `Cursor`, already merged to `main` and deployed as `2a2b00c`).
+
+Re-verifying that work rather than taking its numbers on faith: the 2,500ms
+`LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS` default it shipped was itself too tight — direct curl timing
+against the real Ollama host showed 3.15–3.82s to first answer token even with thinking off, so
+most `general`/`trivial` attempts failed the timer before generation had a real chance, deflating
+the local share the earlier measurement reported. Raised the default to 8,000ms and re-measured on
+the same 20 prompts: p95 ratio improved from **1.57× to 1.15×** (comfortably inside the review's
+~1.5× line), local share rose from 25% to 30%. But that same re-measurement surfaces a real
+reliability problem the tighter timeout was hiding: **15% (3/20) of requests now fail outright**
+instead of falling back to Gemini, because the router won't retry a request after partial content
+has streamed. `LLM_LOCAL_FIRST_ENABLED` stays off — for reliability now, not latency. Full numbers:
+`docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`, `docs/DECISIONS.md`, `docs/BLOCKERS.md`.
+
+Also wired the previously-orphaned `draftAgencyScorecard()` (workflow (c), added by the concurrent
+work above but never actually reachable by anything) into the real tool registry as
+`jennysol.draftAgencyScorecard` — a low-risk READ tool, tested at the connector level.
+
+Full suite: **748 tests (746 passed, 2 skipped), 76 files, clean server + client `tsc`.**
+
+**Next:** merge, deploy, confirm `/health`, re-run the gateway contract checks against production.

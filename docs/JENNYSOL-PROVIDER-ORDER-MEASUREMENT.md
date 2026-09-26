@@ -75,3 +75,43 @@ What the local attempts actually did:
 - "Explain quantum entanglement in simple terms" streamed a partial answer, then hit the 30s
   total deadline and failed honestly. That is the one error.
 - Nothing ran for minutes. The previous 121s p95 and the manual kill are gone.
+
+## STEP 2b re-measure v2 (26 Sep 2026, after fixing a miscalibrated first-token timeout)
+
+The run above still bounced most `general` prompts off Gemini before Ollama got a real chance:
+`LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS` defaulted to 2,500ms, tuned for "thinking is off, so the first
+answer token should be near-instant." Direct measurement against the real deployment topology
+(Railway → Tailscale relay → the Mac's Ollama) with `think:false` found first-answer-token latency
+of 3.15–3.82s on `qwen3:4b`/`qwen3:8b` even on short prompts — the 2,500ms budget failed the
+attempt before generation had a real chance to start, every time, tripping the circuit breaker on
+top. `modelRouter.ts`'s `firstTokenTimeoutMs()` now defaults to 8,000ms (still overridable via the
+same env var). This is a measurement-accuracy fix, not a new mechanism — the 30s/60s total
+deadline and "thinking doesn't count as progress" from the pass above are unchanged.
+
+Same 20 prompts, same script, same warmed models, prompts spaced 5s apart.
+
+| | p50 | p95 | local share | errors |
+|---|---|---|---|---|
+| **BEFORE** (today's default) | 1,659ms | 12,024ms | 0% | 0 |
+| **AFTER** (8s first-token timeout, everything else from v1) | 7,161ms | **13,833ms** | 30% (6/20) | 3 |
+
+13,833 / 12,024 is **1.15×** — comfortably inside the review's ~1.5× line, a real improvement over
+v1's 1.57×. But this run also surfaces something v1's tighter timeout was hiding: **3 of 20
+requests (15%) now fail outright** instead of falling back to Gemini — "What's a good recipe for
+butter chicken?", "Explain quantum entanglement in simple terms", and "Compare AWS vs GCP for a
+startup" all streamed real answer tokens on Ollama, then hit the 30s total deadline mid-generation
+and failed rather than falling back (the router's documented "already streamed, can't safely
+retry" guard). v1's own single error was the same shape; this pass just has three because more
+requests now actually reach Ollama at all.
+
+**What this changes about the recommendation:** the *latency* case for local-first now looks
+better than v1 reported (1.15× is a real win, not the 1.57× regression written above). The
+*reliability* case looks worse: local-first for public `general`/`trivial` traffic would mean
+~1 in 7 real chat replies fails outright rather than degrading to a slower cloud answer, because
+this pipeline's "don't duplicate partial content" guard treats a `general`/`trivial` cloud-eligible
+request the same as a `PRIVATE`-tier one that must never leak to the cloud. `LLM_LOCAL_FIRST_ENABLED`
+stays off — now specifically because of the failure rate, not the latency, and that's a distinct
+open question worth its own look: should a `general`/`trivial` local attempt that's already
+streamed be allowed to hand off to Gemini with a "let me redo that" rather than failing, since
+unlike `PRIVATE` traffic it was never barred from the cloud in the first place? Logged in
+`BLOCKERS.md`.
