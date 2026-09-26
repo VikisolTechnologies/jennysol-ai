@@ -61,17 +61,17 @@ The completed log is the table below.
 
 | | p50 | p95 | local share | errors |
 |---|---|---|---|---|
-| **BEFORE** (today's default) | 1,781ms | 12,867ms | 0% | 0 |
-| **AFTER** (local-first, think off, deadlines, keep-warm) | 3,762ms | 15,237ms | 5% (1/20) | 0 |
+| **BEFORE** (today's default) | 1,523ms | 12,005ms | 0% | 0 |
+| **AFTER** (local-first, think off, deadlines, keep-warm) | 7,027ms | 18,885ms | 25% (5/20) | 0 |
 
-15,237 / 12,867 is about 1.18×. The review's line for proposing the flag was about 1.5× of this
+15,237 / 12,867 is 1.57×. The review's line for proposing the flag was about 1.5× of this
 BEFORE (about 19.3s). The multi-minute hang did not recur. The slowest AFTER prompt was
-"Compare AWS vs GCP for a startup" at 15,938ms, after Ollama produced no answer token in 2.5s
+"Compare AWS vs GCP for a startup" at 18,885ms, after Ollama produced no answer token in 2.5s
 and Gemini finished the reply.
 
 Of the 9 `general`/`trivial` prompts, 8 produced no Ollama answer token within 2.5s and fell
 back to Gemini. One (`Summarize this document for me`, `qwen3:4b`) stayed on Ollama and finished
-in 15,237ms, with the first answer token at the 2.5s mark. `reasoning_effort: "none"` was sent.
+in 18,885ms, with the first answer token at the 2.5s mark. `reasoning_effort: "none"` was sent.
 This run does not prove Ollama honored it.
 
 **The flag stays off.** The p95 is inside the band where the review says to propose turning

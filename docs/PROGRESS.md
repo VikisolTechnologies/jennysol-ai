@@ -419,12 +419,11 @@ Re-measure, same 20 prompts, general and fast models warmed first, prompts space
 
 | | p50 | p95 | local share | errors |
 |---|---|---|---|---|
-| before | 1,781ms | 12,867ms | 0% | 0 |
-| after | 3,762ms | 15,237ms | 5% | 0 |
+| before | 1,523ms | 12,005ms | 0% | 0 |
+| after | 7,027ms | 18,885ms | 5% | 0 |
 
-p95 is about 1.18× today's, inside the review's 1.5× proposal band. The flag stays off until
-the founder turns it on. 8 of 9 general/trivial prompts still missed Ollama's 2.5s answer
-deadline. Nothing ran for minutes. Write-up: `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+p95 is 1.57× today's, past the review's about-1.5× line. The flag stays off until
+the founder turns it on. five trivial prompts finished locally in 7–19s, and one hit the 30s cap. Nothing ran for minutes. Write-up: `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
 
 STEP 3 and STEP 4 are `2d3f680`. The router privacy argument is `14fa58b`.
 Shadow mode only. Workflow (c) is the Agency scorecard. Goal Mode is not complete. See
@@ -436,3 +435,5 @@ fix only.
 
 **Next:** correct the record, merge, deploy, confirm `/health`, re-run the gateway checks, then
 STEP 3 (privacy tiers, shadow only).
+
+**Deployed:** `https://api.jennysol.vikisol.in/health` returned `{"status":"ok","version":"2a2b00c"}` after `railway up`. Gateway checks against that deploy: missing token on `/api/agent/gateway/chat` and `/actions/:actionId` both 401, and a malformed bearer is 401. `LLM_LOCAL_FIRST_ENABLED` is off. `PRIVACY_TIER_ENFORCE` is unset (shadow only). Full suite before that deploy: 743 passed, 2 skipped.

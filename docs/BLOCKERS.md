@@ -6,7 +6,7 @@ Format: date, what's blocked, why, the option taken, and what it would take to u
 
 ## 2026-09-26 — STEP 2b / 3 / 4
 
-1. **The unbounded local hang is closed.** Thinking tokens no longer keep an Ollama request alive, and a wall-clock deadline aborts it. Re-measure: p95 12,867ms → 15,237ms, 0 errors, no multi-minute run. `LLM_LOCAL_FIRST_ENABLED` stays off. Turning it on is a founder decision; the new p95 is about 1.18× today's, inside the review's 1.5× proposal band.
+1. **The unbounded local hang is closed.** Thinking tokens no longer keep an Ollama request alive, and a wall-clock deadline aborts it. Re-measure: p95 12,005ms → 18,885ms, 1 error, no multi-minute run. `LLM_LOCAL_FIRST_ENABLED` stays off. Turning it on is a founder decision; the new p95 is 1.57× today's, past the review's about-1.5× line.
 2. **Privacy tiers exist in shadow mode.** `PRIVACY_TIER_ENFORCE` is unset, so private traffic is logged and still uses today's chain. Enforce stays off until a shadow log has been read. Arena gateway traffic is marked `PUBLIC_CLOUD`. A chat turn that retrieved documents, and memory summarization, are marked `PRIVATE`.
 3. **Workflow (c) is the Agency scorecard**, not a developer sandbox PR. The scorecard drafts must-haves and a search strategy. The recruiter decides. Candidate coordination and database rediscovery wait for paid pilots.
 4. **Workflow (b) cites search hits and refuses an empty search.** It does not fetch the page behind a URL.
@@ -57,7 +57,7 @@ faith.
 ## 2026-09-26 — local deadline fixed (STEP 2b); local-first still off
 
 The wall-clock cap and "thinking tokens are not answer progress" fix are in. Re-measure on the same
-20 prompts: p95 12,867ms → 15,237ms (about 1.18×), local share 5%, 0 errors.
+20 prompts: p95 12,005ms → 18,885ms (1.57×), local share 25%, 1 error.
 `LLM_LOCAL_FIRST_ENABLED` stays off until the founder decides. See
 `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
 
