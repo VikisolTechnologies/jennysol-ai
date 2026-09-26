@@ -77,6 +77,18 @@ export function createRun(identity: ProductIdentity, goal: string, budget: Agent
 // consumeAction, so "read someone else's run" and "act on someone else's run" both fail the same
 // structural way (a missing row from this identity's point of view), not a separate ACL check
 // bolted on after a broader, unscoped lookup.
+export function listOwnedRuns(identity: ProductIdentity): AgentGoalRun[] {
+  const rows = db.prepare("SELECT * FROM agent_goal_runs ORDER BY created_at DESC LIMIT 50").all() as RunRow[];
+  return rows
+    .map(rowToRun)
+    .filter(
+      (run) =>
+        run.identity.product === identity.product &&
+        run.identity.externalUserId === identity.externalUserId &&
+        run.identity.tenantId === identity.tenantId
+    );
+}
+
 export function getOwnedRun(runId: string, identity: ProductIdentity): AgentGoalRun | undefined {
   const row = db.prepare("SELECT * FROM agent_goal_runs WHERE id = ?").get(runId) as RunRow | undefined;
   if (!row) return undefined;

@@ -22,7 +22,11 @@ const jennysolIdentity: ProductIdentity = { product: "jennysol", externalUserId:
 const arenaIdentity: ProductIdentity = { product: "arena", externalUserId: "arena-u1", scope: ["arena.joinActivity"] };
 
 function mockRoute(run: (onDelta: (t: string) => void, onToolCall: ToolCallHandler | undefined) => Promise<void>) {
-  vi.mocked(routeChatCompletion).mockImplementation(async (_sys, _hist, onDelta, _sources, _cap, _sig, _tools, onToolCall) => {
+  vi.mocked(routeChatCompletion).mockImplementation(async (_sys, _hist, onDelta, _sources, _cap, _sig, tools, onToolCall) => {
+    if (!tools) {
+      onDelta("Done from the observation.");
+      return { providerUsed: "gemini", fellBack: false };
+    }
     await run(onDelta, onToolCall);
     return { providerUsed: "gemini", fellBack: false };
   });
@@ -70,8 +74,9 @@ describe("agentRuntime.startRun — basic lifecycle", () => {
     const run = await startRun(jennysolIdentity, "what time is it");
 
     expect(run.status).toBe("completed");
+    expect(run.content).toBe("Done from the observation.");
     const { steps } = getRun(run.id, jennysolIdentity)!;
-    expect(steps).toHaveLength(2); // the tool call, then the final_answer marker
+    expect(steps).toHaveLength(3); // the tool call, the re-plan, then the final_answer marker
     expect(steps[0]).toMatchObject({ kind: "tool_call", toolName: "jennysol.currentDateTime", index: 0 });
     expect(steps[0].result).toBeDefined();
     expect(steps[0].endedAt).not.toBeNull();
@@ -213,5 +218,17 @@ describe("agentRuntime.startRun — basic lifecycle", () => {
     const toolSteps = steps.filter((s) => s.kind === "tool_call");
     expect(toolSteps).toHaveLength(2);
     expect(toolSteps[1].error).toContain("already waiting on your approval");
+  });
+
+  it("a provider failure ends that run and the next run still completes", async () => {
+    vi.mocked(routeChatCompletion).mockRejectedValueOnce(new Error("provider down"));
+    const failed = await startRun(jennysolIdentity, "this one fails");
+    expect(failed.status).toBe("failed");
+    expect(failed.stopReason).toBe("provider_failed");
+
+    mockRoute(async (onDelta) => onDelta("recovered"));
+    const next = await startRun(jennysolIdentity, "this one works");
+    expect(next.status).toBe("completed");
+    expect(next.content).toBe("recovered");
   });
 });

@@ -124,6 +124,27 @@ export async function startRun(
         : undefined
     );
     run.content = content;
+    const observed = getSteps(run.id).filter((step) => step.kind === "tool_call" && step.endedAt);
+    if (run.status === "running" && observed.length > 0 && Date.now() - startedAt < run.budget.maxMs && stepIndex < run.budget.maxSteps) {
+      const observation = observed
+        .map((step) => `${step.toolName}: ${step.error ?? JSON.stringify(step.result)}`)
+        .join("\n");
+      let revised = "";
+      await routeChatCompletion(
+        "You already used tools. From the observations, either give the final answer or name the single next step. Do not call a tool.",
+        [{ role: "user", content: `Goal: ${goal}\nObservations:\n${observation}\nDraft:\n${content}` }],
+        (delta) => {
+          revised += delta;
+        },
+        undefined,
+        "reasoning",
+        controller.signal
+      );
+      if (revised.trim() && run.status === "running") {
+        run.content = revised.trim();
+        appendStep(run.id, stepIndex++, "final_answer");
+      }
+    }
     if (run.status === "running") {
       // Only reachable if the model finished without the budget guard or an approval pause
       // having already moved status elsewhere.

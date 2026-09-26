@@ -45,3 +45,13 @@ request, one request had to be manually killed). Full numbers and root cause in
 router's first-token timeout doesn't cap a "thinking" local model's total response time, only
 whether it's shown *any* sign of life. Logged in `BLOCKERS.md` as real follow-up work, not fixed
 this session.
+
+## 2026-09-26 — STEP 2b re-measure, flag still off
+
+**What:** the hang fix is in. Thinking tokens do not count as answer progress. Ollama has a 30s
+deadline (60s for reasoning). qwen3 general/trivial requests send `think: false`. Re-measure on the
+same 20 prompts: p50 1,781ms → 3,762ms, p95 12,867ms → 15,237ms (about 1.18×), local share 5%,
+errors 0. That is inside the review's 1.5× band, so turning local-first on is proposed. The flag
+stays off until the founder says otherwise.
+**Why:** 8 of 9 general/trivial prompts still fell off Ollama at the 2.5s answer deadline. The
+p95 improvement versus the 121s run is the deadline, not evidence that local answers are fast.
