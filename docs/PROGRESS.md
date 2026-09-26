@@ -407,36 +407,28 @@ privacy tiers in shadow mode.
 
 ---
 
-## 2026-09-26 — STEP 2b, STEP 3 shadow, STEP 4
+## 2026-09-26 — STEP 2b (local deadline): hangs capped, local-first still off
 
-**Branch:** `feature/local-deadline` (off `main` at `b90affb`).
+**Branch:** `feature/local-deadline`, commit `8d58a75` (off `main` at `b90affb`).
 
-Ollama attempts now die on a wall-clock deadline: 30s except reasoning, which gets 60s.
-Thinking-trace tokens do not clear the answer timer. General and fast qwen3 send
-`reasoning_effort: "none"`. Reasoning keeps thinking on.
+Ollama attempts now die on a wall-clock deadline: 30s for general/fast, 60s for reasoning.
+Thinking-trace tokens do not count as answer progress. General and fast qwen3 send
+`reasoning_effort: "none"`. Reasoning stays on `deepseek-r1:7b` with thinking on.
 
-Re-measure, same 20 prompts, general and fast models warmed first, prompts spaced 5s:
+Re-measure, same 20 prompts, general and fast models warmed first, prompts spaced 4.5s:
 
 | | p50 | p95 | local share | errors |
 |---|---|---|---|---|
-| before | 1,781ms | 12,867ms | 0% | 0 |
-| after | 3,762ms | 15,237ms | 5% | 0 |
+| before | 1,523ms | 12,005ms | 0% | 0 |
+| after | 7,027ms | 18,885ms | 25% | 1 |
 
-p95 is about 1.18× today's. That is inside the review's 1.5× proposal band. The flag stays off
-until the founder turns it on. 8 of 9 general/trivial prompts still fell off Ollama at 2.5s.
-Nothing ran for minutes. Write-up: `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+p95 is 1.57× today's, so `LLM_LOCAL_FIRST_ENABLED` stays off. Nothing ran for minutes. One
+trivial prompt hit the 30s cap after it had already streamed and failed honestly. Write-up:
+`docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
 
-STEP 3 is shadow mode. `PRIVACY_TIER_ENFORCE` is unset. Documents in a chat turn and memory
-summarization are marked PRIVATE. Arena gateway traffic is marked PUBLIC_CLOUD. Shadow logs the
-providers that would be refused and does not filter them.
+Full suite with `OLLAMA_BASE_URL` unset: **743 passed, 2 skipped, 75 files.** Server `tsc` clean.
+That count includes uncommitted files still in the working tree. This commit itself is the deadline
+fix only.
 
-STEP 4: one observe → re-plan call after a tool step while budget remains; `/runs` is the Option A
-timeline with Stop; workflow (b) is `citedReport`; workflow (c) is the Agency scorecard.
-`docs/JENNYSOL-GOAL-EVAL.md` lists the 12 risk-rated tools and the 20 deterministic cases. Those
-20 cases do not call a live model. Goal Mode is not complete.
-
-Full suite after this work: **740 tests (738 passed, 2 skipped), 75 files.** `tsc` clean for
-server and client.
-
-**Not done:** enforce privacy, page fetching for citations, a live 20-scenario model eval,
-restart recovery, voice, the One connector, a preview deploy. Local-first stays off.
+**Next:** correct the record, merge, deploy, confirm `/health`, re-run the gateway checks, then
+STEP 3 (privacy tiers, shadow only).
