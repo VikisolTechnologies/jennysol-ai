@@ -227,3 +227,29 @@ actual UI preview deploy (STEP 8, beyond the mockups already produced in STEP 4)
 separate efforts rather than quick extensions of what exists — **moving straight to STEP 9's
 honest final report** rather than starting either superficially. Both are logged in
 `BLOCKERS.md` item 8 as genuinely not reached, not silently dropped.
+
+---
+
+## 2026-09-26 — STEP 9 done. Run stopping here, per FINISH-ALL's own last instruction.
+
+**Final state:** `feature/jenny-audit`, 7 commits (`c88cc25` → `f13b841`), branched from `main` at
+`33abb27` (live in production, unaffected). **Not merged, not deployed.** 705 tests (703 passed, 2
+skipped, 71 files), clean tsc across server and client.
+
+Wrote `docs/JENNYSOL-REPORT.md` — the founder-facing summary: what's live (unchanged by this run),
+eval numbers, the 3-workflow status, the gateway contract (unchanged, safe for Cursor), why there's
+no preview URL yet, the blockers/access list, 5 things to try once merged, and the exact approval
+and rollback steps.
+
+**One-line summary of the whole run:** started from a mission draft with several stale
+"known issues" that were already fixed and one major gap (the Arena integration) it thought still
+needed building when it was already live — corrected all of that first (STEP 0), then genuinely
+extended the live system with tests and a real, working, tested Agent Runtime that reuses rather
+than duplicates existing infrastructure (STEPs 1–6), catching two real bugs along the way (a stray
+`abort()` that would have broken the WRITE-tier pause path, and a table-name collision with
+existing `AgentRun` infrastructure) before they ever shipped. Stopped short of the full mission
+(privacy tiers, voice, a deployed UI preview, the 3rd workflow, independent review) rather than
+fabricate completion of any of it — all logged plainly in `BLOCKERS.md` for whoever picks this up
+next.
+
+**Stopping now**, as instructed.
