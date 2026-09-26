@@ -650,3 +650,39 @@ No ads-first strategy and no chasing millions of free users.
 - **ProductIdentity:** mapping of one Vikisol person to their identity and scopes in each product.
 - **STOP GATE:** a point where an agent must stop and wait for Syam's approval.
 - **DoD:** Definition of Done.
+
+---
+
+## 14. Go-to-market decisions (architect, 26 Sep 2026, from Codex's idea document)
+
+Source: `CODEX-IDEAS-LAUNCH-AND-AGENCY.md` (Project docs). These are decisions; the rest of Codex's document stays reference material.
+
+### Arena local launch
+| # | Decision |
+|---|---|
+| 1 | **Zone:** one tight zone of about 5 km covering Gopanapally, Gachibowli, Financial District and Nanakramguda. Tellapur, Kondapur, Nallagandla and Manikonda come later. |
+| 2 | **Sequence:** 15–20 hosts first (week 0), then a **50-person core cohort** (week 1). **200 is the week-4 milestone**, not the launch target. No expansion until the week-4 health gates pass. |
+| 3 | **Categories at launch (18+ only):** **not allowed**: dating/romance, childcare/babysitting, loans or money requests, medical advice, anything requiring entry into someone's home (flatmate search, in-home pet sitting). **Moderated**: paid services, tutoring, events with more than 20 people. |
+| 4 | **Community desk:** the founder plus one part-time community manager for the first month. The desk never posts as users, invents responses or marks attendance. |
+| 5 | **Attendance:** the host marks it, and the participant can dispute within 72h. Attendance is **private** (visible only to the user and host) and never becomes a public score in v1. The profile shows only hosted, joined, needs resolved and projects won. |
+| 6 | **Women-only activities:** **no gender field is collected.** The host labels the activity "Women-only" and it is **approval-required**; the host decides. This avoids storing sensitive data. |
+| 7 | **Health gates (week 4):** 50% activation in 7 days; 60% of needs answered within 48h; activities reach at least 50% of capacity; fewer than 20% unexplained no-shows; at least 25 real outcomes in month 1; 35% of users return in week 2 and 25% in week 4. |
+| 8 | **Launch message:** "Need a badminton group, a project collaborator, local help or people to learn with? Arena helps you find useful people and real activities near Gachibowli and Gopanapally. Every post comes from a real person." |
+
+**Product work this creates (Arena, after the VNext preview is approved):** see `ARENA-MISSION.md` STEP 8.
+
+### JennySol Agency Desk (first paid product)
+| # | Decision |
+|---|---|
+| 9 | **Product:** an agency recruiting-operations assistant with 3 workflows: (1) requirement → scorecard and search strategy, (2) database rediscovery → evidence-backed shortlist, (3) candidate coordination → client submission. Recruiters make every decision. |
+| 10 | **Ingestion:** CSV/Excel + pasted or forwarded JD and email only. **No ATS integration, no scraping.** |
+| 11 | **Channel in the pilot:** **email only** (Resend) plus a web form link for candidates. WhatsApp later (Business API cost and template approval). |
+| 12 | **Data:** the agency is the data controller and Vikisol the processor (a DPDP data processing agreement). Pilot data is exported and deleted within 30 days of the pilot ending. Candidates are contacted only with agency-approved templates that carry the agency's identity plus an opt-out. No protected attributes, names or photos are used as ranking signals, and no automatic rejection. |
+| 13 | **Pilot:** 3–5 boutique/mid agencies (3–20 recruiters), **IT/professional roles only**, 45 days, **₹12,000 + GST**, no auto-renew. Test ₹14,999/month afterwards. |
+| 14 | **Success gate** before more engineering: at least 3 complete, at least 2 keep paying, median saving of at least 20 hours per agency per month, shortlist time down at least 30%, at least 60% of outputs accepted or lightly edited, and zero policy or privacy incidents. |
+| 15 | **Build order:** workflow (1) replaces the "developer sandbox" workflow as JennySol v1's third real workflow (see `JENNYSOL-NEXT.md`). Workflows (2) and (3) are built only after at least 2 agencies sign the paid pilot. |
+| 17 | **Outreach gates** (Codex's outreach pack, `OUTREACH-PACK.md`). **Host messages** go out only after the VNext preview is approved and STEP 8 is live; until then, never promise a feature that isn't live. **Agency offers** go out only after all of: workflow 1 is live, the candidate-data location and subprocessors are decided (a **paid, no-training AI tier or Vikisol-controlled infrastructure, never a free tier and never the founder's personal Mac**), a lawyer-reviewed DPA + pilot agreement exists, GST invoicing is ready, and **agency tenant isolation** is built and tested. The offer states honestly that workflows 2 and 3 are delivered during the pilot. |
+| 16 | **Kept separate from Arena.** Arena's launch is not filled with recruitment posts. A future link happens only via explicit opt-in discoverability and a scoped API. |
+
+---
+
