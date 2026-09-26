@@ -7,6 +7,7 @@ import { ollamaProvider, isOllamaAvailable, wasModelWarm } from "./providers/oll
 import { isHealthy, recordSuccess, recordFailure } from "./providerHealth.js";
 import { classifyError, affectsProviderHealth, type ErrorKind } from "./retryClassifier.js";
 import { pickOllamaModel, type TaskCapability } from "./models/modelRegistry.js";
+import { applyPrivacyTier, PRIVATE_UNAVAILABLE, privacyEnforced, type PrivacyTier } from "./privacyTier.js";
 
 interface ProviderEntry {
   name: string;
@@ -586,9 +587,26 @@ export async function routeChatCompletion(
   // Difficulty tier for tiered providers (Claude), and an explicit provider chain for this one
   // request - the agent gateway uses both; every other caller leaves them unset.
   tier?: DifficultyTier,
-  chainOverride?: string
+  chainOverride?: string,
+  privacyTier?: PrivacyTier
 ): Promise<RouteResult> {
-  const chain = resolveChain(effectiveChainOverride(taskCapability, chainOverride));
+  const resolved = resolveChain(effectiveChainOverride(taskCapability, chainOverride));
+  const decision = applyPrivacyTier(privacyTier, resolved.map((entry) => entry.name));
+  if (decision.rejected.length > 0) {
+    console.log(
+      JSON.stringify({
+        event: "privacy_shadow",
+        tier: privacyTier,
+        enforced: privacyEnforced(),
+        wouldReject: decision.rejected,
+      })
+    );
+  }
+  const allowed = new Set(decision.names);
+  const chain = resolved.filter((entry) => allowed.has(entry.name));
+  if (privacyEnforced() && privacyTier && privacyTier !== "PUBLIC_CLOUD" && chain.length === 0) {
+    throw new Error(PRIVATE_UNAVAILABLE);
+  }
   const attempts: { name: string; reason: string }[] = [];
   const routeStart = Date.now();
   const consumedByHedge = new Set<string>();

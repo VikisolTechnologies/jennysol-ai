@@ -172,7 +172,8 @@ agentGatewayRouter.post("/chat", requireProductIdentity, async (req, res) => {
           }
         : undefined,
       tier,
-      gatewayChain()
+      gatewayChain(),
+      "PUBLIC_CLOUD"
     );
   } catch (err) {
     logAuditEvent({

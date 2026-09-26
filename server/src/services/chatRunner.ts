@@ -383,7 +383,8 @@ export async function executeChatRun(
         webSources = [...webSources, ...found];
       },
       classifyTask(message),
-      cancellation.signal
+      cancellation.signal,
+      context.documentMatches.length > 0 ? "PRIVATE" : "PUBLIC_CLOUD"
     );
 
     // Guaranteed safety net: a provider can resolve "successfully" (no

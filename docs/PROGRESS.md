@@ -415,16 +415,20 @@ Ollama attempts now die on a wall-clock deadline: 30s for general/fast, 60s for 
 Thinking-trace tokens do not count as answer progress. General and fast qwen3 send
 `reasoning_effort: "none"`. Reasoning stays on `deepseek-r1:7b` with thinking on.
 
-Re-measure, same 20 prompts, general and fast models warmed first, prompts spaced 4.5s:
+Re-measure, same 20 prompts, general and fast models warmed first, prompts spaced 5s:
 
 | | p50 | p95 | local share | errors |
 |---|---|---|---|---|
-| before | 1,523ms | 12,005ms | 0% | 0 |
-| after | 7,027ms | 18,885ms | 25% | 1 |
+| before | 1,781ms | 12,867ms | 0% | 0 |
+| after | 3,762ms | 15,237ms | 5% | 0 |
 
-p95 is 1.57× today's, so `LLM_LOCAL_FIRST_ENABLED` stays off. Nothing ran for minutes. One
-trivial prompt hit the 30s cap after it had already streamed and failed honestly. Write-up:
-`docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+p95 is about 1.18× today's, inside the review's 1.5× proposal band. The flag stays off until
+the founder turns it on. 8 of 9 general/trivial prompts still missed Ollama's 2.5s answer
+deadline. Nothing ran for minutes. Write-up: `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+
+STEP 3 and STEP 4 are `2d3f680`, with the router privacy argument wired in the following commit.
+Shadow mode only. Workflow (c) is the Agency scorecard. Goal Mode is not complete. See
+`docs/JENNYSOL-GOAL-EVAL.md`.
 
 Full suite with `OLLAMA_BASE_URL` unset: **743 passed, 2 skipped, 75 files.** Server `tsc` clean.
 That count includes uncommitted files still in the working tree. This commit itself is the deadline

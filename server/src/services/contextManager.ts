@@ -239,7 +239,15 @@ export function summarizeIfNeeded(userId: string, conversationId: string, fullHi
         ],
         (delta) => {
           newSummary += delta;
-        }
+        },
+        undefined,
+        "general",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "PRIVATE"
       );
       if (newSummary.trim()) saveConversationSummary(userId, conversationId, newSummary.trim(), olderCount);
     } catch (err) {

@@ -164,7 +164,20 @@ export async function streamChatCompletion(
   onDelta: (text: string) => void,
   onWebSources?: (sources: WebSource[]) => void,
   taskCapability?: TaskCapability,
-  cancellationSignal?: AbortSignal
+  cancellationSignal?: AbortSignal,
+  privacyTier?: import("./privacyTier.js").PrivacyTier
 ): Promise<RouteResult> {
-  return routeChatCompletion(systemPrompt, history, onDelta, onWebSources, taskCapability, cancellationSignal);
+  return routeChatCompletion(
+    systemPrompt,
+    history,
+    onDelta,
+    onWebSources,
+    taskCapability,
+    cancellationSignal,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    privacyTier
+  );
 }
