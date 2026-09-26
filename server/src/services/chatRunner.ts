@@ -384,7 +384,10 @@ export async function executeChatRun(
       },
       classifyTask(message),
       cancellation.signal,
-      context.documentMatches.length > 0 ? "PRIVATE" : "PUBLIC_CLOUD"
+      context.documentMatches.length > 0 ||
+        context.turns.some((turn) => turn.content.startsWith("[Summary of earlier conversation]"))
+        ? "PRIVATE"
+        : "PUBLIC_CLOUD"
     );
 
     // Guaranteed safety net: a provider can resolve "successfully" (no

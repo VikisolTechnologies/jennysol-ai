@@ -78,15 +78,17 @@ export function createRun(identity: ProductIdentity, goal: string, budget: Agent
 // structural way (a missing row from this identity's point of view), not a separate ACL check
 // bolted on after a broader, unscoped lookup.
 export function listOwnedRuns(identity: ProductIdentity): AgentGoalRun[] {
-  const rows = db.prepare("SELECT * FROM agent_goal_runs ORDER BY created_at DESC LIMIT 50").all() as RunRow[];
-  return rows
-    .map(rowToRun)
-    .filter(
-      (run) =>
-        run.identity.product === identity.product &&
-        run.identity.externalUserId === identity.externalUserId &&
-        run.identity.tenantId === identity.tenantId
-    );
+  const rows = db
+    .prepare(
+      `SELECT * FROM agent_goal_runs
+       WHERE json_extract(identity_json, '$.product') = ?
+         AND json_extract(identity_json, '$.externalUserId') = ?
+         AND json_extract(identity_json, '$.tenantId') IS ?
+       ORDER BY created_at DESC
+       LIMIT 50`
+    )
+    .all(identity.product, identity.externalUserId, identity.tenantId ?? null) as RunRow[];
+  return rows.map(rowToRun);
 }
 
 export function getOwnedRun(runId: string, identity: ProductIdentity): AgentGoalRun | undefined {
