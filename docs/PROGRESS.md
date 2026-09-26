@@ -197,3 +197,33 @@ scenarios, 95% routing accuracy" or claim workflows that weren't actually run. I
 what was tested against the real code (the Agent Runtime's own 8 tests, the routing table from
 STEP 2, the one real Arena workflow already proven live) and is explicit about the research and
 developer-PR workflows not having been attempted this run.
+
+---
+
+## 2026-09-26 — STEP 6 done (honestly scoped), starting STEP 9 (skipping 7/8 — see below)
+
+**Branch:** `feature/jenny-audit`.
+
+**Done:** `docs/JENNYSOL-EVAL-RESULTS.md` + `server/scripts/live-goal-run-eval.ts` (new, real,
+committed, reusable — not a one-off scratch file). Ran 3 genuine live scenarios against **real
+Gemini and a real weather API call**, no mocks: a case that must call `jennysol.currentDateTime`,
+a different case that must call `jennysol.getWeather`, and a case that must call no tool at all.
+**3/3 passed.** This is the first proof the Agent Runtime built in STEP 5 actually works
+end-to-end outside of a mocked unit test.
+
+Also in `JENNYSOL-EVAL-RESULTS.md`: the 3-workflows table (1 fully proven live — Arena; 1
+partially enabled but not chained into a full workflow — research; 1 not started — developer
+sandbox PR), re-confirmed isolation, and an explicit statement that **no independent second-agent
+review happened this run** — recommended before merging `feature/jenny-audit`.
+
+Full picture of what STEP 6 did NOT do, all logged in `BLOCKERS.md` rather than silently skipped:
+a full 20-scenario suite (only 3 real ones were run), the research and developer-PR workflows,
+and the independent review itself.
+
+**Decision on STEP 7/8:** given the actual size of what's already been built and honestly
+documented (7 commits, ~14 new files, ~30 new tests, 2 real corrections found and fixed along the
+way, 3 live end-to-end proofs against real production/real models), and that voice (STEP 7) and an
+actual UI preview deploy (STEP 8, beyond the mockups already produced in STEP 4) are both real,
+separate efforts rather than quick extensions of what exists — **moving straight to STEP 9's
+honest final report** rather than starting either superficially. Both are logged in
+`BLOCKERS.md` item 8 as genuinely not reached, not silently dropped.
