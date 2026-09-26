@@ -4,6 +4,17 @@ Format: date, what's blocked, why, the option taken, and what it would take to u
 
 ---
 
+## 2026-09-26 — STEP 2b / 3 / 4
+
+1. **The unbounded local hang is closed.** Thinking tokens no longer keep an Ollama request alive, and a wall-clock deadline aborts it. Re-measure: p95 12,867ms → 15,237ms, 0 errors, no multi-minute run. `LLM_LOCAL_FIRST_ENABLED` stays off. Turning it on is a founder decision; the new p95 is about 1.18× today's, inside the review's 1.5× proposal band.
+2. **Privacy tiers exist in shadow mode.** `PRIVACY_TIER_ENFORCE` is unset, so private traffic is logged and still uses today's chain. Enforce stays off until a shadow log has been read. Arena gateway traffic is marked `PUBLIC_CLOUD`. A chat turn that retrieved documents, and memory summarization, are marked `PRIVATE`.
+3. **Workflow (c) is the Agency scorecard**, not a developer sandbox PR. The scorecard drafts must-haves and a search strategy. The recruiter decides. Candidate coordination and database rediscovery wait for paid pilots.
+4. **Workflow (b) cites search hits and refuses an empty search.** It does not fetch the page behind a URL.
+5. **The 20 goal scenarios in `goalScenarios.test.ts` do not call a live model.** Budget exceeded, WRITE pause, and failure recovery are covered with a mocked router. No live-model pass count is claimed.
+6. **Goal Mode is not complete.** Restart recovery, continuing an approval after a process restart, and goal-run observability are still open.
+
+---
+
 ## 2026-09-26 — STEP 5/6 deferrals (not blocking, honestly scoped out of this run)
 
 These aren't "stuck" in the sense of needing outside input — they're real work this single
@@ -43,6 +54,13 @@ day with real tests — see `git log`. Finding #4 (a stale DoD-table claim) was 
 as "no approval continuation yet" — re-confirmed by direct code inspection rather than taken on
 faith.
 
+## 2026-09-26 — local deadline fixed (STEP 2b); local-first still off
+
+The wall-clock cap and "thinking tokens are not answer progress" fix are in. Re-measure on the same
+20 prompts: p95 12,867ms → 15,237ms (about 1.18×), local share 5%, 0 errors.
+`LLM_LOCAL_FIRST_ENABLED` stays off until the founder decides. See
+`docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+
 ## 2026-09-26 — real robustness gap found while measuring provider order (STEP 2 of JENNYSOL-NEXT.md)
 
 The router's first-token timeout is satisfied by *any* provider activity, including a local
@@ -51,9 +69,8 @@ capping total response time. Real measurement (`docs/JENNYSOL-PROVIDER-ORDER-MEA
 found this lets a single request run for **over two minutes** (once needing a manual kill) while
 technically staying "alive" the whole time. Needs: an overall wall-clock cap on a single attempt,
 independent of the first-token/activity check, so a genuinely runaway local generation is aborted
-rather than left running indefinitely. Not fixed this session — a real design decision (how long
-is too long, and what does the user see while it's happening) that deserves its own look rather
-than a quick patch.
+rather than left running indefinitely. Fixed in STEP 2b (see the entry above): 30s/60s wall-clock
+cap, thinking tokens do not count as answer progress, thinking off for general/fast qwen3.
 
 **Finding #3 — investigated and closed, not just left open:** checked every provider that
 implements tool-calling at all (`gemini.ts`, `anthropic.ts` — `deepseek.ts` and `ollama.ts` don't

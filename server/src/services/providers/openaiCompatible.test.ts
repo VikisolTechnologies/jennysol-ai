@@ -67,6 +67,53 @@ describe("streamOpenAiCompatible — plain chat (no tools)", () => {
   });
 });
 
+describe("streamOpenAiCompatible — thinking control and cancellation", () => {
+  it("sends reasoning_effort none when thinking is off, and never the native think boolean", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([contentChunk("ok")]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamOpenAiCompatible("http://fake/v1/chat/completions", {}, "qwen3:8b", "sys", [], () => {}, { think: false });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.think).toBeUndefined();
+  });
+
+  it("leaves thinking at the model default when think is unset", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([contentChunk("ok")]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamOpenAiCompatible("http://fake/v1/chat/completions", {}, "deepseek-r1:7b", "sys", [], () => {}, {});
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  it("a cancelled request aborts the in-flight fetch", async () => {
+    let fetchSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      fetchSignal = init.signal ?? undefined;
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          const err = new Error("The operation was aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new AbortController();
+    const pending = streamOpenAiCompatible("http://127.0.0.1:11434/v1/chat/completions", {}, "qwen3:8b", "sys", [], () => {}, {
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(pending).rejects.toThrow(/aborted/);
+    expect(fetchSignal?.aborted).toBe(true);
+  });
+});
+
 describe("streamOpenAiCompatible — tool calling", () => {
   it("executes a tool call and feeds the result back for a final answer", async () => {
     const round1 = sseResponse([

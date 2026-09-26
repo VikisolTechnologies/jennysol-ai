@@ -80,15 +80,14 @@ export interface StreamOptions {
   tier?: import("./models/modelTiers.js").DifficultyTier;
   // Fired once, after generation finishes, if the provider has anything to report.
   onUsage?: (usage: TokenUsage) => void;
-  // Fired on the FIRST sign of life from the provider — any streamed signal
-  // at all, not just real answer content. Exists because a "thinking"-mode
-  // model (Qwen3's default) emits reasoning-trace deltas, which onDelta
-  // never sees (only real content reaches the user), well before it emits
-  // any real content — confirmed live: qwen3:8b's first reasoning token
-  // arrived in ~300ms while real content took ~7s. A first-token timeout
-  // keyed only to onDelta would falsely call that dead/hung; this lets the
-  // router tell "provider never responded" apart from "provider is thinking."
+  // Fired on any streamed chunk, including a thinking trace. The router's
+  // first-answer timer ignores this. Only answer tokens reset that timer.
+  // The hedge race still treats it as "the primary is alive."
   onActivity?: () => void;
+  // false turns thinking off via reasoning_effort "none" on the OpenAI-compatible
+  // endpoint. The router sets it false for general and fast qwen3 tasks.
+  // Reasoning (deepseek-r1) leaves it unset so thinking stays on.
+  think?: boolean;
 }
 
 export interface LlmProvider {

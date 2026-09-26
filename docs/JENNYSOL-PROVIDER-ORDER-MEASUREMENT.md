@@ -50,3 +50,29 @@ serve this traffic acceptably before revisiting local-first).
 **Keep-warm:** not expanded beyond today's single "general" model default. Given warm latency
 itself is the problem here (not just cold-start), adding more keep-warm capacity for `general`
 doesn't address what this measurement actually found.
+
+## STEP 2b re-measure (26 Sep 2026, after the deadline fix)
+
+Same 20 prompts, same script (`server/scripts/measure-provider-order.ts`). This pass sends
+`reasoning_effort: "none"` for general/fast qwen3, caps each Ollama attempt at 30s (60s for
+reasoning), and warms `qwen3:8b` and `qwen3:4b` before the local-first pass. Prompts were spaced
+5s apart. An earlier unpaced run hit Gemini's free-tier 429 after 11 prompts and was discarded.
+
+| | p50 | p95 | local share | errors |
+|---|---|---|---|---|
+| **BEFORE** (today's default) | 1,781ms | 12,867ms | 0% | 0 |
+| **AFTER** (local-first, think off, deadlines, keep-warm) | 3,762ms | 15,237ms | 5% (1/20) | 0 |
+
+15,237 / 12,867 is about 1.18×. The review's line for proposing the flag was about 1.5× of this
+BEFORE (about 19.3s). The multi-minute hang did not recur. The slowest AFTER prompt was
+"Compare AWS vs GCP for a startup" at 15,938ms, after Ollama produced no answer token in 2.5s
+and Gemini finished the reply.
+
+Of the 9 `general`/`trivial` prompts, 8 produced no Ollama answer token within 2.5s and fell
+back to Gemini. One (`Summarize this document for me`, `qwen3:4b`) stayed on Ollama and finished
+in 15,237ms, with the first answer token at the 2.5s mark. `reasoning_effort: "none"` was sent.
+This run does not prove Ollama honored it.
+
+**The flag stays off.** The p95 is inside the band where the review says to propose turning
+local-first on, and the founder decides. It is not switched on here, because 8 of 9 local
+attempts still missed the answer deadline and the successful local reply took 15s.

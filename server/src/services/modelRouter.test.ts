@@ -335,36 +335,85 @@ describe("first-token timeout (aggressive failover)", () => {
     expect(deepseekProvider.streamChatCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it("does not time out a locally-run 'thinking' model that emits reasoning activity before real content", async () => {
-    // Regression guard for the exact gap JENNYSOL-LOCAL-CUTOVER.md Phase 2.3
-    // called out: Qwen3's default thinking mode streams reasoning-trace
-    // deltas (onActivity) well before any real content (onDelta) — confirmed
-    // live, ~300ms vs. ~7s on qwen3:8b. Ollama's own tight local budget
-    // (LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS, default 2.5s) must be satisfied by
-    // that early activity, not require real content within it.
+  it("a thinking-only stream trips the deadline and aborts the Ollama call", async () => {
     process.env.LLM_PROVIDER_CHAIN = "ollama";
     process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS = "2500";
     (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
     const { ollamaProvider } = await import("./providers/ollama.js");
+    let signal: AbortSignal | undefined;
     (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(
-      async (_sp, _h, onDelta: (t: string) => void, _onWebSources, opts) => {
-        opts?.onActivity?.(); // reasoning-trace token, at ~0ms
-        await new Promise((r) => setTimeout(r, 4000)); // well past the 2.5s local budget
-        onDelta("the real answer"); // real content, at ~4000ms
+      async (_sp, _h, _onDelta: (t: string) => void, _onWebSources, opts) => {
+        signal = opts?.signal;
+        expect(opts?.think).toBe(false);
+        opts?.onActivity?.();
+        await new Promise((r) => setTimeout(r, 10_000));
       }
     );
 
-    const onDelta = vi.fn();
-    const resultPromise = routeChatCompletion("sys", [], onDelta, undefined, "general");
-    await vi.advanceTimersByTimeAsync(4001);
-    const result = await resultPromise;
+    const resultPromise = routeChatCompletion("sys", [], vi.fn(), undefined, "general");
+    const settled = resultPromise.then(
+      () => "ok",
+      () => "err"
+    );
+    await vi.advanceTimersByTimeAsync(2500);
+    await expect(settled).resolves.toBe("err");
+    expect(signal?.aborted).toBe(true);
+  });
 
-    expect(result.providerUsed).toBe("ollama");
-    expect(result.fellBack).toBe(false);
-    expect(onDelta).toHaveBeenCalledWith("the real answer");
-    // firstTokenMs still means "real content," not "any activity" — the two
-    // are deliberately different measurements for different purposes.
-    expect(result.firstTokenMs).toBeGreaterThanOrEqual(4000);
+  it("keeps thinking on for reasoning and waits out the 60s deadline", async () => {
+    process.env.LLM_PROVIDER_CHAIN = "ollama";
+    process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS = "2500";
+    delete process.env.LLM_LOCAL_TOTAL_DEADLINE_MS;
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    let signal: AbortSignal | undefined;
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_sp, _h, _onDelta: (t: string) => void, _onWebSources, opts) => {
+        signal = opts?.signal;
+        expect(opts?.think).toBeUndefined();
+        expect(opts?.model).toBe("deepseek-r1:7b");
+        opts?.onActivity?.();
+        await new Promise((r) => setTimeout(r, 120_000));
+      }
+    );
+
+    const resultPromise = routeChatCompletion("sys", [], vi.fn(), undefined, "reasoning");
+    const settled = resultPromise.then(
+      () => "ok",
+      () => "err"
+    );
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000 - 2500);
+    await expect(settled).resolves.toBe("err");
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("aborts Ollama at the total deadline even while answer tokens are still arriving", async () => {
+    process.env.LLM_PROVIDER_CHAIN = "ollama";
+    process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS = "2500";
+    process.env.LLM_LOCAL_TOTAL_DEADLINE_MS = "30000";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    let signal: AbortSignal | undefined;
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_sp, _h, onDelta: (t: string) => void, _onWebSources, opts) => {
+        signal = opts?.signal;
+        while (!opts?.signal?.aborted) {
+          onDelta("partial");
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    );
+
+    const resultPromise = routeChatCompletion("sys", [], vi.fn(), undefined, "general");
+    const settled = resultPromise.then(
+      () => "ok",
+      (err: Error) => err.message
+    );
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(settled).resolves.toMatch(/total deadline/);
+    expect(signal?.aborted).toBe(true);
   });
 
   it("DOES time out a local model that produces no activity at all within its tight budget", async () => {
@@ -397,6 +446,28 @@ describe("run-scoped cancellation", () => {
     process.env.DEEPSEEK_API_KEY = "test-deepseek-key";
     process.env.LLM_PROVIDER_CHAIN = "gemini,deepseek";
     (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it("a cancelled request aborts the in-flight Ollama call and does not fall back", async () => {
+    process.env.LLM_PROVIDER_CHAIN = "ollama,gemini";
+    (isOllamaAvailable as unknown as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const { ollamaProvider } = await import("./providers/ollama.js");
+    let signal: AbortSignal | undefined;
+    (ollamaProvider.streamChatCompletion as ReturnType<typeof vi.fn>).mockImplementation(
+      (_sp, _h, _onDelta, _onWebSources, opts) => {
+        signal = opts?.signal;
+        return new Promise(() => {});
+      }
+    );
+
+    const controller = new AbortController();
+    const resultPromise = routeChatCompletion("sys", [], vi.fn(), undefined, "general", controller.signal);
+    resultPromise.catch(() => {});
+    controller.abort();
+
+    await expect(resultPromise).rejects.toMatchObject({ code: "cancelled" });
+    expect(signal?.aborted).toBe(true);
+    expect(geminiProvider.streamChatCompletion).not.toHaveBeenCalled();
   });
 
   it("rejects with code 'cancelled' and never tries the fallback provider", async () => {

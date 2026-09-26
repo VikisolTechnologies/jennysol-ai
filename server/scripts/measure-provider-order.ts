@@ -5,8 +5,20 @@
 // with it set to "true" — against real Gemini and the real local Ollama fleet, no mocks.
 //
 // Run from server/: set -a; source .env; set +a; npx tsx scripts/measure-provider-order.ts
-import { classifyTask } from "../src/services/models/modelRegistry.js";
+import { classifyTask, pickOllamaModel, type TaskCapability } from "../src/services/models/modelRegistry.js";
 import { routeChatCompletion } from "../src/services/modelRouter.js";
+import { ollamaProvider } from "../src/services/providers/ollama.js";
+import { __resetHealthForTests } from "../src/services/providerHealth.js";
+
+// Gemini's free tier is 15 requests/minute. A back-to-back pass trips that
+// quota, opens the circuit breaker, and turns the rest of the sample into
+// errors. Space the prompts, and clear the in-process breaker between them
+// so one 429 doesn't erase the rest of the measurement.
+const GAP_MS = 4_500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const PROMPTS = [
   "Hi", "thanks!", "What's the weather like in Hyderabad today?", "What time is it right now?",
@@ -30,6 +42,7 @@ async function runConfig(label: string, localFirstEnabled: boolean) {
   // needed, just flip the flag between the two passes.
   if (localFirstEnabled) process.env.LLM_LOCAL_FIRST_ENABLED = "true";
   else delete process.env.LLM_LOCAL_FIRST_ENABLED;
+  __resetHealthForTests();
 
   const latencies: number[] = [];
   let localCount = 0;
@@ -38,18 +51,33 @@ async function runConfig(label: string, localFirstEnabled: boolean) {
 
   for (const prompt of PROMPTS) {
     const capability = classifyTask(prompt);
-    const t0 = Date.now();
-    try {
+    __resetHealthForTests();
+    const ask = async () => {
+      const t0 = Date.now();
       const result = await routeChatCompletion("You are a helpful assistant.", [{ role: "user", content: prompt }], () => {}, undefined, capability);
-      const ms = Date.now() - t0;
-      latencies.push(ms);
-      if (result.providerUsed === "ollama") localCount++;
-      perPrompt.push({ prompt, capability, providerUsed: result.providerUsed, ms });
-      console.log(`  [${label}] ${capability.padEnd(24)} ${result.providerUsed.padEnd(8)} ${ms}ms  "${prompt.slice(0, 40)}"`);
+      return { result, ms: Date.now() - t0 };
+    };
+    try {
+      let outcome;
+      try {
+        outcome = await ask();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/429|quota|unavailable/i.test(message)) throw err;
+        console.log(`  [${label}] quota window, waiting 20s before one retry`);
+        __resetHealthForTests();
+        await sleep(20_000);
+        outcome = await ask();
+      }
+      latencies.push(outcome.ms);
+      if (outcome.result.providerUsed === "ollama") localCount++;
+      perPrompt.push({ prompt, capability, providerUsed: outcome.result.providerUsed, ms: outcome.ms });
+      console.log(`  [${label}] ${capability.padEnd(24)} ${outcome.result.providerUsed.padEnd(8)} ${outcome.ms}ms  "${prompt.slice(0, 40)}"`);
     } catch (err) {
       errorCount++;
       console.log(`  [${label}] ${capability.padEnd(24)} ERROR "${prompt.slice(0, 40)}" — ${err instanceof Error ? err.message : err}`);
     }
+    await sleep(GAP_MS);
   }
 
   const sorted = [...latencies].sort((a, b) => a - b);
@@ -63,11 +91,28 @@ async function runConfig(label: string, localFirstEnabled: boolean) {
   };
 }
 
+async function warmGeneralAndFast(): Promise<void> {
+  for (const capability of ["general", "trivial"] as TaskCapability[]) {
+    const model = pickOllamaModel(capability)?.modelId;
+    if (!model) continue;
+    try {
+      await ollamaProvider.streamChatCompletion("You are a helpful assistant.", [{ role: "user", content: "hi" }], () => {}, undefined, {
+        model,
+        think: false,
+      });
+      console.log(`  keep-warm ${capability} ${model}`);
+    } catch (err) {
+      console.log(`  keep-warm ${capability} failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+}
+
 async function main() {
   console.log(`Measuring ${PROMPTS.length} prompts, two configurations, real live calls...\n`);
   const before = await runConfig("BEFORE (today's default)", false);
-  console.log("");
-  const after = await runConfig("AFTER (LLM_LOCAL_FIRST_ENABLED=true)", true);
+  console.log("\nWarming general and fast local models before the local-first pass...\n");
+  await warmGeneralAndFast();
+  const after = await runConfig("AFTER (LLM_LOCAL_FIRST_ENABLED=true, think off, deadlines, keep-warm)", true);
 
   console.log("\n=== RESULT ===");
   console.log(`BEFORE: p50=${before.p50}ms p95=${before.p95}ms local_share=${before.localSharePct}% errors=${before.errorCount}`);

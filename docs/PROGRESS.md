@@ -404,3 +404,39 @@ Full suite: **712 tests (710 passed, 2 skipped), 71 files, clean tsc.**
 
 **Next:** merge this (safe — off by default, proven unchanged), then STEP 3 of `JENNYSOL-NEXT.md`:
 privacy tiers in shadow mode.
+
+---
+
+## 2026-09-26 — STEP 2b, STEP 3 shadow, STEP 4
+
+**Branch:** `feature/local-deadline` (off `main` at `b90affb`).
+
+Ollama attempts now die on a wall-clock deadline: 30s except reasoning, which gets 60s.
+Thinking-trace tokens do not clear the answer timer. General and fast qwen3 send
+`reasoning_effort: "none"`. Reasoning keeps thinking on.
+
+Re-measure, same 20 prompts, general and fast models warmed first, prompts spaced 5s:
+
+| | p50 | p95 | local share | errors |
+|---|---|---|---|---|
+| before | 1,781ms | 12,867ms | 0% | 0 |
+| after | 3,762ms | 15,237ms | 5% | 0 |
+
+p95 is about 1.18× today's. That is inside the review's 1.5× proposal band. The flag stays off
+until the founder turns it on. 8 of 9 general/trivial prompts still fell off Ollama at 2.5s.
+Nothing ran for minutes. Write-up: `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
+
+STEP 3 is shadow mode. `PRIVACY_TIER_ENFORCE` is unset. Documents in a chat turn and memory
+summarization are marked PRIVATE. Arena gateway traffic is marked PUBLIC_CLOUD. Shadow logs the
+providers that would be refused and does not filter them.
+
+STEP 4: one observe → re-plan call after a tool step while budget remains; `/runs` is the Option A
+timeline with Stop; workflow (b) is `citedReport`; workflow (c) is the Agency scorecard.
+`docs/JENNYSOL-GOAL-EVAL.md` lists the 12 risk-rated tools and the 20 deterministic cases. Those
+20 cases do not call a live model. Goal Mode is not complete.
+
+Full suite after this work: **740 tests (738 passed, 2 skipped), 75 files.** `tsc` clean for
+server and client.
+
+**Not done:** enforce privacy, page fetching for citations, a live 20-scenario model eval,
+restart recovery, voice, the One connector, a preview deploy. Local-first stays off.

@@ -10,6 +10,14 @@ export function estimateTokens(text: string): number {
   return Math.max(1, Math.round(text.length / 4));
 }
 
+// This client talks to `/v1/chat/completions`. Ollama's native `think: false`
+// is rejected there (HTTP 400). `reasoning_effort: "none"` is the field that
+// endpoint maps to thinking off. Omitting it leaves qwen3 thinking on.
+function thinkingFields(think: boolean | undefined): { reasoning_effort?: "none" } {
+  if (think === false) return { reasoning_effort: "none" };
+  return {};
+}
+
 // Shared streaming client for any OpenAI-compatible chat completions endpoint
 // (DeepSeek, Ollama, and most other providers all speak this same shape).
 export async function streamOpenAiCompatible(
@@ -22,7 +30,7 @@ export async function streamOpenAiCompatible(
   opts?: StreamOptions
 ): Promise<void> {
   if (opts?.tools?.length && opts.onToolCall) {
-    return attemptWithTools(url, headers, model, systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal, opts.onUsage, opts.onActivity);
+    return attemptWithTools(url, headers, model, systemPrompt, history, onDelta, opts.tools, opts.onToolCall, opts.signal, opts.onUsage, opts.onActivity, opts.think);
   }
 
   const res = await fetch(url, {
@@ -33,6 +41,7 @@ export async function streamOpenAiCompatible(
       model,
       stream: true,
       stream_options: { include_usage: true },
+      ...thinkingFields(opts?.think),
       messages: [
         { role: "system", content: systemPrompt },
         ...history.map((h) => ({ role: h.role, content: h.content })),
@@ -127,7 +136,8 @@ async function attemptWithTools(
   onToolCall: ToolCallHandler,
   signal?: AbortSignal,
   onUsage?: (usage: TokenUsage) => void,
-  onActivity?: () => void
+  onActivity?: () => void,
+  optsThink?: boolean
 ): Promise<void> {
   // OpenAI-shaped message history this loop grows round to round — starts
   // from the same plain (role, content) turns as the non-tool path, then
@@ -147,7 +157,14 @@ async function attemptWithTools(
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       signal,
-      body: JSON.stringify({ model, stream: true, stream_options: { include_usage: true }, messages, tools: openAiTools }),
+      body: JSON.stringify({
+        model,
+        stream: true,
+        stream_options: { include_usage: true },
+        ...thinkingFields(optsThink),
+        messages,
+        tools: openAiTools,
+      }),
     });
 
     if (!res.ok || !res.body) {

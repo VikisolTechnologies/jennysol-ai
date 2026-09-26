@@ -198,19 +198,32 @@ export interface RouteResult {
 // Railway deployment updates via an env var + redeploy anyway, and reading
 // it live (instead of baking it into a module-level constant) is what makes
 // it possible to unit-test both values without spawning a second process.
-// Local (Ollama) gets its own, much tighter budget than either cloud tier —
-// deliberately possible now that the timer above measures activity (any
-// signal at all, reasoning included) rather than real content: confirmed
-// live, a locally-run model's first reasoning token arrives in ~300ms
-// whether the model is warm or "thinking," so 2.5s is a genuinely generous
-// liveness check, not an aggressive one. Total generation time (including a
-// long thinking phase) is bounded only by cancellation, same as any other
-// provider — this budget exists purely to catch a hung/unreachable Ollama
-// fast, per JENNYSOL-LOCAL-CUTOVER.md Phase 2.3.
-function firstTokenTimeoutMs(entry: ProviderEntry, isPrimary: boolean): number {
-  if (entry.name === "ollama") return Number(process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS) || 2_500;
+function firstTokenTimeoutMs(entry: ProviderEntry, isPrimary: boolean, capability?: TaskCapability): number {
+  if (entry.name === "ollama") {
+    // Reasoning thinks before any answer token. That wait is the 60s deadline,
+    // not the short silence budget used once thinking is off.
+    if (capability === "reasoning") return localTotalDeadlineMs("reasoning");
+    return Number(process.env.LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS) || 2_500;
+  }
   if (isPrimary) return Number(process.env.LLM_FIRST_TOKEN_TIMEOUT_MS) || 10_000;
   return Number(process.env.LLM_FALLBACK_FIRST_TOKEN_TIMEOUT_MS) || 6_000;
+}
+
+// Wall-clock cap on one Ollama attempt. Thinking-trace tokens used to keep a
+// request "alive" for minutes because they reset the first-token timer.
+// This deadline starts at the request and is not reset by any token.
+// Reasoning gets a longer budget; general and fast (trivial) stay at 30s.
+function localTotalDeadlineMs(capability: TaskCapability): number {
+  const override = Number(process.env.LLM_LOCAL_TOTAL_DEADLINE_MS);
+  if (override > 0) return override;
+  return capability === "reasoning" ? 60_000 : 30_000;
+}
+
+// qwen3 thinks by default. That preamble is the 121s p95. General and fast
+// tasks do not need it. Reasoning (deepseek-r1) keeps thinking on.
+function disableQwenThinking(capability: TaskCapability, model?: string): boolean {
+  if (!model?.startsWith("qwen3")) return false;
+  return capability === "general" || capability === "trivial";
 }
 
 // Hedging is off by default: it only ever does anything useful once a
@@ -253,43 +266,48 @@ function attemptWithTimeout(
   // implements tool calling (see gemini.ts); other providers simply ignore these fields.
   tools?: ToolDefinition[],
   onToolCall?: ToolCallHandler,
-  tier?: DifficultyTier
+  tier?: DifficultyTier,
+  capability?: TaskCapability,
+  think?: boolean
 ): Promise<AttemptOutcome> {
   const controller = new AbortController();
   const startedAt = Date.now();
   let deltasSent = 0;
   let firstTokenMs: number | null = null;
-  // Deliberately separate from firstTokenMs: a "thinking"-mode model (Qwen3's
-  // default) streams reasoning-trace deltas well before any real content —
-  // confirmed live, ~300ms for the first reasoning token vs. ~7s for first
-  // real content on qwen3:8b. onDelta only ever sees real content, so without
-  // this, the timeout below can only ever measure "time to real content,"
-  // which would falsely call a model that's actively thinking dead. This
-  // tracks "provider produced ANY signal at all" instead — the actual
-  // question a liveness timeout should be asking.
-  let activitySeen = false;
   let usage: TokenUsage | undefined;
   let settled = false;
 
   return new Promise<AttemptOutcome>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (!activitySeen && !settled) {
-        settled = true;
-        controller.abort();
-        const err = new Error(`${entry.name} timed out waiting for first token (${timeoutMs}ms)`) as Error & {
-          code?: string;
-        };
-        err.code = "timeout";
-        reject(err);
-      }
+    const clearTimers = () => {
+      clearTimeout(idleTimer);
+      if (totalTimer) clearTimeout(totalTimer);
+    };
+    const fail = (message: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      controller.abort();
+      const err = new Error(message) as Error & { code?: string; __deltasSent?: number };
+      err.code = "timeout";
+      err.__deltasSent = deltasSent;
+      reject(err);
+    };
+
+    // First-answer timer. Thinking-trace tokens do not clear it.
+    // The first answer token does. A thinking-only stream hits this deadline.
+    // Later answer tokens do not restart it; the Ollama total deadline caps those.
+    const idleTimer = setTimeout(() => {
+      fail(`${entry.name} timed out waiting for an answer token (${timeoutMs}ms)`);
     }, timeoutMs);
 
-    const markActivity = () => {
-      if (!activitySeen) {
-        activitySeen = true;
-        clearTimeout(timer);
-      }
-    };
+    // Hard cap for Ollama. Starts at the request and ignores every token.
+    const totalMs = entry.name === "ollama" && capability ? localTotalDeadlineMs(capability) : 0;
+    const totalTimer =
+      totalMs > 0
+        ? setTimeout(() => {
+            fail(`${entry.name} exceeded the total deadline (${totalMs}ms)`);
+          }, totalMs)
+        : null;
 
     // Run-scoped cancellation (see runCancellation.ts / chatRunner.ts) — a
     // *different* signal from the timeout controller above, so cancelling
@@ -299,18 +317,19 @@ function attemptWithTimeout(
     if (outerSignal) {
       if (outerSignal.aborted) {
         settled = true;
-        clearTimeout(timer);
+        clearTimers();
         controller.abort();
         const err = new Error("run cancelled") as Error & { code?: string };
         err.code = "cancelled";
         reject(err);
+        return;
       } else {
         outerSignal.addEventListener(
           "abort",
           () => {
             if (!settled) {
               settled = true;
-              clearTimeout(timer);
+              clearTimers();
               controller.abort();
               const err = new Error("run cancelled") as Error & { code?: string };
               err.code = "cancelled";
@@ -323,9 +342,9 @@ function attemptWithTimeout(
     }
 
     const wrappedOnDelta = (text: string) => {
-      markActivity();
       if (firstTokenMs === null) {
         firstTokenMs = Date.now() - startedAt;
+        clearTimeout(idleTimer);
       }
       deltasSent++;
       if (!settled) onDelta(text);
@@ -338,27 +357,27 @@ function attemptWithTimeout(
         tools,
         onToolCall,
         tier,
+        think,
         onUsage: (u) => {
           usage = u;
         },
-        onActivity: markActivity,
+        // Thinking tokens are reported and ignored here. They must not
+        // reset the idle timer. The hedge path still reads onActivity.
+        onActivity: () => {},
       })
       .then(() => {
         if (!settled) {
           settled = true;
-          clearTimeout(timer);
+          clearTimers();
           resolve({ deltasSent, firstTokenMs, usage });
         }
       })
       .catch((err) => {
         if (!settled) {
           settled = true;
-          clearTimeout(timer);
+          clearTimers();
           reject(Object.assign(err instanceof Error ? err : new Error(String(err)), { __deltasSent: deltasSent }));
         }
-        // else: settled via timeout already: this late rejection (often the
-        // AbortError caused by our own controller.abort() above) is expected
-        // and intentionally ignored.
       });
   });
 }
@@ -477,6 +496,7 @@ function runHedgedPair(
         .streamChatCompletion(systemPrompt, history, wrappedOnDelta, onWebSources, {
           signal: controller.signal,
           model,
+          think: entry.name === "ollama" && disableQwenThinking(taskCapability, model) ? false : undefined,
           onUsage: (u) => {
             usage = u;
           },
@@ -627,12 +647,14 @@ export async function routeChatCompletion(
         history,
         onDelta,
         onWebSources,
-        firstTokenTimeoutMs(entry, i === 0),
+        firstTokenTimeoutMs(entry, i === 0, taskCapability),
         model,
         outerSignal,
         tools,
         onToolCall,
-        tier
+        tier,
+        taskCapability,
+        entry.name === "ollama" && disableQwenThinking(taskCapability, model) ? false : undefined
       );
       recordSuccess(entry.name);
       console.log(
