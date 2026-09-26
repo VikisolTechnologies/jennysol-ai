@@ -467,3 +467,38 @@ Full suite: **748 tests (746 passed, 2 skipped), 76 files, clean server + client
 **Next:** merge, deploy, confirm `/health`, re-run the gateway contract checks against production.
 
 **Deployed:** `https://api.jennysol.vikisol.in/health` confirmed `{"status":"ok","version":"d27386b"}`. Gateway contract re-checked against this exact deploy: `/api/agent/gateway/chat` and `/actions/:actionId` both 401 with no auth, `/chat` 401 with a malformed bearer. `LLM_LOCAL_FIRST_ENABLED` and `PRIVACY_TIER_ENFORCE` both still unset (off/shadow, unchanged).
+
+---
+
+## 2026-09-26 — Agency scorecard rebuilt for real + Goal Mode approval continuation (docs/reviews/d27386b.md)
+
+**Branch:** `main` (continuing directly per the review's "Claude Code owns jennysol-ai again").
+
+**Agency scorecard (CHANGES REQUIRED, now addressed):** replaced the regex stub with model-driven
+structured output (`agency/scorecard.ts`, JSON schema + one repair retry via the Model Gateway),
+a protected-attribute guardrail (`agency/guardrail.ts`), SQLite persistence with a real
+draft → edit → approve lifecycle (`agency/scorecardStore.ts`, owner-scoped, audited), REST
+endpoints (`routes/agencyScorecards.ts`), and a minimal mobile-friendly `/agency` page
+(edit + approve, guardrail-removed items shown). 10-JD live eval: field accuracy 91%, contradiction
+detection 2/2, protected-attribute leakage 0/4 (independently verified). Full numbers:
+`docs/JENNYSOL-EVAL-RESULTS.md` §8.
+
+**Goal Mode approval continuation:** `resumeAfterApproval()` plus a session-authenticated
+`POST /api/goal-runs/:id/actions/:actionId` — the missing second entry point into the SAME
+pending-action store/dispatch the gateway route already uses. 18 new service-layer tests
+(real Arena WRITE-tool dispatch via a mocked `fetch`), 5 new route-layer tests. Honestly not yet
+reachable in production (JennySol's own connector has no WRITE tools today) — logged in
+`BLOCKERS.md`, not overstated as a closed loop.
+
+**Run dashboard:** `/runs` gained a colored status pill per state, colored step dots, and real
+Approve/Reject buttons wired to the new endpoint, alongside the existing Stop button — Option A's
+structural elements, not a pixel-perfect port of the mockup.
+
+Full suite: **781 tests (781 passed, 2 skipped), 80 files, clean server + client `tsc`, clean
+client production build.**
+
+**Not reached this batch** (logged in `BLOCKERS.md`): workflow (b) enhancement, the Vikisol One
+connector, voice + preview deploy.
+
+**Next:** re-run the full live gateway flow (propose → approve → execute), deploy, confirm
+`/health`, then write up `docs/reviews/d27386b.md`'s Response section with real SHAs and numbers.

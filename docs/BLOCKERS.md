@@ -103,3 +103,73 @@ implement `onToolCall` currently, confirmed by grep). Both call `onToolCall` ins
 loop — strictly sequential, never `Promise.all` or otherwise concurrent. The step-budget check's
 lack of a lock is therefore not reachable today. Re-open this if a future provider (or a change to
 an existing one) ever parallelizes tool-call dispatch.
+
+---
+
+## 2026-09-26 — Agency scorecard (workflow (c)), rebuilt per docs/reviews/d27386b.md
+
+1. **The regex stub is replaced with the real thing**: model-driven structured output
+   (`agency/scorecard.ts`, one repair retry), a protected-attribute guardrail
+   (`agency/guardrail.ts`, tested against 6 categories), SQLite persistence with
+   draft/edit/approve (`agency/scorecardStore.ts`, audited), REST endpoints
+   (`routes/agencyScorecards.ts`), and a minimal mobile-friendly UI (`/agency`). Only an approved
+   scorecard is meant to be used downstream (`requireApproved()`), though nothing downstream calls
+   it yet — there is no "use an approved scorecard" consumer built this batch.
+2. **10-JD live eval, synthetic/public JDs only**: field accuracy 10/11 (91%), contradiction
+   detection 2/2, protected-attribute leakage **0/4** attempts leaked (verified with an
+   independent keyword check, not the same regex the guardrail itself uses). Full numbers and the
+   JD set: `docs/JENNYSOL-EVAL-RESULTS.md`.
+3. **A real, separate finding from the eval, not a scorecard bug**: `LLM_FIRST_TOKEN_TIMEOUT_MS`
+   (10,000ms, the router's existing PRIMARY-provider timeout — unrelated to STEP 2b's Ollama-only
+   tuning) is sometimes too tight for this specific workload — a heavy structured-JSON-extraction
+   prompt against Gemini, called back-to-back. Two live eval runs saw 2/10 and 4/10 requests fail
+   with "All configured AI providers are currently unavailable" — a genuine first-token timeout on
+   the only configured provider in this environment, not a hang and not a scorecard defect (the
+   repair retry doesn't help, since both attempts hit the same timeout on the same sole provider).
+   Not fixed this session — needs either a longer, capability-specific timeout for heavy
+   structured-extraction work, or a real second configured provider to fall back to.
+4. **The chat-callable `jennysol.draftAgencyScorecard` tool and the persisted `/agency` UI flow
+   are two separate paths that both call the same drafter** — the tool's draft is never persisted
+   or guardrail-audited the way the UI flow's is. Fine for now (the tool is a low-risk READ
+   preview, not the approval-gated path), but worth a real decision later on whether the tool
+   should be retired in favor of always going through the persisted flow.
+
+## 2026-09-26 — Goal Mode approval continuation, built but not reachable via any real WRITE tool yet
+
+Built `resumeAfterApproval()` (`agentRuntime/runtime.ts`) and a session-authenticated
+`POST /api/goal-runs/:id/actions/:actionId` — the second entry point the review asked for into the
+SAME `consumeAction`/`toolRegistry.dispatch` primitives `routes/agentGateway.ts`'s own approve
+route already uses (not a second approval mechanism). Fully tested at the service layer
+(18 tests, real Arena WRITE-tool dispatch via a mocked `fetch`) and at the route layer (auth,
+validation, ownership, wrong-run/wrong-action edges).
+
+**Real, honest limitation**: `goalRunsRouter.ts`'s `identityFor()` only ever grants
+`jennysol.*` scope, and the `jennysol` connector has zero WRITE-tier tools today (all four —
+`currentDateTime`, `getWeather`, `webSearch`, `draftAgencyScorecard` — are READ). That means a
+real JennySol-app goal run can never actually reach `awaiting_approval` in production right now —
+this endpoint is correct, tested, and ready, but currently dead code from the route's own
+perspective until JennySol's own connector gets its first real WRITE tool (or a goal run's
+identity is ever given `arena.*` scope, which nothing does today). Logged here rather than
+claimed as a closed loop end-to-end in production.
+
+## 2026-09-26 — Run dashboard: Option A's structural elements are live, not a pixel-perfect port
+
+`/runs` (`GoalRuns.tsx`) now has a colored status pill per run state (running/awaiting/completed/
+failed/cancelled — matching `docs/design/run-dashboard-option-a-timeline.html`'s color scheme),
+colored step dots (green = ended, red = errored, grey = pending), and — new this batch — real
+Approve/Reject buttons wired to the endpoint above, alongside the existing Stop button. It is not
+a pixel-for-pixel rebuild of the mockup file (no per-run step counts like "step 2 of ~4", no
+distinct "Plan" vs "Tool" step icons) — a reasonable, real, working timeline rather than a
+from-scratch redesign.
+
+## 2026-09-26 — Not reached this batch, honestly scoped out given the size of what came before
+
+1. **Workflow (b) (research → cited report) was not enhanced.** It remains what it was before
+   this batch: a deterministic snippet-stitcher (`research/citedReport.ts`), not a
+   model-synthesized answer. Real, valuable, unstarted work for the next batch.
+2. **Vikisol One connector (mock only)** — not started.
+3. **Voice reliability and the Vercel UI preview** — not started.
+4. **A stale git stash** (`stash@{0}`, "privacy wiring") is confirmed superseded — its content is
+   already on `main` (verified by diffing it against the current `agentGateway.ts`/
+   `chatRunner.ts`) — but dropping it was refused by this session's own sandbox as an
+   "irreversible local destruction." The founder can drop it directly: `git stash drop stash@{0}`.

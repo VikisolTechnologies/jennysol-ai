@@ -4,6 +4,7 @@ import {
   IconBrain,
   IconChevronDown,
   IconChevronRight,
+  IconClipboardCheck,
   IconFile,
   IconFileText,
   IconLayoutDashboard,
@@ -468,6 +469,7 @@ export function Sidebar({
             { to: "/files", label: "Files", Icon: IconFileText },
             { to: "/memory", label: "Memory", Icon: IconBrain },
             { to: "/runs", label: "Runs", Icon: IconListDetails },
+            { to: "/agency", label: "Agency scorecards", Icon: IconClipboardCheck },
           ].map(({ to, label, Icon }) => (
             <Link key={to} to={to} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-jenny-muted transition hover:bg-jenny-raised hover:text-jenny-text-2">
               <Icon size={13} />

@@ -48,6 +48,7 @@ const Files = lazy(() => import("./pages/Files").then((m) => ({ default: m.Files
 const Memory = lazy(() => import("./pages/Memory").then((m) => ({ default: m.Memory })));
 const Tasks = lazy(() => import("./pages/Tasks").then((m) => ({ default: m.Tasks })));
 const GoalRuns = lazy(() => import("./pages/GoalRuns").then((m) => ({ default: m.GoalRuns })));
+const AgencyScorecards = lazy(() => import("./pages/AgencyScorecards").then((m) => ({ default: m.AgencyScorecards })));
 const Integrations = lazy(() => import("./pages/Integrations").then((m) => ({ default: m.Integrations })));
 
 export default function App() {
@@ -126,6 +127,14 @@ export default function App() {
           element={
             <RequireAuth>
               <GoalRuns />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/agency"
+          element={
+            <RequireAuth>
+              <AgencyScorecards />
             </RequireAuth>
           }
         />

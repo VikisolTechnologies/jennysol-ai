@@ -10,7 +10,7 @@ vi.mock("../modelRouter.js", async (importOriginal) => {
 });
 
 import { routeChatCompletion } from "../modelRouter.js";
-import { startRun, stopRun, getRun } from "./runtime.js";
+import { startRun, stopRun, getRun, resumeAfterApproval } from "./runtime.js";
 import { __clearAllRunsForTests, __findRunByGoalForTests } from "./store.js";
 import { __clearAllPendingActionsForTests } from "../tools/pendingActions.js";
 import { toolRegistry } from "../tools/registryInstance.js";
@@ -230,5 +230,115 @@ describe("agentRuntime.startRun — basic lifecycle", () => {
     const next = await startRun(jennysolIdentity, "this one works");
     expect(next.status).toBe("completed");
     expect(next.content).toBe("recovered");
+  });
+});
+
+// docs/reviews/d27386b.md STEP 4.1: a run paused at "awaiting_approval" previously had no way
+// back — resumeAfterApproval is the second, session-authenticated entry point into the SAME
+// pendingActions store/dispatch the gateway route already proves works.
+describe("agentRuntime.resumeAfterApproval", () => {
+  const fetchMock = vi.fn();
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  async function pausedRun() {
+    mockRoute(async (onDelta, onToolCall) => {
+      const result = (await onToolCall!({ id: "1", name: "arena.joinActivity", args: { postId: "p1" } })) as { actionId: string };
+      onDelta(`awaiting approval (${result.actionId})`);
+    });
+    return startRun(arenaIdentity, "join the badminton game");
+  }
+
+  it("approving resumes the run: dispatches the real tool, then gives a final answer from the result", async () => {
+    const paused = await pausedRun();
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true, data: { status: "confirmed" } }),
+    });
+    vi.mocked(routeChatCompletion).mockImplementationOnce(async (_sys, _hist, onDelta) => {
+      onDelta("You're in! Your spot is confirmed.");
+      return { providerUsed: "gemini", fellBack: false };
+    });
+
+    const resumed = await resumeAfterApproval(paused.id, arenaIdentity, paused.pendingActionId!, true);
+
+    expect(resumed.status).toBe("completed");
+    expect(resumed.stopReason).toBe("completed");
+    expect(resumed.content).toBe("You're in! Your spot is confirmed.");
+    expect(resumed.pendingActionId).toBeUndefined();
+    const { steps } = getRun(resumed.id, arenaIdentity)!;
+    const toolSteps = steps.filter((s) => s.kind === "tool_call");
+    expect(toolSteps).toHaveLength(2); // the original proposal step, then the post-approval execution
+    expect(toolSteps[1].result).toMatchObject({ requested: true, status: "confirmed" });
+    expect(toolSteps[1].endedAt).not.toBeNull();
+  });
+
+  it("rejecting cancels the run without ever dispatching the tool", async () => {
+    const paused = await pausedRun();
+    const resumed = await resumeAfterApproval(paused.id, arenaIdentity, paused.pendingActionId!, false);
+
+    expect(resumed.status).toBe("cancelled");
+    expect(resumed.stopReason).toBe("rejected_by_user");
+    expect(resumed.pendingActionId).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a real tool failure after approval still ends the run with an honest answer, not a crash", async () => {
+    const paused = await pausedRun();
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ success: false, message: "Activity is full" }) });
+    vi.mocked(routeChatCompletion).mockImplementationOnce(async (_sys, _hist, onDelta) => {
+      onDelta("That activity filled up before your spot was confirmed.");
+      return { providerUsed: "gemini", fellBack: false };
+    });
+
+    const resumed = await resumeAfterApproval(paused.id, arenaIdentity, paused.pendingActionId!, true);
+
+    expect(resumed.status).toBe("completed");
+    expect(resumed.content).toBe("That activity filled up before your spot was confirmed.");
+    const { steps } = getRun(resumed.id, arenaIdentity)!;
+    const toolSteps = steps.filter((s) => s.kind === "tool_call");
+    expect(toolSteps[1].error).toContain("Activity is full");
+  });
+
+  it("refuses a mismatched actionId rather than resolving whatever the run happens to be holding", async () => {
+    const paused = await pausedRun();
+    await expect(resumeAfterApproval(paused.id, arenaIdentity, "some-other-action-id", true)).rejects.toThrow(
+      /no longer matches/
+    );
+    // The real pending action is untouched — still resolvable with its real id.
+    const stillPaused = getRun(paused.id, arenaIdentity)!;
+    expect(stillPaused.run.status).toBe("awaiting_approval");
+    expect(stillPaused.run.pendingActionId).toBe(paused.pendingActionId);
+  });
+
+  it("refuses to resume a run that isn't actually awaiting approval", async () => {
+    mockRoute(async (onDelta) => onDelta("already done"));
+    const completed = await startRun(jennysolIdentity, "hello");
+    await expect(resumeAfterApproval(completed.id, jennysolIdentity, "whatever", true)).rejects.toThrow(
+      /no pending approval/
+    );
+  });
+
+  it("refuses to resume a run owned by a different identity", async () => {
+    const paused = await pausedRun();
+    await expect(resumeAfterApproval(paused.id, jennysolIdentity, paused.pendingActionId!, true)).rejects.toThrow(
+      /No such run/
+    );
+  });
+
+  it("approving twice fails the second time — single-use, same as the gateway route", async () => {
+    const paused = await pausedRun();
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { status: "confirmed" } }) });
+    vi.mocked(routeChatCompletion).mockImplementationOnce(async (_sys, _hist, onDelta) => {
+      onDelta("confirmed");
+      return { providerUsed: "gemini", fellBack: false };
+    });
+    await resumeAfterApproval(paused.id, arenaIdentity, paused.pendingActionId!, true);
+
+    await expect(resumeAfterApproval(paused.id, arenaIdentity, paused.pendingActionId!, true)).rejects.toThrow(
+      /no pending approval/
+    );
   });
 });

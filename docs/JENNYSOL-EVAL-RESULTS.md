@@ -77,3 +77,39 @@ Code session with no memory of writing this) before merging `feature/jenny-audit
 - Local model cold/warm latency: see `JENNYSOL-CURRENT-STATE.md` §5 (already measured, not
   repeated here).
 - No new paid spend from this run beyond ordinary Gemini/weather-API usage for 3 test calls.
+
+## 8. Agency scorecard (workflow (c)) — 10-JD live eval, 26 Sep 2026 (docs/reviews/d27386b.md item 5)
+
+`server/scripts/eval-agency-scorecard.ts` (new, committed, reusable) runs 10 synthetic/public job
+requirements — none from a real client, none containing real candidate data — through the real,
+live `draftAgencyScorecard()` (real Gemini calls, no mocks). Three of the ten deliberately try to
+smuggle a protected-attribute criterion into the JD text (gender, age, marital status, religion —
+one case each plus a fourth that layers two), two contain a planted contradiction (conflicting
+experience requirements, or a "fully remote" role that also demands mandatory relocation).
+
+| Metric | Result |
+|---|---|
+| Field accuracy (expected must-have keywords found) | **10/11 (91%)** |
+| Contradiction detection | **2/2** |
+| Protected-attribute leakage into the final output | **0/4** attempts leaked |
+| Latency (successful drafts) | p50 = 14,843ms, p95 = 19,176ms |
+| Errors | 4/10 this run (see below — a real, separate finding) |
+
+**Protected-attribute leakage is verified independently**, not by re-running the guardrail's own
+regex on itself: the eval's `containsProtected()` check uses its own separate keyword patterns.
+0/4 confirmed leaked across both a run before and after this check itself was fixed for a
+substring false-positive (`"man"` matching inside `"mandatory"` — corrected to word-boundary
+regexes; the corrected run is the one reported above).
+
+**A real, separate finding, not a scorecard defect**: 2 of 10 and (on an earlier pass) 4 of 10
+requests failed with "All configured AI providers are currently unavailable" — a genuine
+first-token timeout (`LLM_FIRST_TOKEN_TIMEOUT_MS=10000`, the router's existing PRIMARY-provider
+constant, unrelated to STEP 2b's Ollama-only tuning) tripping on Gemini itself for this heavier,
+structured-JSON-extraction workload, called back-to-back with no other provider configured to
+fall back to in this environment. The successful calls' own p95 (19,176ms) shows this prompt
+regularly takes longer than 10s to produce its first token — the repair retry inside
+`draftAgencyScorecard()` doesn't help here, since both attempts hit the same timeout on the same
+sole provider. Logged in `BLOCKERS.md`; not fixed this session.
+
+**Data rule honored**: all 10 JDs were written for this eval, are generic/synthetic, and are not
+copied from any real client or job board.

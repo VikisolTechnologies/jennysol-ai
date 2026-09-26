@@ -18,6 +18,22 @@ interface GoalRun {
   status: string;
   content: string;
   stopReason?: string;
+  pendingActionId?: string;
+}
+
+// Option A (the timeline), docs/design/run-dashboard-option-a-timeline.html — a colored status
+// pill per run status, not one fixed color for every state.
+const STATUS_STYLE: Record<string, string> = {
+  running: "bg-[#ff6b35]/15 text-[#ff8a5b]",
+  queued: "bg-[#8b8b93]/15 text-[#8b8b93]",
+  awaiting_approval: "bg-[#ffc107]/15 text-[#ffc107]",
+  completed: "bg-[#5ec26a]/15 text-[#5ec26a]",
+  failed: "bg-[#e5534b]/15 text-[#e5534b]",
+  cancelled: "bg-[#8b8b93]/15 text-[#8b8b93]",
+};
+
+function statusLabel(status: string): string {
+  return status === "awaiting_approval" ? "Awaiting approval" : status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 export function GoalRuns() {
@@ -68,6 +84,20 @@ export function GoalRuns() {
     await load();
   }
 
+  async function decide(run: GoalRun, approve: boolean) {
+    if (!run.pendingActionId) return;
+    const res = await authFetch(`/api/goal-runs/${run.id}/actions/${run.pendingActionId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approve }),
+    });
+    if (!res.ok) {
+      setError(approve ? "Couldn't approve that action." : "Couldn't reject that action.");
+      return;
+    }
+    await load();
+  }
+
   return (
     <div className="h-[var(--app-vh)] overflow-y-auto bg-[#09090b] text-[#f2f2f3]">
       <div className="mx-auto max-w-xl px-4 py-8">
@@ -101,11 +131,18 @@ export function GoalRuns() {
             <article key={run.id} className="rounded-2xl border border-[#232326] bg-[#141416] p-4">
               <div className="flex items-start justify-between gap-3">
                 <h2 className="text-sm font-semibold">{run.goal}</h2>
-                <span className="shrink-0 rounded-full bg-[#ff6b35]/15 px-2.5 py-1 text-[11px] font-semibold text-[#ff8a5b]">{run.status}</span>
+                <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS_STYLE[run.status] ?? STATUS_STYLE.queued}`}>
+                  {statusLabel(run.status)}
+                </span>
               </div>
               <ol className="mt-3 flex flex-col gap-2 border-l border-[#232326] pl-3">
                 {steps.map((step) => (
-                  <li key={step.id} className="text-sm">
+                  <li key={step.id} className="relative text-sm">
+                    <span
+                      className={`absolute -left-[17px] top-1 h-2 w-2 rounded-full ${
+                        step.error ? "bg-[#e5534b]" : step.endedAt ? "bg-[#5ec26a]" : "bg-[#8b8b93]"
+                      }`}
+                    />
                     <span className="text-[11px] text-[#8b8b93]">Step {step.index + 1} · {step.kind}</span>
                     <div>{step.toolName ?? run.content ?? "Answer"}</div>
                     {step.error && <div className="text-[#e5534b]">{step.error}</div>}
@@ -113,6 +150,24 @@ export function GoalRuns() {
                 ))}
               </ol>
               {run.content && <p className="mt-3 text-sm">{run.content}</p>}
+              {run.status === "awaiting_approval" && run.pendingActionId && (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void decide(run, true)}
+                    className="rounded-full bg-[#5ec26a] px-3 py-1 text-xs font-semibold text-white"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void decide(run, false)}
+                    className="rounded-full border border-[#e5534b] px-3 py-1 text-xs font-semibold text-[#e5534b]"
+                  >
+                    Reject
+                  </button>
+                </div>
+              )}
               {(run.status === "running" || run.status === "queued") && (
                 <button type="button" onClick={() => void stop(run.id)} className="mt-3 rounded-full border border-[#e5534b] px-3 py-1 text-xs font-semibold text-[#e5534b]">
                   Stop

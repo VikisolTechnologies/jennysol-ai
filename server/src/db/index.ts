@@ -383,3 +383,35 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_ollama_evictions_evicted_at ON ollama_evictions(evicted_at);
 `);
+
+// Workflow (c), JENNYSOL-NEXT.md / master context §14: a recruiter pastes a client requirement,
+// Jenny drafts must-haves/nice-to-haves/search strategy, the recruiter edits and approves before
+// it's used for anything downstream. jd_source is the pasted requirement itself, not a copy of
+// candidate data — this table never holds a candidate record. Only an 'approved' row may be used
+// later (agencyScorecardStore.ts enforces this, not a DB constraint, since "used later" isn't a
+// DB write this schema knows about yet).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS agency_scorecards (
+    id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'draft',
+    version INTEGER NOT NULL DEFAULT 1,
+    jd_hash TEXT NOT NULL,
+    jd_source TEXT NOT NULL,
+    scorecard TEXT NOT NULL,
+    guardrail_removed TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    approved_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_agency_scorecards_owner ON agency_scorecards(owner_user_id, updated_at);
+
+  CREATE TABLE IF NOT EXISTS agency_scorecard_audit (
+    id TEXT PRIMARY KEY,
+    scorecard_id TEXT NOT NULL REFERENCES agency_scorecards(id) ON DELETE CASCADE,
+    actor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_agency_scorecard_audit_scorecard ON agency_scorecard_audit(scorecard_id, created_at);
+`);

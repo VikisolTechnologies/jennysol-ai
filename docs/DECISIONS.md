@@ -72,3 +72,29 @@ partial content, the router won't retry it on Gemini (correct for `PRIVATE` traf
 correct for `PUBLIC_CLOUD`-eligible `general`/`trivial` traffic). Turning the flag on before that's
 resolved would trade "sometimes slow" for "sometimes broken" for real users. Logged as a real open
 question in `BLOCKERS.md`, not fixed this session.
+
+## 2026-09-26 — Agency scorecard rebuilt for real (CHANGES REQUIRED from docs/reviews/d27386b.md)
+
+**Decided by:** Claude Code, per the architect's review verdict on `d27386b`.
+**What:** replaced the regex-stub `draftAgencyScorecard()` with a model-driven structured-output
+drafter (JSON schema + one repair retry), a protected-attribute guardrail (tested against gender,
+age, religion, caste, marital status, disability, photo/appearance, name), SQLite persistence with
+a real draft → edit → approve lifecycle (audited, owner-scoped), REST endpoints, and a minimal
+mobile-friendly `/agency` page. Synthetic/public JDs only, per the review's data rule — no real
+client JD or candidate data until the founder decides where agency data is processed.
+**Why it matters beyond the checklist:** the 10-JD eval (0/4 protected-attribute leakage, verified
+independently of the guardrail's own regex) is real evidence the guardrail works, not just a claim
+that it should. It also surfaced a real, separate router-tuning gap (the primary provider's
+10s first-token timeout, too tight for this heavier workload) — logged in `BLOCKERS.md`, not
+fixed here, since fixing it isn't scoped to this feature.
+
+## 2026-09-26 — Goal Mode approval continuation built, honestly marked not-yet-reachable
+
+**Decided by:** Claude Code, continuing STEP 4 of `JENNYSOL-NEXT.md` per the review.
+**What:** `resumeAfterApproval()` plus a session-authenticated `/api/goal-runs/:id/actions/:actionId`
+route — the missing second entry point into the same pending-action store/dispatch the gateway
+route already uses, not a new mechanism.
+**Why it isn't claimed as "done" in production:** JennySol's own connector has no WRITE-tier tools
+yet, so no real JennySol-app goal run can currently reach `awaiting_approval` to exercise this
+path. Built, tested, and ready rather than left undone — but reporting it as a closed loop without
+that caveat would overstate what's actually reachable today.

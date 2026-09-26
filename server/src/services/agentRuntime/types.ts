@@ -13,6 +13,7 @@ export type StopReason =
   | "budget_exceeded"
   | "tool_failed_repeatedly"
   | "cancelled_by_user"
+  | "rejected_by_user"
   | "provider_failed";
 
 export interface TaskStep {

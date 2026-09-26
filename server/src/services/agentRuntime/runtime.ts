@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { routeChatCompletion } from "../modelRouter.js";
 import type { ToolCall } from "../llmProvider.js";
 import { toolRegistry } from "../tools/registryInstance.js";
-import { proposeAction } from "../tools/pendingActions.js";
+import { proposeAction, consumeAction, PendingActionError } from "../tools/pendingActions.js";
 import { ToolRejectedError } from "../tools/productConnector.js";
 import type { ProductIdentity } from "../productIdentity.js";
 import { createRun, updateRun, getOwnedRun, appendStep, finishStep, getSteps } from "./store.js";
@@ -194,6 +194,97 @@ export function getRun(runId: string, identity: ProductIdentity): { run: AgentGo
   const run = getOwnedRun(runId, identity);
   if (!run) return undefined;
   return { run, steps: getSteps(runId) };
+}
+
+// docs/reviews/d27386b.md STEP 4.1: a run that paused at "awaiting_approval" had no way back —
+// the pendingAction it created uses the exact same store/dispatch routes/agentGateway.ts's own
+// approve route uses (never a second approval mechanism, per this file's header comment), but
+// that route only accepts a service-token identity, so a JennySol-app run (session-authenticated)
+// had no route back into it at all. This is that second entry point into the SAME
+// consumeAction/toolRegistry.dispatch primitives — not a parallel proposal store, not a second
+// dispatch mechanism, just the session-authenticated caller this one was missing.
+export async function resumeAfterApproval(
+  runId: string,
+  identity: ProductIdentity,
+  actionId: string,
+  approve: boolean,
+  rawToken = ""
+): Promise<AgentGoalRun> {
+  const run = getOwnedRun(runId, identity);
+  if (!run) throw new AgentGoalRunError("No such run");
+  if (run.status !== "awaiting_approval" || !run.pendingActionId) {
+    throw new AgentGoalRunError("This run has no pending approval");
+  }
+  // The URL's actionId must be the one THIS run is actually waiting on — a stale or mismatched id
+  // (an old link, a copy-paste from a different run) is refused here, before ever touching
+  // consumeAction, rather than silently resolving whatever the run happens to be holding.
+  if (run.pendingActionId !== actionId) {
+    throw new AgentGoalRunError("That action no longer matches this run's pending approval");
+  }
+
+  let action;
+  try {
+    action = consumeAction(run.pendingActionId, identity);
+  } catch (err) {
+    throw new AgentGoalRunError(err instanceof PendingActionError ? err.message : "That pending action is no longer valid");
+  }
+
+  const steps = getSteps(runId);
+  let stepIndex = steps.length;
+  run.pendingActionId = undefined;
+
+  if (!approve) {
+    run.status = "cancelled";
+    run.stopReason = "rejected_by_user";
+    run.content = "You didn't approve that action, so the run stopped there.";
+    appendStep(runId, stepIndex, "final_answer");
+    updateRun(run);
+    return run;
+  }
+
+  run.status = "running";
+  updateRun(run);
+
+  const resultStep = appendStep(runId, stepIndex++, "tool_call", action.toolName, action.args);
+  let toolResult: unknown;
+  let toolError: string | undefined;
+  try {
+    toolResult = await toolRegistry.dispatch(identity, action.toolName, action.args, { rawToken });
+    finishStep(resultStep.id, toolResult);
+  } catch (err) {
+    toolError = err instanceof Error ? err.message : String(err);
+    finishStep(resultStep.id, undefined, toolError);
+  }
+
+  // Same "observe, then give the final answer, don't call another tool" continuation shape as
+  // startRun's own re-plan step above — one continuation mechanism, two places it's reached from.
+  let content = "";
+  try {
+    await routeChatCompletion(
+      "The user just approved an action you proposed and it has now run. Give the final answer " +
+        "to the goal based on this result — a real failure is still a real, honest answer. Do not call a tool.",
+      [
+        {
+          role: "user",
+          content: `Goal: ${run.goal}\nAction: ${action.toolName}\nResult: ${toolError ?? JSON.stringify(toolResult)}`,
+        },
+      ],
+      (delta) => {
+        content += delta;
+      },
+      undefined,
+      "reasoning"
+    );
+  } catch {
+    // A provider failure summarizing the result still leaves a real, honest fallback below rather
+    // than losing the fact that the action itself already ran (or already failed).
+  }
+  run.content = content.trim() || (toolError ? `The action failed: ${toolError}` : "Done.");
+  appendStep(runId, stepIndex, "final_answer");
+  run.status = "completed";
+  run.stopReason = "completed";
+  updateRun(run);
+  return run;
 }
 
 export const __testing = { activeControllers };

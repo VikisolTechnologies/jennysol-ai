@@ -1,7 +1,28 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { applyPrivacyTier } from "./privacyTier.js";
-import { draftAgencyScorecard } from "./agency/scorecard.js";
+import { applyGuardrail } from "./agency/guardrail.js";
+import { agencyScorecardDraftSchema } from "./agency/scorecardSchema.js";
 import { citedReport } from "./research/citedReport.js";
+
+// The scorecard's actual drafting (draftAgencyScorecard) calls a real model and is covered by its
+// own mocked test suite (agency/scorecard.test.ts) — these cases instead exercise the two pure,
+// deterministic pieces of that pipeline (the guardrail and the output schema) that belong in this
+// file's "no live model" style.
+const cleanDraft = {
+  role: "Backend Engineer",
+  mustHave: [{ value: "Java", quote: "5 years of Java" }],
+  niceToHave: [] as { value: string; quote: string }[],
+  experienceRange: { value: "5+ years", quote: "5 years of Java" },
+  locationOrWorkMode: { value: "unknown", quote: "unknown" },
+  compensation: { value: "unknown", quote: "unknown" },
+  noticePeriod: { value: "unknown", quote: "unknown" },
+  disqualifiers: [] as { value: string; quote: string }[],
+  contradictions: [] as string[],
+  missingInformation: [] as string[],
+  clientClarificationQuestions: [] as string[],
+  screeningQuestions: [] as string[],
+  booleanSearchStrings: [] as string[],
+};
 
 // Twenty deterministic cases. Live model runs are recorded separately in
 // docs/JENNYSOL-GOAL-EVAL.md; these do not pretend to be those runs.
@@ -18,13 +39,43 @@ const cases: Array<{ name: string; run: () => void }> = [
       expect(applyPrivacyTier("PRIVATE", ["gemini", "ollama"]).names).toEqual(["ollama"]);
     },
   },
-  { name: "scorecard keeps must-haves", run: () => expect(draftAgencyScorecard("Role\nMust-have: Java, SQL").mustHave).toEqual(["Java", "SQL"]) },
-  { name: "scorecard keeps nice-to-haves", run: () => expect(draftAgencyScorecard("Role\nNice-to-have: Kafka").niceToHave).toEqual(["Kafka"]) },
-  { name: "scorecard asks when must-haves are missing", run: () => expect(draftAgencyScorecard("Just a title").mustHave[0]).toMatch(/hiring manager/) },
-  { name: "scorecard leaves the decision with the recruiter", run: () => expect(draftAgencyScorecard("Role").recruiterDecides).toBe(true) },
-  { name: "search strategy starts in the agency database", run: () => expect(draftAgencyScorecard("Role").searchStrategy[0]).toMatch(/own database/) },
-  { name: "search strategy refuses protected attributes", run: () => expect(draftAgencyScorecard("Role").searchStrategy.join(" ")).toMatch(/protected attributes/) },
-  { name: "role title is the first line", run: () => expect(draftAgencyScorecard("Platform engineer\nMust-have: Go").role).toBe("Platform engineer") },
+  { name: "guardrail keeps a clean must-have", run: () => expect(applyGuardrail(cleanDraft).draft.mustHave).toEqual(cleanDraft.mustHave) },
+  {
+    name: "guardrail strips a gender-based must-have",
+    run: () => {
+      const draft = { ...cleanDraft, mustHave: [...cleanDraft.mustHave, { value: "Male", quote: "must be male" }] };
+      expect(applyGuardrail(draft).draft.mustHave).toEqual(cleanDraft.mustHave);
+    },
+  },
+  {
+    name: "guardrail strips an age-based disqualifier",
+    run: () => {
+      const draft = { ...cleanDraft, disqualifiers: [{ value: "over 40", quote: "must be over 40" }] };
+      expect(applyGuardrail(draft).draft.disqualifiers).toEqual([]);
+    },
+  },
+  {
+    name: "guardrail strips a protected boolean search string",
+    run: () => {
+      const draft = { ...cleanDraft, booleanSearchStrings: ['("Java") AND female'] };
+      expect(applyGuardrail(draft).draft.booleanSearchStrings).toEqual([]);
+    },
+  },
+  {
+    name: "guardrail reports every removal, not just a count",
+    run: () => {
+      const draft = { ...cleanDraft, niceToHave: [{ value: "Hindu", quote: "preferably Hindu" }] };
+      expect(applyGuardrail(draft).removed).toEqual([{ field: "niceToHave", value: "Hindu", reason: "religion" }]);
+    },
+  },
+  {
+    name: "schema rejects a cited item missing its quote",
+    run: () =>
+      expect(
+        agencyScorecardDraftSchema.safeParse({ ...cleanDraft, experienceRange: { value: "5 years" } }).success
+      ).toBe(false),
+  },
+  { name: "schema accepts a valid full draft", run: () => expect(agencyScorecardDraftSchema.safeParse(cleanDraft).success).toBe(true) },
   { name: "cited sentence keeps its number", run: () => expect(citedReport("q", [{ title: "A", url: "https://a.example", snippet: "Fact." }]).report).toBe("Fact. [1]") },
   { name: "citation list carries the url", run: () => expect(citedReport("q", [{ title: "A", url: "https://a.example", snippet: "Fact." }]).citations[0].url).toBe("https://a.example") },
   { name: "two hits stay in order", run: () => expect(citedReport("q", [{ title: "A", url: "https://a.example", snippet: "One" }, { title: "B", url: "https://b.example", snippet: "Two" }]).report).toContain("[2]") },
