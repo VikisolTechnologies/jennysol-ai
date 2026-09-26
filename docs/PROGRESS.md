@@ -346,3 +346,30 @@ Full suite after fixes: **707 tests (705 passed, 2 skipped), 71 files, clean tsc
 real, not just added and trusted), then per `JENNYSOL-NEXT.md` STEP 1's remaining instruction:
 merge `feature/jenny-audit` to `main`, deploy, confirm `/health` shows the new commit, and re-run
 the gateway contract tests against production.
+
+---
+
+## 2026-09-26 — STEP 1 fully closed: merged, deployed, verified live
+
+**Branch:** `main`, commit `f78b517`. `feature/jenny-audit` fast-forward merged (no divergence —
+nothing else had touched `main` since it was branched) and pushed. No force-push, no rebase.
+
+**Deployed:** `railway variables --set GIT_COMMIT_SHA=f78b517 --skip-deploys && railway up
+--detach` from `server/`. `https://api.jennysol.vikisol.in/health` confirmed `{"status":"ok",
+"version":"f78b517"}`.
+
+**Gateway contract re-verified against production, post-deploy:**
+- `/api/agent/gateway/chat` and `/actions/:actionId` both reject unauthenticated calls (401).
+- Full live flow re-run end to end with fresh throwaway accounts: Jenny proposed joining a real
+  test activity, approval executed it, the joiner landed in the room, and both the test activity
+  and both test accounts were cleaned up afterward. **6/6 checks passed.**
+
+Everything from this run (STEPs 0–6, the ADR-006 reconciliation, and the independent-review fixes)
+is now live in production. Nothing from `AI_AGENT_SYSTEM_ARCHITECTURE.md`'s `AgentSession` system
+was touched. Nothing from Arena's own repos was touched.
+
+**Not done in this batch, still open per `BLOCKERS.md`:** privacy tiers, full re-planning, the
+dashboard UI, the One mock connector, workflows (b)/(c), the fuller eval suite, voice, and an
+actual UI preview deploy. `JENNYSOL-NEXT.md`'s remaining STEPs (2–7: provider order/keep-warm,
+privacy tiers in shadow mode, finishing the v1 DoD gaps, the One connector, voice + preview, the
+final report) have not been started this session.
