@@ -465,3 +465,5 @@ work above but never actually reachable by anything) into the real tool registry
 Full suite: **748 tests (746 passed, 2 skipped), 76 files, clean server + client `tsc`.**
 
 **Next:** merge, deploy, confirm `/health`, re-run the gateway contract checks against production.
+
+**Deployed:** `https://api.jennysol.vikisol.in/health` confirmed `{"status":"ok","version":"d27386b"}`. Gateway contract re-checked against this exact deploy: `/api/agent/gateway/chat` and `/actions/:actionId` both 401 with no auth, `/chat` 401 with a malformed bearer. `LLM_LOCAL_FIRST_ENABLED` and `PRIVACY_TIER_ENFORCE` both still unset (off/shadow, unchanged).
