@@ -104,4 +104,25 @@ Guarded by the tests in §5 — a change to Arena that breaks any of these will 
 - On Arena's side (not this repo, but exercising the same contract): `AgentApprovalFlowTest`, `AgentGatewayContractTest`, `PostJoinSafetyTest`, `AgentScopeMappingTest`.
 
 ## 6. Proposed additions (not built yet)
-*(none from this run — add here if a future step needs something new from Arena)*
+### 6.1 Arena ↔ Jenny v2: **PROPOSED, NOT BUILT** (architect, 27 Sep 2026)
+Source: `docs/ARENA-VNEXT-MOBILE-JENNY-BLUEPRINT.md` §4. Nothing in this subsection exists yet. **Arena must not rely on any item until it's marked BUILT here.**
+
+**Endpoints:** additive and versioned, under `/api/agent/gateway/v2/*`, behind `GATEWAY_V2_ENABLED` (default off). **The v1 endpoints (§1) and bodies are unchanged**, and their tests (§5) must stay green.
+
+| Proposed item | Purpose | Status |
+|---|---|---|
+| `ContextualBrief` | Per-surface "Jenny noticed…" items; an empty result is valid | PROPOSED |
+| `InterpretedIntent` | Free text → editable filters; protected attributes rejected | PROPOSED |
+| `StructuredDraft` | A need/offer/activity/project/job draft with missing fields | PROPOSED |
+| `ExplainedRecommendation` | Evidence, uncertainty, contradictions, missing; **no numeric score** | PROPOSED |
+| Expanded `ProposedAction` | payloadPreview, audience, dataShared, reversible (false unless truly undoable), expiresAt | PROPOSED |
+| `AutomationRecipe` | Monitoring, drafting, organizing, reminding only; never auto-applies, publishes, messages, invites, changes visibility, shares candidate data, reveals exact location or schedules externally | PROPOSED |
+| `QueueItem`, `OutcomeEvent`, `AuditEntry` | Work queue, timeline, audit (no prompt content) | PROPOSED |
+| `schemaVersion` / `requestId` / `generatedAt` envelope | Versioning and traceability | PROPOSED |
+| Client-supplied `idempotencyKey` on `/actions/:actionId` | A duplicate returns `duplicate` and never re-executes | PROPOSED |
+| Per-field career visibility | Arena BE feature, not JennySol | PROPOSED (Arena BE) |
+
+**Compatibility:**
+- v1 callers are unaffected.
+- A v2 response is only ever returned from a v2 path.
+- When an item is built, JennySol changes its status here to **BUILT (commit SHA)** and adds the tests to §5.
