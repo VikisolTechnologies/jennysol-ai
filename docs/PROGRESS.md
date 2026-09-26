@@ -419,10 +419,10 @@ Re-measure, same 20 prompts, general and fast models warmed first, prompts space
 
 | | p50 | p95 | local share | errors |
 |---|---|---|---|---|
-| before | 1,523ms | 12,005ms | 0% | 0 |
-| after | 7,027ms | 18,885ms | 5% | 0 |
+| before | 1,781ms | 12,867ms | 0% | 0 |
+| after | 3,762ms | 15,237ms | 5% | 0 |
 
-p95 is about 1.57× today's, past the review's 1.5× line. The flag stays off until
+p95 is about 1.18× today's, inside the review's 1.5× proposal band. The flag stays off until
 the founder turns it on. 8 of 9 general/trivial prompts still missed Ollama's 2.5s answer
 deadline. Nothing ran for minutes. Write-up: `docs/JENNYSOL-PROVIDER-ORDER-MEASUREMENT.md`.
 

@@ -50,7 +50,7 @@ this session.
 
 **What:** the hang fix is in. Thinking tokens do not count as answer progress. Ollama has a 30s
 deadline (60s for reasoning). qwen3 general/trivial requests send `think: false`. Re-measure on the
-same 20 prompts: p50 1,523ms → 7,027ms, p95 12,005ms → 18,885ms (about 1.57×), local share 25%,
+same 20 prompts: p50 1,781ms → 3,762ms, p95 12,867ms → 15,237ms (about 1.18×), local share 5%,
 errors 0. That is inside the review's 1.5× band, so turning local-first on is proposed. The flag
 stays off until the founder says otherwise.
 **Why:** 8 of 9 general/trivial prompts still fell off Ollama at the 2.5s answer deadline. The
