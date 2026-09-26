@@ -113,3 +113,44 @@ sole provider. Logged in `BLOCKERS.md`; not fixed this session.
 
 **Data rule honored**: all 10 JDs were written for this eval, are generic/synthetic, and are not
 copied from any real client or job board.
+
+## 9. ADR-007 §12 step 6 — the real scorecard eval, evaluated on `docs/evals/agency-scorecard-eval-set.md` — BLOCKED, not run, 26 Sep 2026 (evening)
+
+`server/scripts/eval-agency-scorecard-adr007.ts` (new, committed) embeds all 10 cases from
+`docs/evals/agency-scorecard-eval-set.md` verbatim and runs them through the real, live,
+tenant-scoped `draftAgencyScorecard()` — a fresh tenant, explicitly opted into
+`private_plus_controlled_cloud`, exactly the real production path (redact → resolve tier →
+CONTROLLED_CLOUD-only with forced enforcement → guardrail → audit). For cases 8 and 10
+(protected-attribute JDs — age, gender) it additionally checks that the disqualifier is refused
+AND `escalate`/`refusalNotice` are both set, per the eval set's own pass criteria.
+
+**This eval could not be completed with real numbers tonight**, and no numbers are fabricated here
+in its place. The reason is external to this code: production's paid Gemini project returned a
+real `402 {"status":"RESOURCE_EXHAUSTED", "message":"Your prepayment credits are depleted..."}` on
+every attempt, confirmed against production's own real `GEMINI_API_KEY` via `railway run`. Under
+ADR-007, Ollama is never a substitute here — it is not a permitted CONTROLLED_CLOUD processor for
+Class B agency data (`CONTROLLED_CLOUD_PROVIDERS = {"gemini"}` in `privacyTier.ts`), so there is no
+honest fallback path for this specific eval the way there was for STEP 2b's general routing work.
+Silently eval-ing against PRIVATE/Ollama instead would violate the exact tier boundary this eval
+exists to prove.
+
+Full incident detail, root-cause evidence (railtail logs, keep-warm timings, live gateway 502), and
+the founder actions needed to restore both Gemini and the Ollama fallback are in `BLOCKERS.md`
+("2026-09-26 (evening)").
+
+**What is verified instead, on mocks, tonight:**
+
+- All 827 unit/integration tests pass (0 failing, 2 pre-existing skips), including tests 9(a)–(d)
+  and 9(f) named in ADR-007 §12 step 2/5, plus full tenant-isolation and fail-closed-redaction
+  coverage.
+- `agency/scorecard.test.ts`'s redaction test proves the model literally never receives the
+  client's name or an email address (inspects the actual history payload sent to the mocked
+  router).
+- `agency/redaction.test.ts` proves the fail-closed check is not tautological: a bare domain the
+  redaction pass itself misses is still caught by a deliberately broader verification regex.
+- `agency/modelCallAudit.test.ts` proves by schema introspection that the audit table has no
+  column capable of holding prompt/content text.
+
+**Status: blocked-pending-credits.** Re-run `npx tsx scripts/eval-agency-scorecard-adr007.ts`
+(with `JENNYSOL_DB_PATH` pointed at a scratch file, not the real dev DB) once Gemini billing is
+restored, and record the real field-accuracy/contradiction/protected-refusal numbers here.

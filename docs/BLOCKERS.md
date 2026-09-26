@@ -173,3 +173,94 @@ from-scratch redesign.
    already on `main` (verified by diffing it against the current `agentGateway.ts`/
    `chatRunner.ts`) — but dropping it was refused by this session's own sandbox as an
    "irreversible local destruction." The founder can drop it directly: `git stash drop stash@{0}`.
+
+---
+
+## 2026-09-26 (evening) — URGENT: production chat is down tonight. Two separate incidents, neither caused by ADR-007 code, both need founder action
+
+### 1. Gemini (CONTROLLED_CLOUD / primary provider): paid project's prepayment credits are depleted (HTTP 402)
+
+Confirmed live, twice, against production's own real `GEMINI_API_KEY` (via `railway run`, key value
+never printed):
+
+```
+{"error":{"code":402,"message":"Your prepayment credits are depleted. Please go to AI Studio at
+https://ai.studio/projects to manage your project and billing. Learn more at
+https://ai.google.dev/gemini-api/docs/billing#prepay. ","status":"RESOURCE_EXHAUSTED"}}
+```
+
+Also visible live in `jennysol-api`'s own logs (`[router] gemini failed (other): ... code":402`),
+alongside earlier same-night `429` quota-exceeded errors on the *free-tier* metric name
+(`generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 15`) — meaning
+this key has been intermittently falling back to (or was never fully off) the free tier's rate
+limit before the prepaid balance ran out entirely. Both are billing-account states only Google
+Cloud/AI Studio access can fix — no code change here helps.
+
+**Key identity, without ever printing the key itself:** production's `GEMINI_API_KEY` is 53
+characters and ends in `...vteQ`. The 402 response body does not include a project ID or name —
+Google's public error format for this endpoint never discloses it. The founder needs to log into
+whichever Google account owns AI Studio project(s) at https://ai.studio/projects and match by the
+API key whose last 4 characters are `vteQ`, then add prepaid billing credit there. **Do not
+switch production to a free-tier key** (per founder instruction tonight, and because ADR-007
+explicitly requires a paid, no-training tier for any Class B agency data).
+
+### 2. Ollama fallback: NOT down, but too slow to make the 8s first-token deadline for ordinary chat
+
+Diagnosed live tonight, with production's real `railtail` (Railway↔Tailscale sidecar) logs and
+`jennysol-api`'s own router/keep-warm logs — **ruled out** "Tailscale down," "Ollama not running,"
+and "Mac asleep" as the cause:
+
+- `railtail` logs show `railtail` continuously and successfully forwarding TCP connections from
+  Railway to the Mac's real tailnet IP (`100.70.199.75:11434`) throughout the incident window —
+  dozens of successful forwards, only 2 `broken pipe` errors in ~17 minutes (those are the
+  *caller* giving up first, not a connection failure).
+- `keepWarm.ts`'s own background ping (every 4 min, no timeout enforced) succeeded on every single
+  attempt across the incident window, with `totalMs` ranging **4,863ms–20,393ms** for a trivial
+  `"hi"` completion on `qwen3:8b`.
+- Real chat requests in the same window show the actual failure mode:
+  `ollama timed out waiting for an answer token (8000ms)` — repeated many times — with two
+  successes landing at `firstTokenMs=7807` and `firstTokenMs=7927`, i.e. right at the edge of the
+  timeout, not comfortably under it.
+
+**Root cause: a real latency regression, not an outage.** `modelRouter.ts`'s own comment
+(`firstTokenTimeoutMs`) records that this 8,000ms non-reasoning local budget was tuned on
+2026-09-15 against a measured 3.15–3.82s worst case. Tonight's real numbers (5–20s) are 2–5×
+worse than that measurement, on the same code path. Ollama is answering every request; it is
+simply running slower right now than when the timeout was set, or the Tailscale relay hop is
+slower right now than it was. Nothing in `LLM_LOCAL_FIRST_TOKEN_TIMEOUT_MS`, the 8s local
+non-reasoning deadline, or the 60s reasoning deadline was changed tonight, per instruction ("keep
+the 30s/60s deadlines").
+
+**What the founder needs to check on the Mac tonight** (no SSH access exists into either the
+Railway container or the Mac from this session, so this can't be verified further remotely):
+
+1. Run `tailscale status` on the Mac — confirm the peer connection to Railway's `railtail` service
+   shows as **direct**, not `relay` (DERP). A relayed connection alone can add multiple extra
+   seconds versus a direct one; if it shows `relay`, try `tailscale up` again, or a `tailscaled`
+   restart, to attempt re-establishing a direct path.
+2. Open Activity Monitor and check for anything competing with Ollama for CPU/GPU right now (a
+   browser doing heavy work, a video call, a build/compile job, thermal throttling on battery) —
+   the whole 8s budget is spent if the Mac isn't free to respond immediately.
+3. Confirm the Mac isn't sleeping and won't sleep mid-session (plug in, disable auto-sleep, or
+   `caffeinate`) as a safety margin — current data doesn't show full sleep (a fully asleep Mac
+   would fail every connection, not just run slow), but it's worth locking down given how load-bearing
+   this fallback is tonight.
+4. Optionally confirm via `ollama ps` locally that `qwen3:8b` stays resident and isn't being
+   reloaded between requests (a repeated cold-load would show up as exactly this kind of
+   inconsistent multi-second latency).
+
+Until either (1) Gemini's billing is restored or (2) the Ollama round-trip comes back under ~8s
+reliably, real user-facing chat requests will continue to fail intermittently — confirmed by
+hitting the live production gateway (`/api/agent/gateway/chat`) directly tonight and getting a
+real `502 {"error":"All configured AI providers are currently unavailable"}`.
+
+### Scorecard eval status
+
+The live 10-case eval against `docs/evals/agency-scorecard-eval-set.md` (via
+`server/scripts/eval-agency-scorecard-adr007.ts`) **could not be completed with real numbers**
+tonight because of incident #1 above — every CONTROLLED_CLOUD call the eval needs goes to Gemini
+specifically (Ollama is never a permitted CONTROLLED_CLOUD processor under ADR-007; PRIVATE-tier
+fallback would defeat the point of the eval). Marked **blocked-pending-credits** in
+`docs/JENNYSOL-EVAL-RESULTS.md` rather than fabricated. All 827 unit/integration tests pass on
+mocks, and the code itself (redaction, tenant isolation, guardrail escalation, audit schema) is
+independently verified — see `docs/reviews/d27386b.md`'s response section for the full evidence.

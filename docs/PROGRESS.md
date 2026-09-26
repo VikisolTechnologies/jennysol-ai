@@ -504,3 +504,49 @@ connector, voice + preview deploy.
 `/health`, then write up `docs/reviews/d27386b.md`'s Response section with real SHAs and numbers.
 
 **Deployed:** `https://api.jennysol.vikisol.in/health` confirmed `{"status":"ok","version":"84423da"}`. Post-deploy checks: `/api/agent/gateway/chat`, `/actions/:actionId`, `/api/agency/scorecards`, and `/api/goal-runs/:id/actions/:actionId` all 401 with no auth. Pre-deploy (against the prior `d27386b` deploy), a real live check via `railway run` minted real Arena-scoped service tokens against production: a READ tool (`arena.nearbyActivities`) got a real answer from real production Arena; a WRITE tool (`arena.joinActivity`) proposed a real pending action; approving it reached Arena's own real auth boundary honestly (422, "Authentication is required" — expected, since no real Arena user session backed the synthetic identity); a second identity was correctly refused (404) approving the first identity's action. Full account-creation "throwaway user" flow was not re-attempted this batch — this session has no access to Arena's own signup flow or a valid Arena user session, only the shared service-token secret (fetched via `railway run`, never printed/logged/committed).
+
+---
+
+## 2026-09-26 (evening) — ADR-007 §12 steps 2–6, and an urgent live production incident found along the way
+
+**Built:** the CONTROLLED_CLOUD privacy tier with always-on per-tenant enforcement
+(`privacyTier.ts`/`modelRouter.ts`/`llm.ts`, additive `forceEnforce` param, never replacing the
+global watch-only flag), the agency tenant model with real membership-based isolation and two
+independent kill switches (`agency/tenant.ts`), deterministic JD redaction that fails closed on a
+genuinely broader re-verification, not the same pattern checked against itself
+(`agency/redaction.ts`), a content-free model-call audit table verified by schema introspection
+(`agency/modelCallAudit.ts`), and the Agency scorecard rebuilt end-to-end onto this pipeline
+(`agency/scorecard.ts`, `agency/scorecardStore.ts`, tenant-scoped routes and UI). The old chat-tool
+bypass (`jennysol.draftAgencyScorecard`) was removed outright. Full detail in
+`docs/reviews/d27386b.md`'s latest Response section.
+
+**Numbers:** 827 tests (827 passed, 2 skipped), 83 files, clean server + client `tsc`, clean
+client build. Commits `9a8e1fd` (feature) and `c37334e` (unrelated doc-only, staged separately).
+Deployed to `https://api.jennysol.vikisol.in`.
+
+**Found and diagnosed, not fixed (outside this session's access) — URGENT, needs founder action
+tonight:**
+
+1. **Production Gemini is returning 402 "prepayment credits depleted."** Confirmed against
+   production's real key via `railway run` — this is real, current, and breaks live chat for real
+   users right now (confirmed with a direct `502` from the live gateway). Key ends `...vteQ`
+   (53 chars); the error body doesn't disclose which Google Cloud project owns it — match by that
+   suffix in https://ai.studio/projects and add prepaid credit there. Do not switch to a free-tier
+   key (ADR-007 requires paid/no-training; free tier was also seen hitting a 15-request/minute
+   quota tonight before the prepaid balance ran out).
+2. **The Ollama fallback is not down — it's too slow.** Tailscale forwarding (`railtail` logs) and
+   Ollama itself (`keepWarm.ts`'s untimed pings) both succeed on every attempt tonight, at
+   4.9–20.4 seconds total round trip. Real chat requests apply an 8-second first-token deadline
+   tuned on 2026-09-15 against a 3.15–3.82s measurement — today's real numbers are 2–5× that,
+   pushing most requests past the deadline. Left the 8s/60s deadlines untouched per instruction.
+   Concrete founder checks (`tailscale status` for direct-vs-relay, Activity Monitor for CPU/GPU
+   contention, keeping the Mac awake, `ollama ps` for model residency) are in `BLOCKERS.md`.
+
+**Step 6 (the real 10-case eval on `docs/evals/agency-scorecard-eval-set.md`) is blocked, not
+run**, for the same reason (#1 above) — marked `blocked-pending-credits` in
+`JENNYSOL-EVAL-RESULTS.md` §9 rather than reported with fabricated numbers. The eval script
+(`eval-agency-scorecard-adr007.ts`) is written and committed; it needs one clean run once Gemini
+billing is restored.
+
+Full evidence trail (exact error bodies, log excerpts, timestamps) is in `BLOCKERS.md`'s
+"2026-09-26 (evening)" section.
